@@ -16,6 +16,6 @@ profile.cov
 *.swp
 *~
 
-# release artifacts
+# release artifacts (goreleaser)
 /dist/
 /bin/

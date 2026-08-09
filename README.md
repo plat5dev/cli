@@ -11,15 +11,14 @@ Self-host (server) uses published images + compose — see [plat5dev/plat5 self-
 
 ## Install
 
+**Binary:** [GitHub Releases](https://github.com/plat5dev/cli/releases) — download `plat5_<version>_<os>_<arch>.tar.gz`, extract, put `plat5` on your `PATH`. `plat5 version` matches the release tag.
+
+**Go:**
+
 ```bash
 go install github.com/plat5dev/cli/cmd/plat5@latest
+# clone: go install ./cmd/plat5
 plat5 version
-```
-
-Or from a clone:
-
-```bash
-go install ./cmd/plat5
 ```
 
 ## Quick start (consumer project)
