@@ -1,0 +1,132 @@
+# Embedded by plat5 CLI. Upstream Grafana stack images only.
+name: infra-observability
+
+volumes:
+  grafana_data:
+  loki_data:
+  tempo_data:
+  mimir_data:
+  alloy_data:
+
+networks:
+  observability:
+    driver: bridge
+
+services:
+  grafana:
+    image: grafana/grafana:11.6.0
+    labels:
+      service.name: grafana
+      service.namespace: monitoring
+    ports:
+      - "127.0.0.1:3002:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./monitoring/grafana-dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+      - ./dashboards:/var/lib/grafana/dashboards:ro
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    networks:
+      - observability
+    depends_on:
+      - loki
+      - tempo
+      - mimir
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:3.6.0
+    labels:
+      service.name: loki
+      service.namespace: monitoring
+    volumes:
+      - ./monitoring/loki-config.yml:/etc/loki/config.yml:ro
+      - loki_data:/loki
+    command:
+      - -config.file=/etc/loki/config.yml
+    user: "0"
+    networks:
+      - observability
+    restart: unless-stopped
+
+  tempo:
+    image: grafana/tempo:2.8.0
+    labels:
+      service.name: tempo
+      service.namespace: monitoring
+    command:
+      - -config.file=/etc/tempo/tempo.yml
+    volumes:
+      - ./monitoring/tempo.yml:/etc/tempo/tempo.yml:ro
+      - tempo_data:/var/tempo
+    networks:
+      - observability
+    healthcheck:
+      test: ["CMD", "/busybox/wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3200/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
+  mimir:
+    image: grafana/mimir:2.15.0
+    labels:
+      service.name: mimir
+      service.namespace: monitoring
+    command:
+      - -config.file=/etc/mimir/mimir.yml
+      - -target=all
+      - -auth.multitenancy-enabled=false
+    volumes:
+      - ./monitoring/mimir.yml:/etc/mimir/mimir.yml:ro
+      - mimir_data:/var/mimir
+    networks:
+      - observability
+    restart: unless-stopped
+
+  alloy:
+    image: grafana/alloy:v1.10.0
+    labels:
+      service.name: alloy
+      service.namespace: monitoring
+    ports:
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
+      - "127.0.0.1:12345:12345"
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy
+      - /etc/alloy/config.alloy
+    environment:
+      - ALLOY_DEPLOY_MODE=docker
+      - LOKI_URL=${LOKI_URL:-http://loki:3100/loki/api/v1/push}
+      - LOKI_USER=${LOKI_USER:-}
+      - LOKI_TOKEN=${LOKI_TOKEN:-}
+      - TEMPO_ENDPOINT=${TEMPO_ENDPOINT:-http://tempo:4318}
+      - TEMPO_USER=${TEMPO_USER:-}
+      - TEMPO_TOKEN=${TEMPO_TOKEN:-}
+      - TEMPO_TLS_INSECURE=${TEMPO_TLS_INSECURE:-true}
+      - MIMIR_PUSH_URL=${MIMIR_PUSH_URL:-http://mimir:9009/api/v1/push}
+      - MIMIR_USER=${MIMIR_USER:-}
+      - MIMIR_TOKEN=${MIMIR_TOKEN:-}
+    volumes:
+      - ./monitoring/alloy-config.alloy:/etc/alloy/config.alloy:ro
+      - alloy_data:/var/lib/alloy
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      tempo:
+        condition: service_healthy
+      loki:
+        condition: service_started
+      mimir:
+        condition: service_started
+    networks:
+      - observability
+    restart: unless-stopped

@@ -1,0 +1,63 @@
+# Embedded by plat5 CLI (image mode). Pulls ghcr.io/plat5dev/auth:${PLAT5_VERSION}.
+# Local defaults: no SMTP (password codes logged by issuer).
+name: auth
+
+volumes:
+  pg_data:
+
+networks:
+  auth:
+    driver: bridge
+
+services:
+  postgres:
+    image: postgres:17
+    labels:
+      service.name: postgres
+      service.namespace: auth
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-auth}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-auth}
+      POSTGRES_DB: ${POSTGRES_DB:-auth}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks:
+      - auth
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  issuer:
+    image: ghcr.io/plat5dev/auth:${PLAT5_VERSION:-v0.1.2}
+    labels:
+      service.name: issuer
+      service.namespace: auth
+    ports:
+      - "5000:5000"
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-auth}:${POSTGRES_PASSWORD:-auth}@postgres:5432/${POSTGRES_DB:-auth}?sslmode=disable
+      INTERNAL_PORT: 5001
+      AUTH_ALLOWED_CLIENTS: ${AUTH_ALLOWED_CLIENTS:-plat5}
+      AUTH_ALLOWED_REDIRECT_URIS: ${AUTH_ALLOWED_REDIRECT_URIS:-}
+      AUTH_ALLOWED_ORIGINS: ${AUTH_ALLOWED_ORIGINS:-}
+      PUBLIC_ISSUER_URL: ${PUBLIC_ISSUER_URL:-}
+      OTEL_SERVICE_NAME: issuer
+      OTEL_SERVICE_NAMESPACE: auth
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      DEPLOYMENT_ENV: local
+    networks:
+      - auth
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://localhost:5001/health/ready').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped

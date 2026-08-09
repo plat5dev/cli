@@ -1,0 +1,193 @@
+// Local LGTM backends. Override exporters via env for Grafana Cloud
+// (set in compose/.env or the alloy service environment):
+//   LOKI_URL, TEMPO_ENDPOINT, MIMIR_PUSH_URL
+//   LOKI_USER / LOKI_TOKEN, TEMPO_USER / TEMPO_TOKEN, MIMIR_USER / MIMIR_TOKEN
+//   TEMPO_TLS_INSECURE=false for Cloud (default true for local)
+
+logging {
+  level = "info"
+}
+
+// --- OTLP in (apps → Alloy) -------------------------------------------------
+
+otelcol.receiver.otlp "default" {
+  grpc {
+    endpoint = "0.0.0.0:4317"
+  }
+
+  http {
+    endpoint = "0.0.0.0:4318"
+  }
+
+  output {
+    metrics = [otelcol.processor.batch.default.input]
+    traces  = [otelcol.processor.batch.default.input]
+  }
+}
+
+otelcol.processor.batch "default" {
+  timeout = "5s"
+
+  output {
+    metrics = [otelcol.processor.transform.metrics.input]
+    traces  = [otelcol.exporter.otlphttp.tempo.input]
+  }
+}
+
+// Promote resource identity onto metric datapoints for dashboards (service_name).
+otelcol.processor.transform "metrics" {
+  error_mode = "ignore"
+
+  metric_statements {
+    context = "datapoint"
+    statements = [
+      "set(datapoint.attributes[\"service_name\"], resource.attributes[\"service.name\"])",
+      "set(datapoint.attributes[\"service_namespace\"], resource.attributes[\"service.namespace\"])",
+    ]
+  }
+
+  output {
+    metrics = [otelcol.exporter.prometheus.mimir_bridge.input]
+  }
+}
+
+// --- Exporters (env-swappable for Cloud) ------------------------------------
+// otlphttp so TEMPO_ENDPOINT is a full URL (local http://tempo:4318 or Cloud https://...).
+
+otelcol.auth.basic "tempo" {
+  username = sys.env("TEMPO_USER")
+  password = sys.env("TEMPO_TOKEN")
+}
+
+otelcol.exporter.otlphttp "tempo" {
+  client {
+    endpoint = sys.env("TEMPO_ENDPOINT")
+    auth     = otelcol.auth.basic.tempo.handler
+
+    tls {
+      insecure = sys.env("TEMPO_TLS_INSECURE") == "true"
+    }
+  }
+}
+
+otelcol.exporter.prometheus "mimir_bridge" {
+  forward_to = [prometheus.remote_write.mimir.receiver]
+}
+
+prometheus.remote_write "mimir" {
+  endpoint {
+    url = sys.env("MIMIR_PUSH_URL")
+
+    basic_auth {
+      username = sys.env("MIMIR_USER")
+      password = sys.env("MIMIR_TOKEN")
+    }
+  }
+}
+
+// --- Docker logs → Loki -----------------------------------------------------
+
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "docker_logs" {
+  targets = discovery.docker.containers.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container_name"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_service_name"]
+    regex         = "(.+)"
+    target_label  = "service_name"
+  }
+
+  rule {
+    source_labels = ["service_name", "__meta_docker_container_label_com_docker_compose_service"]
+    regex         = ";(.+)"
+    target_label  = "service_name"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_service_namespace"]
+    regex         = "(.+)"
+    target_label  = "service_namespace"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "service_instance_id"
+  }
+
+  rule {
+    target_label = "job"
+    replacement  = "docker"
+  }
+
+  rule {
+    target_label = "instance"
+    replacement  = constants.hostname
+  }
+}
+
+loki.source.docker "docker" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.docker_logs.output
+  forward_to = [loki.process.docker.receiver]
+}
+
+loki.process "docker" {
+  stage.match {
+    selector      = "{job=\"docker\"} |~ \"^{\""
+    pipeline_name = "json"
+
+    stage.json {
+      expressions = {
+        level     = "level",
+        scope     = "scope",
+        message   = "message",
+        timestamp = "timestamp",
+        trace_id  = "trace_id",
+        span_id   = "span_id",
+      }
+    }
+
+    stage.timestamp {
+      source = "timestamp"
+      format = "RFC3339"
+    }
+
+    stage.labels {
+      values = {
+        level = "level",
+        scope = "scope",
+      }
+    }
+
+    // Correlate logs ↔ traces without exploding label cardinality.
+    stage.structured_metadata {
+      values = {
+        trace_id = "trace_id",
+        span_id  = "span_id",
+      }
+    }
+  }
+
+  forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+  endpoint {
+    url = sys.env("LOKI_URL")
+
+    basic_auth {
+      username = sys.env("LOKI_USER")
+      password = sys.env("LOKI_TOKEN")
+    }
+  }
+}
