@@ -12,14 +12,14 @@ Self-host (server) uses published images + compose — see [plat5dev/plat5 self-
 ## Install
 
 ```bash
-go install github.com/plat5dev/cli@latest
+go install github.com/plat5dev/cli/cmd/plat5@latest
 plat5 version
 ```
 
 Or from a clone:
 
 ```bash
-go install .
+go install ./cmd/plat5
 ```
 
 ## Quick start (consumer project)

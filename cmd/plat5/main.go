@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/plat5dev/cli/cmd"
+	"github.com/plat5dev/cli/internal/cmd"
 )
 
 func main() {
