@@ -178,11 +178,11 @@ func Load(flags Flags) (Resolved, error) {
 
 	r.Plat5Version = firstNonEmpty(flags.Plat5Version, os.Getenv("PLAT5_VERSION"), file.Plat5Version)
 	if r.Plat5Version == "" {
-		r.Plat5Version = "v0.1.2"
+		r.Plat5Version = "v0.1.3"
 	}
 	r.AuthVersion = firstNonEmpty(flags.AuthVersion, os.Getenv("AUTH_VERSION"), file.Auth.Version)
 	if r.AuthVersion == "" {
-		r.AuthVersion = "v0.1.2"
+		r.AuthVersion = "v0.1.3"
 	}
 	r.Plat5Compose = firstNonEmpty(flags.Plat5Compose, os.Getenv("PLAT5_COMPOSE"), file.Plat5Compose)
 	r.AuthCompose = firstNonEmpty(flags.AuthCompose, os.Getenv("PLAT5_AUTH_COMPOSE"), file.AuthCompose)
