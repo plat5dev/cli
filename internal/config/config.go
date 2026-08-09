@@ -23,6 +23,7 @@ type Flags struct {
 	AuthCompose          string
 	ObservabilityCompose string
 	Plat5Version         string
+	AuthVersion          string
 	RegistryURL          string
 	GatewayURL           string
 	AuthURL              string
@@ -50,7 +51,8 @@ type File struct {
 
 // AuthBlock is optional Plat5 Auth settings.
 type AuthBlock struct {
-	Enabled bool `yaml:"enabled"`
+	Enabled bool   `yaml:"enabled"`
+	Version string `yaml:"version"` // ghcr.io/plat5dev/auth tag (AUTH_VERSION)
 }
 
 // ObservabilityBlock is optional local LGTM stack settings.
@@ -81,8 +83,10 @@ type Resolved struct {
 	ProjectID  string
 	ConfigPath string
 	ConfigDir  string
-	// Plat5Version pins ghcr.io/plat5dev/* tags in image mode.
+	// Plat5Version pins runtime GHCR tags (gateway, registry, api-keys, organizations).
 	Plat5Version string
+	// AuthVersion pins ghcr.io/plat5dev/auth (independent of Plat5Version).
+	AuthVersion string
 	// Plat5Compose / AuthCompose set = path mode (contributor). Empty = image mode (embedded).
 	Plat5Compose             string
 	AuthCompose              string
@@ -175,6 +179,10 @@ func Load(flags Flags) (Resolved, error) {
 	r.Plat5Version = firstNonEmpty(flags.Plat5Version, os.Getenv("PLAT5_VERSION"), file.Plat5Version)
 	if r.Plat5Version == "" {
 		r.Plat5Version = "v0.1.2"
+	}
+	r.AuthVersion = firstNonEmpty(flags.AuthVersion, os.Getenv("AUTH_VERSION"), file.Auth.Version)
+	if r.AuthVersion == "" {
+		r.AuthVersion = "v0.1.2"
 	}
 	r.Plat5Compose = firstNonEmpty(flags.Plat5Compose, os.Getenv("PLAT5_COMPOSE"), file.Plat5Compose)
 	r.AuthCompose = firstNonEmpty(flags.AuthCompose, os.Getenv("PLAT5_AUTH_COMPOSE"), file.AuthCompose)

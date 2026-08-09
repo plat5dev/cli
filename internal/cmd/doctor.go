@@ -54,6 +54,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	}
 
 	if cfg.AuthEnabled || cfg.AuthCompose != "" {
+		fmt.Printf("✓ auth.version: %s\n", cfg.AuthVersion)
 		if cfg.AuthCompose == "" {
 			fmt.Println("✓ auth: published images (GHCR)")
 		} else if dir, err := compose.ResolveDir(cfg.AuthCompose); err != nil {

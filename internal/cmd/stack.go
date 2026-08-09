@@ -91,6 +91,10 @@ func resolveObservabilityStackForOps(cfg config.Resolved, st state.State, stateD
 	return dir, err
 }
 
-func versionEnv(cfg config.Resolved) []string {
+func plat5VersionEnv(cfg config.Resolved) []string {
 	return []string{fmt.Sprintf("PLAT5_VERSION=%s", cfg.Plat5Version)}
+}
+
+func authVersionEnv(cfg config.Resolved) []string {
+	return []string{fmt.Sprintf("AUTH_VERSION=%s", cfg.AuthVersion)}
 }

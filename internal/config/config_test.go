@@ -106,6 +106,36 @@ routes:
 	if cfg.Plat5Version != "v0.1.2" {
 		t.Fatalf("version %q", cfg.Plat5Version)
 	}
+	if cfg.AuthVersion != "v0.1.2" {
+		t.Fatalf("auth version %q", cfg.AuthVersion)
+	}
+}
+
+func TestLoadAuthVersion(t *testing.T) {
+	root := t.TempDir()
+	yml := `project_id: p
+auth:
+  enabled: true
+  version: v9.9.9
+`
+	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(Flags{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AuthVersion != "v9.9.9" {
+		t.Fatalf("auth version %q", cfg.AuthVersion)
+	}
+	if cfg.Plat5Version != "v0.1.2" {
+		t.Fatalf("plat5 version should stay default, got %q", cfg.Plat5Version)
+	}
 }
 
 func TestLoadPortPins(t *testing.T) {

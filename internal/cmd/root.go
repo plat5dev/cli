@@ -16,6 +16,7 @@ var (
 	flagAuthCompose          string
 	flagObservabilityCompose string
 	flagPlat5Version         string
+	flagAuthVersion          string
 	flagRegistryURL          string
 	flagGatewayURL           string
 	flagAuthURL              string
@@ -51,7 +52,8 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&flagPlat5Compose, "plat5-compose", "", "Advanced: local Plat5 compose directory (or PLAT5_COMPOSE)")
 	rootCmd.PersistentFlags().StringVar(&flagAuthCompose, "auth-compose", "", "Advanced: local Auth compose directory (or PLAT5_AUTH_COMPOSE)")
 	rootCmd.PersistentFlags().StringVar(&flagObservabilityCompose, "observability-compose", "", "Advanced: local observability compose directory")
-	rootCmd.PersistentFlags().StringVar(&flagPlat5Version, "plat5-version", "", "Image tag for GHCR pulls (or PLAT5_VERSION / plat5_version in yml)")
+	rootCmd.PersistentFlags().StringVar(&flagPlat5Version, "plat5-version", "", "Runtime GHCR tag (or PLAT5_VERSION / plat5_version in yml)")
+	rootCmd.PersistentFlags().StringVar(&flagAuthVersion, "auth-version", "", "Auth GHCR tag (or AUTH_VERSION / auth.version in yml)")
 	rootCmd.PersistentFlags().StringVar(&flagRegistryURL, "registry-url", "", "Route registry URL")
 	rootCmd.PersistentFlags().StringVar(&flagGatewayURL, "gateway-url", "", "Gateway URL")
 	rootCmd.PersistentFlags().StringVar(&flagAuthURL, "auth-url", "", "Auth IdP URL")
@@ -73,6 +75,7 @@ func loadConfig() (config.Resolved, error) {
 		AuthCompose:          flagAuthCompose,
 		ObservabilityCompose: flagObservabilityCompose,
 		Plat5Version:         flagPlat5Version,
+		AuthVersion:          flagAuthVersion,
 		RegistryURL:          flagRegistryURL,
 		GatewayURL:           flagGatewayURL,
 		AuthURL:              flagAuthURL,

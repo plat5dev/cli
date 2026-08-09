@@ -26,6 +26,7 @@ var (
 	initTemplate             string
 	initTemplatesDir         string
 	initPlat5Version         string
+	initAuthVersion          string
 	initTemplateRef          string
 	initListTemplates        bool
 )
@@ -66,7 +67,8 @@ func init() {
 	initCmd.Flags().BoolVarP(&initYes, "yes", "y", false, "Non-interactive; do not prompt")
 	initCmd.Flags().StringVar(&initTemplate, "template", "", "Starter: official name, owner/repo, or https://…/archive/….tar.gz")
 	initCmd.Flags().StringVar(&initTemplatesDir, "templates-dir", "", "Local templates root (skip remote fetch)")
-	initCmd.Flags().StringVar(&initPlat5Version, "plat5-version", "", "GHCR image pin written to plat5.yml (default v0.1.2)")
+	initCmd.Flags().StringVar(&initPlat5Version, "plat5-version", "", "Runtime GHCR pin written to plat5.yml (default v0.1.2)")
+	initCmd.Flags().StringVar(&initAuthVersion, "auth-version", "", "Auth GHCR pin written to auth.version (default v0.1.2)")
 	initCmd.Flags().StringVar(&initTemplateRef, "template-ref", "", "Git ref for remote templates (default master; or PLAT5_TEMPLATE_REF)")
 	initCmd.Flags().BoolVar(&initListTemplates, "list-templates", false, "List first-party templates and exit")
 }
@@ -303,6 +305,16 @@ func initVersion() string {
 	return "v0.1.2"
 }
 
+func initAuthVer() string {
+	if initAuthVersion != "" {
+		return initAuthVersion
+	}
+	if v := os.Getenv("AUTH_VERSION"); v != "" {
+		return v
+	}
+	return "v0.1.2"
+}
+
 // templateResolveOpts prefers explicit local dirs; otherwise remote GitHub archives.
 func templateResolveOpts() (template.ResolveOptions, error) {
 	opts := template.ResolveOptions{Ref: initTemplateRef}
@@ -358,7 +370,7 @@ func resolveObservabilityFlag(p string) (string, error) {
 func renderPlat5YML(projectID, plat5Path, auth string, authEnabled bool, obs string, obsEnabled bool, upstreams map[string]string, routes []string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "project_id: %s\n\n", yamlString(projectID))
-	fmt.Fprintf(&b, "# GHCR image tag for plat5 start.\n")
+	fmt.Fprintf(&b, "# Runtime GHCR tag (gateway, registry, api-keys, organizations).\n")
 	fmt.Fprintf(&b, "plat5_version: %s\n\n", yamlString(initVersion()))
 	if plat5Path != "" {
 		fmt.Fprintf(&b, "plat5_compose: %s\n", yamlString(plat5Path))
@@ -372,7 +384,11 @@ func renderPlat5YML(projectID, plat5Path, auth string, authEnabled bool, obs str
 	if plat5Path != "" || auth != "" || obs != "" {
 		fmt.Fprintf(&b, "\n")
 	}
-	fmt.Fprintf(&b, "auth:\n  enabled: %t\n\n", authEnabled)
+	fmt.Fprintf(&b, "auth:\n  enabled: %t\n", authEnabled)
+	if authEnabled {
+		fmt.Fprintf(&b, "  version: %s  # ghcr.io/plat5dev/auth (independent of plat5_version)\n", yamlString(initAuthVer()))
+	}
+	fmt.Fprintf(&b, "\n")
 	fmt.Fprintf(&b, "observability:\n  enabled: %t\n\n", obsEnabled)
 	fmt.Fprintf(&b, "# Optional host port pins. Omit a key to use defaults;\n")
 	fmt.Fprintf(&b, "# unpinned busy ports are auto-allocated. Pinned + busy → start fails.\n")

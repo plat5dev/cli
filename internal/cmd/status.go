@@ -82,7 +82,10 @@ func printStatus(cfg config.Resolved, st state.State) error {
 
 	lines := []string{
 		fmt.Sprintf("Project:         %s", cfg.ProjectID),
-		fmt.Sprintf("Version:         %s", cfg.Plat5Version),
+		fmt.Sprintf("Plat5 version:   %s", cfg.Plat5Version),
+	}
+	if cfg.AuthEnabled || cfg.AuthCompose != "" {
+		lines = append(lines, fmt.Sprintf("Auth version:    %s", cfg.AuthVersion))
 	}
 	if plat5Dir != "" {
 		runLabel := "stopped"

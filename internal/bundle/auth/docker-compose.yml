@@ -1,4 +1,4 @@
-# Embedded by plat5 CLI (image mode). Pulls ghcr.io/plat5dev/auth:${PLAT5_VERSION}.
+# Embedded by plat5 CLI. Pulls ghcr.io/plat5dev/auth:${AUTH_VERSION}.
 # Local defaults: no SMTP (password codes logged by issuer).
 name: auth
 
@@ -32,7 +32,7 @@ services:
     restart: unless-stopped
 
   issuer:
-    image: ghcr.io/plat5dev/auth:${PLAT5_VERSION:-v0.1.2}
+    image: ghcr.io/plat5dev/auth:${AUTH_VERSION:-v0.1.2}
     labels:
       service.name: issuer
       service.namespace: auth

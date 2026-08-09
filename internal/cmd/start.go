@@ -28,7 +28,8 @@ var startCmd = &cobra.Command{
 	Short: "Start Plat5 (and Auth / Observability if enabled)",
 	Long: `Start local Plat5 stacks with Docker Compose.
 
-Pulls ghcr.io/plat5dev/* (plat5_version / PLAT5_VERSION, default v0.1.2) using
+Pulls runtime images via plat5_version / PLAT5_VERSION and Auth via
+auth.version / AUTH_VERSION (independent pins; defaults v0.1.2) using
 compose files embedded in the CLI.
 
 Advanced: set plat5_compose / auth_compose / observability_compose to local
@@ -136,14 +137,14 @@ func runStart(cmd *cobra.Command, args []string) error {
 		StartedAt:                time.Now().UTC(),
 	}
 
-	edgeEnv := append([]string{}, versionEnv(cfg)...)
+	edgeEnv := append([]string{}, plat5VersionEnv(cfg)...)
 	edgeEnv = append(edgeEnv, fmt.Sprintf("ADMIN_TOKEN=%s", cfg.AdminToken))
 	if cfg.OtelEndpoint != "" {
 		edgeEnv = append(edgeEnv, fmt.Sprintf("OTEL_EXPORTER_OTLP_ENDPOINT=%s", cfg.OtelEndpoint))
 		fmt.Println("OTLP export:", cfg.OtelEndpoint)
 	}
 
-	authEnv := append([]string{}, versionEnv(cfg)...)
+	authEnv := append([]string{}, authVersionEnv(cfg)...)
 	if cfg.OtelEndpoint != "" {
 		authEnv = append(authEnv, fmt.Sprintf("OTEL_EXPORTER_OTLP_ENDPOINT=%s", cfg.OtelEndpoint))
 	}

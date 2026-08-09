@@ -4,7 +4,7 @@ Local development CLI for **consumer projects** using Plat5.
 
 Requires a project `plat5.yml` (`plat5 init`). Starts Plat5 (and optionally Auth / observability) via Docker Compose and applies gateway routes through the route-registry admin API.
 
-`plat5 start` pulls `ghcr.io/plat5dev/*:${plat5_version}` using compose embedded in the CLI.  
+`plat5 start` pulls runtime images via `plat5_version` and Auth via `auth.version` (independent pins) using compose embedded in the CLI.  
 Advanced (local development): set `plat5_compose` / `auth_compose` / `observability_compose` to local compose trees.
 
 Self-host (server) uses published images + compose — see [plat5dev/plat5 self-hosting](https://github.com/plat5dev/plat5/blob/master/docs/self-hosting.md).
@@ -33,7 +33,7 @@ plat5 status
 plat5 stop
 ```
 
-`plat5_version` (default `v0.1.2`) selects GHCR image tags.
+`plat5_version` (default `v0.1.2`) pins runtime GHCR tags. With Auth enabled, `auth.version` / `AUTH_VERSION` (default `v0.1.2`) pins `ghcr.io/plat5dev/auth` independently.
 
 Templates: first-party short names (`plat5 init --list-templates`) fetch public GitHub repos under `plat5dev/template-*` (branch `master`, override with `--template-ref` / `PLAT5_TEMPLATE_REF`). Also accepts `owner/repo` or an archive URL. Cached under `~/.cache/plat5/templates/`. Local: `--templates-dir` / `PLAT5_TEMPLATES` (directory of template folders).
 
@@ -60,10 +60,11 @@ Walks up from cwd. **Required** for all project commands.
 ```yaml
 project_id: my-app          # default: directory name; local compose isolation slug
 
-plat5_version: v0.1.2                  # GHCR image tag
+plat5_version: v0.1.2                  # runtime GHCR tag
 
 auth:
   enabled: false
+  # version: v0.1.2                    # Auth image pin when enabled (AUTH_VERSION)
 
 observability:
   enabled: false
