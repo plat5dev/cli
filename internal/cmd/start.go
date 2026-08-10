@@ -144,7 +144,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 		fmt.Println("OTLP export:", cfg.OtelEndpoint)
 	}
 
-	authEnv := append([]string{}, authVersionEnv(cfg)...)
+	authEnv := append([]string{}, authStackEnv(cfg)...)
 	if cfg.OtelEndpoint != "" {
 		authEnv = append(authEnv, fmt.Sprintf("OTEL_EXPORTER_OTLP_ENDPOINT=%s", cfg.OtelEndpoint))
 	}

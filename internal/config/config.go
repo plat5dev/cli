@@ -53,6 +53,12 @@ type File struct {
 type AuthBlock struct {
 	Enabled bool   `yaml:"enabled"`
 	Version string `yaml:"version"` // ghcr.io/plat5dev/auth tag (AUTH_VERSION)
+	// Project OAuth surface (wired to issuer env on start). Omit = compose/image defaults.
+	AllowedClients      []string `yaml:"allowed_clients"`
+	AllowedRedirectURIs []string `yaml:"allowed_redirect_uris"`
+	AllowedOrigins      []string `yaml:"allowed_origins"`
+	// PublicIssuerURL sets PUBLIC_ISSUER_URL (token iss). Empty = derive from auth URL at start.
+	PublicIssuerURL string `yaml:"public_issuer_url"`
 }
 
 // ObservabilityBlock is optional local LGTM stack settings.
@@ -92,6 +98,11 @@ type Resolved struct {
 	AuthCompose              string
 	ObservabilityCompose     string
 	AuthEnabled              bool
+	AuthAllowedClients       []string
+	AuthAllowedRedirectURIs  []string
+	AuthAllowedOrigins       []string
+	AuthPublicIssuerURL      string // empty until start derives from AuthURL if unset in yml
+	authPublicIssuerExplicit bool
 	ObservabilityEnabled     bool
 	OtelEndpoint             string
 	otelExplicit             bool // set from yml/env/flag — not auto-wired
@@ -150,12 +161,19 @@ func Load(flags Flags) (Resolved, error) {
 		ConfigPath:               configPath,
 		ConfigDir:                configDir,
 		AuthEnabled:              file.Auth.Enabled,
+		AuthAllowedClients:       trimNonEmpty(file.Auth.AllowedClients),
+		AuthAllowedRedirectURIs:  trimNonEmpty(file.Auth.AllowedRedirectURIs),
+		AuthAllowedOrigins:       trimNonEmpty(file.Auth.AllowedOrigins),
+		AuthPublicIssuerURL:      strings.TrimSpace(file.Auth.PublicIssuerURL),
 		ObservabilityEnabled:     file.Observability.Enabled,
 		OtelEndpoint:             strings.TrimSpace(file.Otel.Endpoint),
 		AdminToken:               DefaultAdminToken,
 		ComposeProject:           "plat5-" + projectID,
 		AuthComposeName:          "plat5-" + projectID + "-auth",
 		ObservabilityComposeName: "plat5-" + projectID + "-observability",
+	}
+	if r.AuthPublicIssuerURL != "" {
+		r.authPublicIssuerExplicit = true
 	}
 	if r.OtelEndpoint != "" {
 		r.otelExplicit = true
@@ -355,12 +373,33 @@ func deriveURLs(r *Resolved) {
 	if !r.urlExplicit.Auth {
 		r.AuthURL = fmt.Sprintf("http://localhost:%d", r.Ports.Auth)
 	}
+	if !r.authPublicIssuerExplicit {
+		// Token iss should match the browser-facing Auth origin.
+		r.AuthPublicIssuerURL = strings.TrimRight(r.AuthURL, "/")
+	}
 	if r.Ports.Grafana > 0 {
 		r.GrafanaURL = fmt.Sprintf("http://localhost:%d", r.Ports.Grafana)
 	}
 	if r.Ports.Alloy > 0 {
 		r.AlloyURL = fmt.Sprintf("http://localhost:%d", r.Ports.Alloy)
 	}
+}
+
+func trimNonEmpty(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		s = strings.TrimSpace(s)
+		if s != "" {
+			out = append(out, s)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func findYAML() (*File, string, error) {

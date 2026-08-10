@@ -65,6 +65,14 @@ plat5_version: v0.1.3                  # runtime GHCR tag
 auth:
   enabled: false
   # version: v0.1.3                    # Auth image pin when enabled (AUTH_VERSION)
+  # Project OAuth surface → issuer env on start (plat5 init --auth defaults = web-demo :5173).
+  # allowed_clients: [plat5]
+  # allowed_redirect_uris:
+  #   - http://localhost:5173/callback
+  #   - https://oauth.pstmn.io/v1/callback
+  # allowed_origins:
+  #   - http://localhost:5173
+  # public_issuer_url:                 # default: derived auth URL (localhost:<ports.auth>)
 
 observability:
   enabled: false

@@ -203,6 +203,14 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Println("Created", ymlPath)
 
+	if obsEnabled {
+		if n, err := enableTemplateOTLP(cwd); err != nil {
+			return err
+		} else if n > 0 {
+			fmt.Printf("Enabled OTEL_EXPORTER_OTLP_ENDPOINT in %d compose file(s)\n", n)
+		}
+	}
+
 	if tpl == nil {
 		routesPath := filepath.Join(cwd, "routes.yml")
 		if _, err := os.Stat(routesPath); err == nil {
@@ -387,6 +395,13 @@ func renderPlat5YML(projectID, plat5Path, auth string, authEnabled bool, obs str
 	fmt.Fprintf(&b, "auth:\n  enabled: %t\n", authEnabled)
 	if authEnabled {
 		fmt.Fprintf(&b, "  version: %s  # ghcr.io/plat5dev/auth (independent of plat5_version)\n", yamlString(initAuthVer()))
+		// Defaults match web-demo (Vite :5173) + Postman OAuth callback.
+		fmt.Fprintf(&b, "  allowed_clients: [plat5]\n")
+		fmt.Fprintf(&b, "  allowed_redirect_uris:\n")
+		fmt.Fprintf(&b, "    - http://localhost:5173/callback\n")
+		fmt.Fprintf(&b, "    - https://oauth.pstmn.io/v1/callback\n")
+		fmt.Fprintf(&b, "  allowed_origins:\n")
+		fmt.Fprintf(&b, "    - http://localhost:5173\n")
 	}
 	fmt.Fprintf(&b, "\n")
 	fmt.Fprintf(&b, "observability:\n  enabled: %t\n\n", obsEnabled)
@@ -395,9 +410,14 @@ func renderPlat5YML(projectID, plat5Path, auth string, authEnabled bool, obs str
 	fmt.Fprintf(&b, "# ports:\n#   gateway: 5001\n#   registry: 5002\n#   auth: 5000\n")
 	fmt.Fprintf(&b, "#   grafana: 3002\n#   otlp_grpc: 4317\n#   otlp_http: 4318\n#   alloy: 12345\n\n")
 	fmt.Fprintf(&b, "admin_token: %s\n\n", config.DefaultAdminToken)
-	fmt.Fprintf(&b, "# Optional OTLP for Plat5/Auth containers (unset = no export).\n")
-	fmt.Fprintf(&b, "# When observability.enabled, CLI auto-wires host.docker.internal:<otlp_http> if unset.\n")
-	fmt.Fprintf(&b, "# otel:\n#   endpoint: http://host.docker.internal:4318\n\n")
+	if obsEnabled {
+		fmt.Fprintf(&b, "# OTLP for Plat5/Auth containers (matches default ports.otlp_http).\n")
+		fmt.Fprintf(&b, "otel:\n  endpoint: http://host.docker.internal:4318\n\n")
+	} else {
+		fmt.Fprintf(&b, "# Optional OTLP for Plat5/Auth containers (unset = no export).\n")
+		fmt.Fprintf(&b, "# When observability.enabled, CLI auto-wires host.docker.internal:<otlp_http> if unset.\n")
+		fmt.Fprintf(&b, "# otel:\n#   endpoint: http://host.docker.internal:4318\n\n")
+	}
 	fmt.Fprintf(&b, "# Where your services listen. Keys match services.* in routes.yml.\n")
 	fmt.Fprintf(&b, "# Bare port → host process (CLI expands to host.docker.internal for Docker Plat5).\n")
 	fmt.Fprintf(&b, "# Or host:port / full URL for localhost or remote origins.\n")
@@ -439,6 +459,67 @@ func yamlString(s string) string {
 		return fmt.Sprintf("%q", s)
 	}
 	return s
+}
+
+// enableTemplateOTLP uncomments OTEL_EXPORTER_OTLP_ENDPOINT in project compose files
+// (template starters ship it commented). Returns how many files were changed.
+func enableTemplateOTLP(root string) (int, error) {
+	var changed int
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			base := d.Name()
+			if base == "node_modules" || base == ".git" || base == "vendor" || base == "dist" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		name := d.Name()
+		if name != "docker-compose.yml" && name != "docker-compose.yaml" &&
+			name != "compose.yml" && name != "compose.yaml" {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		out, n := uncommentOTLPEndpoint(string(data))
+		if n == 0 {
+			return nil
+		}
+		if err := os.WriteFile(path, []byte(out), 0o644); err != nil {
+			return err
+		}
+		changed++
+		return nil
+	})
+	return changed, err
+}
+
+// uncommentOTLPEndpoint turns commented OTEL_EXPORTER_OTLP_ENDPOINT lines into active env entries.
+func uncommentOTLPEndpoint(src string) (string, int) {
+	lines := strings.Split(src, "\n")
+	var n int
+	for i, line := range lines {
+		trim := strings.TrimSpace(line)
+		if !strings.HasPrefix(trim, "#") {
+			continue
+		}
+		rest := strings.TrimSpace(strings.TrimPrefix(trim, "#"))
+		if !strings.HasPrefix(rest, "OTEL_EXPORTER_OTLP_ENDPOINT") {
+			continue
+		}
+		// Preserve indentation of the comment marker.
+		indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+		lines[i] = indent + rest
+		n++
+	}
+	if n == 0 {
+		return src, 0
+	}
+	return strings.Join(lines, "\n"), n
 }
 
 const sampleRoutes = `services:

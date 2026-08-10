@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/plat5dev/cli/internal/bundle"
 	"github.com/plat5dev/cli/internal/compose"
@@ -97,4 +98,22 @@ func plat5VersionEnv(cfg config.Resolved) []string {
 
 func authVersionEnv(cfg config.Resolved) []string {
 	return []string{fmt.Sprintf("AUTH_VERSION=%s", cfg.AuthVersion)}
+}
+
+// authStackEnv is compose env for the Auth issuer (version + project OAuth surface).
+func authStackEnv(cfg config.Resolved) []string {
+	env := append([]string{}, authVersionEnv(cfg)...)
+	if len(cfg.AuthAllowedClients) > 0 {
+		env = append(env, "AUTH_ALLOWED_CLIENTS="+strings.Join(cfg.AuthAllowedClients, ","))
+	}
+	if len(cfg.AuthAllowedRedirectURIs) > 0 {
+		env = append(env, "AUTH_ALLOWED_REDIRECT_URIS="+strings.Join(cfg.AuthAllowedRedirectURIs, ","))
+	}
+	if len(cfg.AuthAllowedOrigins) > 0 {
+		env = append(env, "AUTH_ALLOWED_ORIGINS="+strings.Join(cfg.AuthAllowedOrigins, ","))
+	}
+	if cfg.AuthPublicIssuerURL != "" {
+		env = append(env, "PUBLIC_ISSUER_URL="+cfg.AuthPublicIssuerURL)
+	}
+	return env
 }

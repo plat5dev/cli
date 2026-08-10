@@ -138,6 +138,83 @@ auth:
 	}
 }
 
+func TestLoadAuthOAuthSurface(t *testing.T) {
+	root := t.TempDir()
+	yml := `project_id: p
+auth:
+  enabled: true
+  allowed_clients:
+    - my-app
+    - " other "
+  allowed_redirect_uris:
+    - http://localhost:3000/callback
+    - https://oauth.pstmn.io/v1/callback
+  allowed_origins:
+    - http://localhost:3000
+  public_issuer_url: https://auth.example.com
+ports:
+  auth: 5100
+`
+	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(Flags{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.AuthAllowedClients) != 2 || cfg.AuthAllowedClients[0] != "my-app" || cfg.AuthAllowedClients[1] != "other" {
+		t.Fatalf("clients %v", cfg.AuthAllowedClients)
+	}
+	if len(cfg.AuthAllowedRedirectURIs) != 2 {
+		t.Fatalf("redirects %v", cfg.AuthAllowedRedirectURIs)
+	}
+	if len(cfg.AuthAllowedOrigins) != 1 || cfg.AuthAllowedOrigins[0] != "http://localhost:3000" {
+		t.Fatalf("origins %v", cfg.AuthAllowedOrigins)
+	}
+	if cfg.AuthPublicIssuerURL != "https://auth.example.com" {
+		t.Fatalf("public issuer %q", cfg.AuthPublicIssuerURL)
+	}
+	if err := ResolvePorts(&cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AuthPublicIssuerURL != "https://auth.example.com" {
+		t.Fatalf("explicit public issuer must survive ResolvePorts, got %q", cfg.AuthPublicIssuerURL)
+	}
+}
+
+func TestLoadAuthPublicIssuerDerived(t *testing.T) {
+	root := t.TempDir()
+	yml := `project_id: p
+auth:
+  enabled: true
+ports:
+  auth: 5100
+`
+	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(Flags{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AuthPublicIssuerURL != "http://localhost:5100" {
+		t.Fatalf("derived public issuer %q", cfg.AuthPublicIssuerURL)
+	}
+	if len(cfg.AuthAllowedClients) != 0 {
+		t.Fatalf("clients should be unset, got %v", cfg.AuthAllowedClients)
+	}
+}
+
 func TestLoadPortPins(t *testing.T) {
 	root := t.TempDir()
 	yml := `project_id: p
