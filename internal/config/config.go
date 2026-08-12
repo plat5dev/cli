@@ -89,7 +89,7 @@ type Resolved struct {
 	ProjectID  string
 	ConfigPath string
 	ConfigDir  string
-	// Plat5Version pins runtime GHCR tags (gateway, registry, api-keys, organizations).
+	// Plat5Version pins runtime GHCR tags (gateway, registry, identity).
 	Plat5Version string
 	// AuthVersion pins ghcr.io/plat5dev/auth (independent of Plat5Version).
 	AuthVersion string

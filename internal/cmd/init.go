@@ -378,7 +378,7 @@ func resolveObservabilityFlag(p string) (string, error) {
 func renderPlat5YML(projectID, plat5Path, auth string, authEnabled bool, obs string, obsEnabled bool, upstreams map[string]string, routes []string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "project_id: %s\n\n", yamlString(projectID))
-	fmt.Fprintf(&b, "# Runtime GHCR tag (gateway, registry, api-keys, organizations).\n")
+	fmt.Fprintf(&b, "# Runtime GHCR tag (gateway, registry, identity).\n")
 	fmt.Fprintf(&b, "plat5_version: %s\n\n", yamlString(initVersion()))
 	if plat5Path != "" {
 		fmt.Fprintf(&b, "plat5_compose: %s\n", yamlString(plat5Path))

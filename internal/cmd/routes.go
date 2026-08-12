@@ -44,7 +44,7 @@ var routesRmCmd = &cobra.Command{
 }
 
 func init() {
-	routesRmCmd.Flags().BoolVar(&routesRmForce, "force", false, "Allow deleting platform services (api-keys, organizations)")
+	routesRmCmd.Flags().BoolVar(&routesRmForce, "force", false, "Allow deleting platform services (identity)")
 	routesCmd.AddCommand(routesApplyCmd)
 	routesCmd.AddCommand(routesListCmd)
 	routesCmd.AddCommand(routesGetCmd)

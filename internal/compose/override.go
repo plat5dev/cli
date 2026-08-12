@@ -39,13 +39,10 @@ services:
 	if opts.HostGateway {
 		fmt.Fprintf(&b, `    extra_hosts:
       - %q
-  api-keys:
+  identity:
     extra_hosts:
       - %q
-  organizations:
-    extra_hosts:
-      - %q
-`, hostGatewayExtraHost, hostGatewayExtraHost, hostGatewayExtraHost)
+`, hostGatewayExtraHost, hostGatewayExtraHost)
 	}
 	return os.WriteFile(path, []byte(b.String()), 0o644)
 }

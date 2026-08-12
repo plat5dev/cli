@@ -58,8 +58,8 @@
           "uid": "mimir"
         },
         "current": {
-          "text": "api-keys",
-          "value": "api-keys",
+          "text": "identity",
+          "value": "identity",
           "selected": true
         },
         "options": []

@@ -32,8 +32,8 @@ func TestWritePlat5Override(t *testing.T) {
 	if strings.Contains(s, "extra_hosts") {
 		t.Fatalf("unexpected extra_hosts without HostGateway:\n%s", s)
 	}
-	if strings.Contains(s, "api-keys") {
-		t.Fatalf("unexpected api-keys without HostGateway:\n%s", s)
+	if strings.Contains(s, "identity:") {
+		t.Fatalf("unexpected identity without HostGateway:\n%s", s)
 	}
 }
 
@@ -51,8 +51,7 @@ func TestWritePlat5OverrideHostGateway(t *testing.T) {
 	for _, want := range []string{
 		`extra_hosts:`,
 		`host.docker.internal:host-gateway`,
-		`api-keys:`,
-		`organizations:`,
+		`identity:`,
 	} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("missing %q in:\n%s", want, s)
