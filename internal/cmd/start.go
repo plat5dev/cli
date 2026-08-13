@@ -29,7 +29,7 @@ var startCmd = &cobra.Command{
 	Long: `Start local Plat5 stacks with Docker Compose.
 
 Pulls runtime images via plat5_version / PLAT5_VERSION and Auth via
-auth.version / AUTH_VERSION (independent pins; defaults v0.1.4) using
+auth.version / AUTH_VERSION (independent pins; defaults v0.1.5 / v0.1.4) using
 compose files embedded in the CLI.
 
 Advanced: set plat5_compose / auth_compose / observability_compose to local
