@@ -13,7 +13,6 @@ func TestMaterializePlat5(t *testing.T) {
 	}
 	for _, rel := range []string{
 		"docker-compose.yml",
-		"seed/identity.yml",
 	} {
 		p := filepath.Join(dir, rel)
 		if st, err := os.Stat(p); err != nil || st.IsDir() {

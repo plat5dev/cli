@@ -187,7 +187,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 
 	upstreams := map[string]string{"api": "3000"}
-	routes := []string{"./routes.yml"}
+	routes := []string{"./routes.identity.yml", "./routes.yml"}
 	if tpl != nil {
 		if len(tpl.Manifest.Upstreams) > 0 {
 			upstreams = tpl.Manifest.Upstreams
@@ -212,14 +212,11 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 
 	if tpl == nil {
-		routesPath := filepath.Join(cwd, "routes.yml")
-		if _, err := os.Stat(routesPath); err == nil {
-			fmt.Println("Keeping existing", routesPath)
-		} else {
-			if err := os.WriteFile(routesPath, []byte(sampleRoutes), 0o644); err != nil {
-				return err
-			}
-			fmt.Println("Created", routesPath)
+		if err := writeIfAbsent(cwd, "routes.identity.yml", identityRoutesCatalog); err != nil {
+			return err
+		}
+		if err := writeIfAbsent(cwd, "routes.yml", sampleRoutes); err != nil {
+			return err
 		}
 	}
 
@@ -521,6 +518,47 @@ func uncommentOTLPEndpoint(src string) (string, int) {
 	}
 	return strings.Join(lines, "\n"), n
 }
+
+func writeIfAbsent(dir, name, body string) error {
+	path := filepath.Join(dir, name)
+	if _, err := os.Stat(path); err == nil {
+		fmt.Println("Keeping existing", path)
+		return nil
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		return err
+	}
+	fmt.Println("Created", path)
+	return nil
+}
+
+const identityRoutesCatalog = `# Identity public surface. Edit or omit paths. Internal validate/resolve are not listed.
+services:
+  identity:
+    url: identity:3000
+    user:
+      routes:
+        - path: /api/users/{user_id}/api-keys
+          methods: [GET, POST]
+        - path: /api/users/{user_id}/api-keys/{key_id}
+          methods: [DELETE]
+        - path: /api/organizations
+          methods: [POST, GET]
+        - path: /api/organizations/{organization_id}
+          methods: [GET, PATCH, DELETE]
+        - path: /api/organizations/{organization_id}/members
+          methods: [GET, POST]
+        - path: /api/organizations/{organization_id}/members/{member_id}
+          methods: [GET, PATCH, DELETE]
+        - path: /api/organizations/{organization_id}/members/{member_id}/api-keys
+          methods: [GET, POST]
+        - path: /api/organizations/{organization_id}/members/{member_id}/api-keys/{key_id}
+          methods: [DELETE]
+        - path: /api/organizations/{organization_id}/service-accounts
+          methods: [GET, POST]
+        - path: /api/organizations/{organization_id}/service-accounts/{service_account_id}
+          methods: [GET, PATCH, DELETE]
+`
 
 const sampleRoutes = `services:
   api:

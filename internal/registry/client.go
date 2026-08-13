@@ -52,40 +52,15 @@ type errorEnvelope struct {
 }
 
 // ApplyResult is one service from POST /v1/apply.
-// Status is "upserted", "failed", or "skipped" (remaining after a mid-batch failure).
 type ApplyResult struct {
-	Service string `json:"service"`
-	Status  string `json:"status"`
-	Error   string `json:"error,omitempty"`
+	Service  string `json:"service"`
+	Status   string `json:"status"`
+	Revision int64  `json:"revision,omitempty"`
+	Error    string `json:"error,omitempty"`
 }
 
 type applyResponse struct {
 	Results []ApplyResult `json:"results"`
-}
-
-// PartialApplyError is returned when apply wrote some services then failed.
-// Results includes upserted / failed / skipped entries.
-type PartialApplyError struct {
-	Results []ApplyResult
-	Raw     string
-}
-
-func (e *PartialApplyError) Error() string {
-	var failed string
-	for _, r := range e.Results {
-		if r.Status == "failed" {
-			if r.Error != "" {
-				failed = fmt.Sprintf("%s: %s", r.Service, r.Error)
-			} else {
-				failed = r.Service
-			}
-			break
-		}
-	}
-	if failed == "" {
-		failed = "unknown service"
-	}
-	return fmt.Sprintf("partial apply: %s (HTTP 503)", failed)
 }
 
 // Apply posts a routes file to /v1/apply.
@@ -135,10 +110,6 @@ func (c *Client) ApplyBody(data []byte, contentType string, ups map[string]strin
 	if err := json.Unmarshal(body, &out); err == nil && len(out.Results) > 0 {
 		if resp.StatusCode == http.StatusOK {
 			return out.Results, nil
-		}
-		// 503 (or other) with per-service results = partial apply
-		if resp.StatusCode >= 400 {
-			return out.Results, &PartialApplyError{Results: out.Results, Raw: string(body)}
 		}
 	}
 	if resp.StatusCode >= 400 {
@@ -194,12 +165,9 @@ func (c *Client) Get(name string) (json.RawMessage, error) {
 	return json.RawMessage(body), nil
 }
 
-// Delete removes a service. force adds ?force=true.
-func (c *Client) Delete(name string, force bool) error {
+// Delete removes a service.
+func (c *Client) Delete(name string) error {
 	u := c.BaseURL + "/v1/services/" + name
-	if force {
-		u += "?force=true"
-	}
 	req, err := http.NewRequest(http.MethodDelete, u, nil)
 	if err != nil {
 		return err

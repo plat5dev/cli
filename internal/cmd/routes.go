@@ -34,8 +34,6 @@ var routesGetCmd = &cobra.Command{
 	RunE:  runRoutesGet,
 }
 
-var routesRmForce bool
-
 var routesRmCmd = &cobra.Command{
 	Use:   "rm <name>",
 	Short: "Delete a service from the route registry",
@@ -44,11 +42,21 @@ var routesRmCmd = &cobra.Command{
 }
 
 func init() {
-	routesRmCmd.Flags().BoolVar(&routesRmForce, "force", false, "Allow deleting platform services (identity)")
 	routesCmd.AddCommand(routesApplyCmd)
 	routesCmd.AddCommand(routesListCmd)
 	routesCmd.AddCommand(routesGetCmd)
 	routesCmd.AddCommand(routesRmCmd)
+}
+
+func printApplyResult(r registry.ApplyResult) {
+	switch {
+	case r.Error != "":
+		fmt.Printf("  %s: %s (%s)\n", r.Service, r.Status, r.Error)
+	case r.Revision > 0:
+		fmt.Printf("  %s: %s (revision %d)\n", r.Service, r.Status, r.Revision)
+	default:
+		fmt.Printf("  %s: %s\n", r.Service, r.Status)
+	}
 }
 
 func registryClient() (*registry.Client, error) {
@@ -74,11 +82,7 @@ func runRoutesApply(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Applying %s…\n", f)
 		results, err := client.Apply(f, cfg.Upstreams)
 		for _, r := range results {
-			if r.Error != "" {
-				fmt.Printf("  %s: %s (%s)\n", r.Service, r.Status, r.Error)
-			} else {
-				fmt.Printf("  %s: %s\n", r.Service, r.Status)
-			}
+			printApplyResult(r)
 		}
 		if err != nil {
 			return fmt.Errorf("%s: %w", f, err)
@@ -134,7 +138,7 @@ func runRoutesRm(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := client.Delete(args[0], routesRmForce); err != nil {
+	if err := client.Delete(args[0]); err != nil {
 		return err
 	}
 	fmt.Printf("Deleted %s\n", args[0])

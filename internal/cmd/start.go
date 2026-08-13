@@ -256,11 +256,7 @@ func applyRouteFiles(cfg config.Resolved, client *registry.Client) error {
 		fmt.Printf("Applying %s…\n", f)
 		results, err := client.Apply(f, cfg.Upstreams)
 		for _, r := range results {
-			if r.Error != "" {
-				fmt.Printf("  %s: %s (%s)\n", r.Service, r.Status, r.Error)
-			} else {
-				fmt.Printf("  %s: %s\n", r.Service, r.Status)
-			}
+			printApplyResult(r)
 		}
 		if err != nil {
 			return fmt.Errorf("%s: %w", f, err)

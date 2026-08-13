@@ -70,19 +70,18 @@ services:
       INTERNAL_PORT: 5003
       ETCD_URL: http://etcd:2379
       ADMIN_TOKEN: ${ADMIN_TOKEN:-dev-admin-token}
-      SEED_ROUTES_DIR: /seed
-      PLATFORM_SERVICES: identity
+      DATABASE_URL: postgres://${POSTGRES_USER:-plat5}:${POSTGRES_PASSWORD:-plat5}@postgres:5432/${POSTGRES_DB:-plat5}?sslmode=disable
       RUST_LOG: info
       OTEL_SERVICE_NAME: route-registry
       OTEL_SERVICE_NAMESPACE: edge
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       DEPLOYMENT_ENV: local
-    volumes:
-      - ./seed/identity.yml:/seed/identity.yml:ro
     networks:
       - plat5
     depends_on:
       etcd:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5003/health/ready"]
@@ -110,11 +109,11 @@ services:
       AUTH_USER_ID_CLAIM: ${AUTH_USER_ID_CLAIM:-properties.user_id}
       USER_APIKEY_VALIDATE_URL: http://identity:3001/internal/user-keys/validate
       MEMBER_APIKEY_VALIDATE_URL: http://identity:3001/internal/member-keys/validate
-      MEMBERSHIP_RESOLVE_URL: http://identity:3001/internal/members/resolve
+      MEMBER_RESOLVE_URL: http://identity:3001/internal/members/resolve
       INTERNAL_AUTH_TOKEN: ${INTERNAL_AUTH_TOKEN:-dev-internal-token}
       RUST_LOG: info
       APIKEY_CACHE_TTL_SECS: "300"
-      MEMBERSHIP_CACHE_TTL_SECS: "300"
+      MEMBER_CACHE_TTL_SECS: "300"
       ETCD_URL: http://etcd:2379
       OTEL_SERVICE_NAME: gateway
       OTEL_SERVICE_NAMESPACE: edge

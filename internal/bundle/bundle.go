@@ -14,7 +14,7 @@ const DefaultVersion = "v0.1.4"
 // DefaultAuthVersion is the Auth image tag when auth.version is unset.
 const DefaultAuthVersion = "v0.1.4"
 
-//go:embed plat5/docker-compose.yml plat5/seed/*.yml auth/docker-compose.yml observability/docker-compose.yml observability/monitoring/* observability/dashboards/*
+//go:embed plat5/docker-compose.yml auth/docker-compose.yml observability/docker-compose.yml observability/monitoring/* observability/dashboards/*
 var content embed.FS
 
 // MaterializePlat5 writes the embedded Plat5 image-mode stack under destDir.

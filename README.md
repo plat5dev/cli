@@ -50,7 +50,7 @@ Templates: first-party short names (`plat5 init --list-templates`) fetch public 
 | `plat5 routes apply [file…]` | `POST /v1/apply` (defaults to `routes:` list) |
 | `plat5 routes list` | List services |
 | `plat5 routes get <name>` | Show service config |
-| `plat5 routes rm <name> [--force]` | Delete service |
+| `plat5 routes rm <name>` | Delete service |
 | `plat5 version` | CLI version |
 
 ## Project config (`plat5.yml`)
@@ -108,6 +108,7 @@ upstreams:
 
 # Route contract files (paths, scopes). Prefer upstreams for urls.
 routes:
+  - ./routes.identity.yml            # identity public surface (edit or omit)
   - ./routes.yml
   # - ./routes.dev.yml                   # optional extras (e.g. debug routes)
 ```
