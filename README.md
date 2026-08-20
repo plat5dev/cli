@@ -90,6 +90,10 @@ ports:
 
 admin_token: dev-admin-token   # local only; do not put production tokens here
 
+# API key brand → identity + gateway APIKEY_BRAND. Unset → plat5.
+# [a-z][a-z0-9]*, max 32. Keys are {brand}-sk-1- / {brand}-mk-1-.
+# apikey_brand: plat5
+
 # Optional OTLP for Plat5/Auth containers (unset = no export).
 # When observability.enabled, CLI auto-wires host.docker.internal:<otlp_http>
 # if otel.endpoint is unset. Explicit endpoint always wins.

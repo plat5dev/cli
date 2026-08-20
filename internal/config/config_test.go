@@ -403,6 +403,91 @@ otel:
 	}
 }
 
+func TestLoadAPIKeyBrand(t *testing.T) {
+	unsetAPIKeyBrand(t)
+
+	root := t.TempDir()
+	yml := `project_id: p
+routes:
+  - ./routes.yml
+`
+	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(Flags{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.APIKeyBrand != DefaultAPIKeyBrand {
+		t.Fatalf("default brand %q", cfg.APIKeyBrand)
+	}
+
+	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte("project_id: p\napikey_brand: acme\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = Load(Flags{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.APIKeyBrand != "acme" {
+		t.Fatalf("yml brand %q", cfg.APIKeyBrand)
+	}
+
+	t.Setenv("APIKEY_BRAND", "happ")
+	cfg, err = Load(Flags{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.APIKeyBrand != "happ" {
+		t.Fatalf("env brand %q", cfg.APIKeyBrand)
+	}
+
+	t.Setenv("APIKEY_BRAND", "Acme")
+	if _, err := Load(Flags{}); err == nil {
+		t.Fatal("expected reject uppercase")
+	}
+}
+
+func TestParseAPIKeyBrand(t *testing.T) {
+	ok := []string{"plat5", "acme", "a", "a1", "happ"}
+	for _, in := range ok {
+		got, err := parseAPIKeyBrand(in)
+		if err != nil {
+			t.Fatalf("%q: %v", in, err)
+		}
+		if got != in {
+			t.Fatalf("%q: got %q", in, got)
+		}
+	}
+	bad := []string{"", "   ", "Plat5", "acme-app", "1acme", "-x"}
+	for _, in := range bad {
+		if _, err := parseAPIKeyBrand(in); err == nil {
+			t.Fatalf("%q: expected error", in)
+		}
+	}
+}
+
+func unsetAPIKeyBrand(t *testing.T) {
+	t.Helper()
+	orig, ok := os.LookupEnv("APIKEY_BRAND")
+	if err := os.Unsetenv("APIKEY_BRAND"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if ok {
+			_ = os.Setenv("APIKEY_BRAND", orig)
+		} else {
+			_ = os.Unsetenv("APIKEY_BRAND")
+		}
+	})
+}
+
 func TestNeedsHostGateway(t *testing.T) {
 	cases := []struct {
 		in   string

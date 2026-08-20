@@ -8,6 +8,27 @@ import (
 	"github.com/plat5dev/cli/internal/config"
 )
 
+func TestPlat5StackEnv(t *testing.T) {
+	env := plat5StackEnv(config.Resolved{Plat5Version: "v1.2.3", APIKeyBrand: "acme"})
+	want := map[string]string{
+		"PLAT5_VERSION": "v1.2.3",
+		"APIKEY_BRAND":  "acme",
+	}
+	got := map[string]string{}
+	for _, e := range env {
+		k, v, ok := strings.Cut(e, "=")
+		if !ok {
+			t.Fatalf("bad env entry %q", e)
+		}
+		got[k] = v
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Fatalf("%s: got %q want %q (env %v)", k, got[k], v, env)
+		}
+	}
+}
+
 func TestAuthStackEnvMinimal(t *testing.T) {
 	env := authStackEnv(config.Resolved{AuthVersion: "v1.2.3"})
 	if !slices.Contains(env, "AUTH_VERSION=v1.2.3") {

@@ -407,6 +407,9 @@ func renderPlat5YML(projectID, plat5Path, auth string, authEnabled bool, obs str
 	fmt.Fprintf(&b, "# ports:\n#   gateway: 5001\n#   registry: 5002\n#   auth: 5000\n")
 	fmt.Fprintf(&b, "#   grafana: 3002\n#   otlp_grpc: 4317\n#   otlp_http: 4318\n#   alloy: 12345\n\n")
 	fmt.Fprintf(&b, "admin_token: %s\n\n", config.DefaultAdminToken)
+	fmt.Fprintf(&b, "# API key brand (identity + gateway). Keys {brand}-sk-1- / {brand}-mk-1-.\n")
+	fmt.Fprintf(&b, "# [a-z][a-z0-9]*, max 32. Same value on both processes.\n")
+	fmt.Fprintf(&b, "# apikey_brand: plat5\n\n")
 	if obsEnabled {
 		fmt.Fprintf(&b, "# OTLP for Plat5/Auth containers (matches default ports.otlp_http).\n")
 		fmt.Fprintf(&b, "otel:\n  endpoint: http://host.docker.internal:4318\n\n")

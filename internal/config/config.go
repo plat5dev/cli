@@ -14,6 +14,8 @@ import (
 )
 
 const DefaultAdminToken = "dev-admin-token"
+const DefaultAPIKeyBrand = "plat5"
+const maxAPIKeyBrandLen = 32
 
 var projectIDSanitizer = regexp.MustCompile(`[^a-zA-Z0-9_-]+`)
 
@@ -45,6 +47,7 @@ type File struct {
 	GatewayURL           string             `yaml:"gateway_url"`
 	AuthURL              string             `yaml:"auth_url"`
 	AdminToken           string             `yaml:"admin_token"`
+	APIKeyBrand          string             `yaml:"apikey_brand"`
 	Routes               []string           `yaml:"routes"`
 	Upstreams            map[string]any     `yaml:"upstreams"`
 }
@@ -115,6 +118,8 @@ type Resolved struct {
 	AlloyURL                 string
 	urlExplicit              urlExplicit
 	AdminToken               string
+	// APIKeyBrand is identity + gateway APIKEY_BRAND. Unset → plat5.
+	APIKeyBrand              string
 	RouteFiles               []string
 	Upstreams                map[string]string // service name → raw value (port or URL); expanded at apply
 	ComposeProject           string
@@ -202,6 +207,11 @@ func Load(flags Flags) (Resolved, error) {
 	if r.AuthVersion == "" {
 		r.AuthVersion = "v0.1.4"
 	}
+	brand, err := resolveAPIKeyBrand(file.APIKeyBrand)
+	if err != nil {
+		return Resolved{}, err
+	}
+	r.APIKeyBrand = brand
 	r.Plat5Compose = firstNonEmpty(flags.Plat5Compose, os.Getenv("PLAT5_COMPOSE"), file.Plat5Compose)
 	r.AuthCompose = firstNonEmpty(flags.AuthCompose, os.Getenv("PLAT5_AUTH_COMPOSE"), file.AuthCompose)
 	r.ObservabilityCompose = firstNonEmpty(flags.ObservabilityCompose, os.Getenv("PLAT5_OBSERVABILITY_COMPOSE"), file.ObservabilityCompose)
@@ -455,6 +465,34 @@ func resolveAgainst(base, p string) string {
 		return filepath.Clean(p)
 	}
 	return filepath.Clean(filepath.Join(base, p))
+}
+
+func resolveAPIKeyBrand(yml string) (string, error) {
+	if raw, ok := os.LookupEnv("APIKEY_BRAND"); ok {
+		return parseAPIKeyBrand(raw)
+	}
+	if strings.TrimSpace(yml) != "" {
+		return parseAPIKeyBrand(yml)
+	}
+	return DefaultAPIKeyBrand, nil
+}
+
+func parseAPIKeyBrand(raw string) (string, error) {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return "", fmt.Errorf("apikey_brand is empty")
+	}
+	if len(s) > maxAPIKeyBrandLen {
+		return "", fmt.Errorf("apikey_brand longer than %d characters", maxAPIKeyBrandLen)
+	}
+	for i, r := range s {
+		letter := r >= 'a' && r <= 'z'
+		digit := i > 0 && r >= '0' && r <= '9'
+		if !letter && !digit {
+			return "", fmt.Errorf("apikey_brand must be [a-z][a-z0-9]*, max %d", maxAPIKeyBrandLen)
+		}
+	}
+	return s, nil
 }
 
 func firstNonEmpty(vals ...string) string {

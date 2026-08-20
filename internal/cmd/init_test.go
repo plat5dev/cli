@@ -22,6 +22,9 @@ func TestRenderPlat5YMLAuthDefaults(t *testing.T) {
 	if strings.Contains(body, "otel:\n  endpoint:") {
 		t.Fatalf("otel should stay commented when observability off:\n%s", body)
 	}
+	if !strings.Contains(body, "# apikey_brand: plat5") {
+		t.Fatalf("missing commented apikey_brand:\n%s", body)
+	}
 }
 
 func TestRenderPlat5YMLOtelWhenObservability(t *testing.T) {

@@ -96,6 +96,10 @@ func plat5VersionEnv(cfg config.Resolved) []string {
 	return []string{fmt.Sprintf("PLAT5_VERSION=%s", cfg.Plat5Version)}
 }
 
+func plat5StackEnv(cfg config.Resolved) []string {
+	return append(plat5VersionEnv(cfg), "APIKEY_BRAND="+cfg.APIKeyBrand)
+}
+
 func authVersionEnv(cfg config.Resolved) []string {
 	return []string{fmt.Sprintf("AUTH_VERSION=%s", cfg.AuthVersion)}
 }
