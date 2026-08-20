@@ -205,7 +205,7 @@ func Load(flags Flags) (Resolved, error) {
 	}
 	r.AuthVersion = firstNonEmpty(flags.AuthVersion, os.Getenv("AUTH_VERSION"), file.Auth.Version)
 	if r.AuthVersion == "" {
-		r.AuthVersion = "v0.1.4"
+		r.AuthVersion = "v0.1.5"
 	}
 	brand, err := resolveAPIKeyBrand(file.APIKeyBrand)
 	if err != nil {

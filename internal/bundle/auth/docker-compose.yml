@@ -32,7 +32,7 @@ services:
     restart: unless-stopped
 
   issuer:
-    image: ghcr.io/plat5dev/auth:${AUTH_VERSION:-v0.1.4}
+    image: ghcr.io/plat5dev/auth:${AUTH_VERSION:-v0.1.5}
     labels:
       service.name: issuer
       service.namespace: auth
