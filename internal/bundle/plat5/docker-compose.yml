@@ -58,7 +58,7 @@ services:
     restart: unless-stopped
 
   route-registry:
-    image: ghcr.io/plat5dev/route-registry:${PLAT5_VERSION:-v0.1.6}
+    image: ghcr.io/plat5dev/route-registry:${PLAT5_VERSION:-v0.1.7}
     labels:
       service.name: route-registry
       service.namespace: edge
@@ -92,7 +92,7 @@ services:
     restart: unless-stopped
 
   gateway:
-    image: ghcr.io/plat5dev/gateway:${PLAT5_VERSION:-v0.1.6}
+    image: ghcr.io/plat5dev/gateway:${PLAT5_VERSION:-v0.1.7}
     labels:
       service.name: gateway
       service.namespace: edge
@@ -115,6 +115,13 @@ services:
       RUST_LOG: info
       APIKEY_CACHE_TTL_SECS: "300"
       MEMBER_CACHE_TTL_SECS: "300"
+      # Gateway rate limits (in-process per instance). 0 requests = unlimited fallback.
+      RATE_LIMIT_REQUESTS: ${RATE_LIMIT_REQUESTS:-60}
+      RATE_LIMIT_WINDOW_SECONDS: ${RATE_LIMIT_WINDOW_SECONDS:-60}
+      # Optional. When unset, by follows route scope: public→ip, user→user, organization→member.
+      RATE_LIMIT_BY: ${RATE_LIMIT_BY:-}
+      RATE_LIMIT_AUTH_FAILURE_REQUESTS: ${RATE_LIMIT_AUTH_FAILURE_REQUESTS:-60}
+      RATE_LIMIT_AUTH_FAILURE_WINDOW_SECONDS: ${RATE_LIMIT_AUTH_FAILURE_WINDOW_SECONDS:-60}
       ETCD_URL: http://etcd:2379
       OTEL_SERVICE_NAME: gateway
       OTEL_SERVICE_NAMESPACE: edge
@@ -140,7 +147,7 @@ services:
       - "host.docker.internal:host-gateway"
 
   identity:
-    image: ghcr.io/plat5dev/identity:${PLAT5_VERSION:-v0.1.6}
+    image: ghcr.io/plat5dev/identity:${PLAT5_VERSION:-v0.1.7}
     labels:
       service.name: identity
       service.namespace: identity
