@@ -15,7 +15,7 @@ var Official = []OfficialTemplate{
 	{
 		Name:        "node-fastify-api",
 		Repo:        "plat5dev/template-node-fastify-api",
-		Description: "Node + Fastify + Zod reference API (profiles, projects, tasks)",
+		Description: "Node + Fastify + TypeBox reference API (profiles, projects, tasks)",
 	},
 }
 
