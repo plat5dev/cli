@@ -3,6 +3,7 @@ package bundle
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -34,8 +35,24 @@ func TestMaterializeAuth(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := filepath.Join(dir, "docker-compose.yml")
-	if _, err := os.Stat(p); err != nil {
+	data, err := os.ReadFile(p)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "${AUTH_VERSION:-v0.1.6}") {
+		t.Fatalf("auth compose default pin missing:\n%s", data)
+	}
+	if strings.Contains(string(data), "${AUTH_VERSION:-v0.1.5}") {
+		t.Fatal("stale AUTH_VERSION default v0.1.5")
+	}
+}
+
+func TestDefaultAuthVersion(t *testing.T) {
+	if DefaultAuthVersion != "v0.1.6" {
+		t.Fatalf("DefaultAuthVersion %q", DefaultAuthVersion)
+	}
+	if DefaultVersion != "v0.1.8" {
+		t.Fatalf("DefaultVersion should stay v0.1.8, got %q", DefaultVersion)
 	}
 }
 
