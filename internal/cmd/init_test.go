@@ -25,6 +25,9 @@ func TestRenderPlat5YMLAuthDefaults(t *testing.T) {
 	if !strings.Contains(body, "# apikey_brand: plat5") {
 		t.Fatalf("missing commented apikey_brand:\n%s", body)
 	}
+	if strings.Contains(body, "theme_file") {
+		t.Fatalf("init --auth must not invent a theme file:\n%s", body)
+	}
 }
 
 func TestRenderPlat5YMLOtelWhenObservability(t *testing.T) {
