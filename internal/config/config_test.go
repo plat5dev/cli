@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -504,6 +505,105 @@ func TestNeedsHostGateway(t *testing.T) {
 		if got := NeedsHostGateway(tc.in); got != tc.want {
 			t.Fatalf("%q: got %v want %v", tc.in, got, tc.want)
 		}
+	}
+}
+
+func TestLoadAuthThemeFile(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "theme.json"), []byte(`{"title":"Acme"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	yml := `project_id: p
+auth:
+  enabled: true
+  theme_file: ./theme.json
+`
+	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(Flags{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(root, "theme.json")
+	if !samePath(cfg.AuthThemeFile, want) {
+		t.Fatalf("theme_file %q want %q", cfg.AuthThemeFile, want)
+	}
+
+	abs := filepath.Join(root, "other.json")
+	if err := os.WriteFile(abs, []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	yml = "project_id: p\nauth:\n  enabled: true\n  theme_file: " + abs + "\n"
+	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = Load(Flags{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !samePath(cfg.AuthThemeFile, abs) {
+		t.Fatalf("abs theme_file %q want %q", cfg.AuthThemeFile, abs)
+	}
+}
+
+func TestLoadAuthThemeFileOmitted(t *testing.T) {
+	root := t.TempDir()
+	yml := `project_id: p
+auth:
+  enabled: true
+`
+	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(Flags{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AuthThemeFile != "" {
+		t.Fatalf("expected empty theme_file, got %q", cfg.AuthThemeFile)
+	}
+}
+
+func TestCheckAuthThemeFile(t *testing.T) {
+	if err := CheckAuthThemeFile(""); err != nil {
+		t.Fatalf("empty should be ok: %v", err)
+	}
+	missing := filepath.Join(t.TempDir(), "nope.json")
+	err := CheckAuthThemeFile(missing)
+	if err == nil {
+		t.Fatal("expected missing-file error")
+	}
+	if !strings.Contains(err.Error(), "auth.theme_file: file not found:") {
+		t.Fatalf("error %q", err)
+	}
+	if !strings.Contains(err.Error(), missing) {
+		t.Fatalf("error should include path, got %q", err)
+	}
+	dir := t.TempDir()
+	err = CheckAuthThemeFile(dir)
+	if err == nil {
+		t.Fatal("expected directory error")
+	}
+	if !strings.Contains(err.Error(), "not a file") {
+		t.Fatalf("error %q", err)
+	}
+	f := filepath.Join(dir, "theme.json")
+	if err := os.WriteFile(f, []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckAuthThemeFile(f); err != nil {
+		t.Fatal(err)
 	}
 }
 
