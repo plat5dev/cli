@@ -33,7 +33,7 @@ plat5 status
 plat5 stop
 ```
 
-`plat5_version` (default `v0.1.8`) pins runtime GHCR tags. With Auth enabled, `auth.version` / `AUTH_VERSION` (default `v0.1.5`) pins `ghcr.io/plat5dev/auth` independently.
+`plat5_version` (default `v0.1.8`) pins runtime GHCR tags. With Auth enabled, `auth.version` / `AUTH_VERSION` (default `v0.1.6`) pins `ghcr.io/plat5dev/auth` independently.
 
 Templates: first-party short names (`plat5 init --list-templates`) fetch public GitHub repos under `plat5dev/template-*` (branch `master`, override with `--template-ref` / `PLAT5_TEMPLATE_REF`). Also accepts `owner/repo` or an archive URL. Cached under `~/.cache/plat5/templates/`. Local: `--templates-dir` / `PLAT5_TEMPLATES` (directory of template folders).
 
@@ -64,7 +64,7 @@ plat5_version: v0.1.8                  # runtime GHCR tag
 
 auth:
   enabled: false
-  # version: v0.1.5                    # Auth image pin when enabled (AUTH_VERSION)
+  # version: v0.1.6                    # Auth image pin when enabled (AUTH_VERSION)
   # Project OAuth surface → issuer env on start (plat5 init --auth defaults = web-demo :5173).
   # allowed_clients: [plat5]
   # allowed_redirect_uris:
