@@ -182,8 +182,13 @@ func runStart(cmd *cobra.Command, args []string) error {
 	}
 
 	if wantAuth {
+		if err := config.CheckAuthThemeFile(cfg.AuthThemeFile); err != nil {
+			return err
+		}
+		authOverrideOpts := overrideOpts
+		authOverrideOpts.AuthThemeFile = cfg.AuthThemeFile
 		authOverride := filepath.Join(stateDir, "compose.auth.override.yml")
-		if err := compose.WriteAuthOverride(authOverride, cfg.Ports.Auth, overrideOpts); err != nil {
+		if err := compose.WriteAuthOverride(authOverride, cfg.Ports.Auth, authOverrideOpts); err != nil {
 			return err
 		}
 		st.AuthOverride = authOverride
