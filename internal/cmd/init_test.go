@@ -14,6 +14,8 @@ func TestRenderPlat5YMLAuthDefaults(t *testing.T) {
 		"http://localhost:5173/callback",
 		"https://oauth.pstmn.io/v1/callback",
 		"http://localhost:5173",
+		"version: v0.1.6",
+		"plat5_version: v0.1.8",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("missing %q in:\n%s", want, body)
@@ -24,6 +26,12 @@ func TestRenderPlat5YMLAuthDefaults(t *testing.T) {
 	}
 	if !strings.Contains(body, "# apikey_brand: plat5") {
 		t.Fatalf("missing commented apikey_brand:\n%s", body)
+	}
+	if strings.Contains(body, "theme_file") {
+		t.Fatalf("init --auth must not invent a theme file:\n%s", body)
+	}
+	if strings.Contains(body, "version: v0.1.5") {
+		t.Fatalf("stale auth.version v0.1.5:\n%s", body)
 	}
 }
 

@@ -76,6 +76,9 @@ func TestWriteAuthOverride(t *testing.T) {
 	if strings.Contains(s, "extra_hosts") {
 		t.Fatalf("unexpected extra_hosts:\n%s", s)
 	}
+	if strings.Contains(s, "volumes:") || strings.Contains(s, "AUTH_THEME_FILE") {
+		t.Fatalf("omit theme_file must not mount or set AUTH_THEME_FILE:\n%s", s)
+	}
 }
 
 func TestWriteAuthOverrideHostGateway(t *testing.T) {
@@ -91,6 +94,58 @@ func TestWriteAuthOverrideHostGateway(t *testing.T) {
 	s := string(data)
 	if !strings.Contains(s, "extra_hosts:") || !strings.Contains(s, "host.docker.internal:host-gateway") {
 		t.Fatalf("unexpected:\n%s", s)
+	}
+}
+
+func TestWriteAuthOverrideThemeFile(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "compose.auth.override.yml")
+	host := "/abs/project/theme.json"
+	if err := WriteAuthOverride(p, 5100, OverrideOpts{AuthThemeFile: host}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	wantVol := host + ":" + AuthThemeContainerPath + ":ro"
+	for _, want := range []string{
+		`volumes:`,
+		wantVol,
+		`AUTH_THEME_FILE: ` + AuthThemeContainerPath,
+		AuthThemeContainerPath,
+	} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("missing %q in:\n%s", want, s)
+		}
+	}
+	if strings.Contains(s, "AUTH_LOGO_URL") || strings.Contains(s, "AUTH_FAVICON_URL") {
+		t.Fatalf("must not set logo/favicon env:\n%s", s)
+	}
+}
+
+func TestWriteAuthOverrideThemeFileAndHostGateway(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "compose.auth.override.yml")
+	host := "/tmp/theme.json"
+	if err := WriteAuthOverride(p, 5000, OverrideOpts{HostGateway: true, AuthThemeFile: host}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	for _, want := range []string{
+		`extra_hosts:`,
+		`host.docker.internal:host-gateway`,
+		host + ":" + AuthThemeContainerPath + ":ro",
+		`AUTH_THEME_FILE: ` + AuthThemeContainerPath,
+	} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("missing %q in:\n%s", want, s)
+		}
 	}
 }
 

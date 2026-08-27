@@ -29,7 +29,7 @@ var startCmd = &cobra.Command{
 	Long: `Start local Plat5 stacks with Docker Compose.
 
 Pulls runtime images via plat5_version / PLAT5_VERSION and Auth via
-auth.version / AUTH_VERSION (independent pins; defaults v0.1.8 / v0.1.5) using
+auth.version / AUTH_VERSION (independent pins; defaults v0.1.8 / v0.1.6) using
 compose files embedded in the CLI.
 
 Advanced: set plat5_compose / auth_compose / observability_compose to local
@@ -182,8 +182,13 @@ func runStart(cmd *cobra.Command, args []string) error {
 	}
 
 	if wantAuth {
+		if err := config.CheckAuthThemeFile(cfg.AuthThemeFile); err != nil {
+			return err
+		}
+		authOverrideOpts := overrideOpts
+		authOverrideOpts.AuthThemeFile = cfg.AuthThemeFile
 		authOverride := filepath.Join(stateDir, "compose.auth.override.yml")
-		if err := compose.WriteAuthOverride(authOverride, cfg.Ports.Auth, overrideOpts); err != nil {
+		if err := compose.WriteAuthOverride(authOverride, cfg.Ports.Auth, authOverrideOpts); err != nil {
 			return err
 		}
 		st.AuthOverride = authOverride

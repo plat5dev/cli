@@ -119,5 +119,8 @@ func authStackEnv(cfg config.Resolved) []string {
 	if cfg.AuthPublicIssuerURL != "" {
 		env = append(env, "PUBLIC_ISSUER_URL="+cfg.AuthPublicIssuerURL)
 	}
+	if cfg.AuthThemeFile != "" {
+		env = append(env, "AUTH_THEME_FILE="+compose.AuthThemeContainerPath)
+	}
 	return env
 }

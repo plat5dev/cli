@@ -9,11 +9,18 @@ import (
 
 const hostGatewayExtraHost = "host.docker.internal:host-gateway"
 
+// AuthThemeContainerPath is the in-container path for a bind-mounted OpenAuth
+// Theme JSON. Matches plat5dev/auth (AUTH_THEME_FILE=/config/theme.json).
+const AuthThemeContainerPath = "/config/theme.json"
+
 // OverrideOpts controls optional bits written into CLI compose overrides.
 type OverrideOpts struct {
 	// HostGateway adds extra_hosts host.docker.internal:host-gateway on services
 	// that need to reach the host (e.g. OTLP to a host-published collector).
 	HostGateway bool
+	// AuthThemeFile is the host path of an OpenAuth Theme JSON to bind-mount
+	// into the Auth issuer at AuthThemeContainerPath. Empty = no mount.
+	AuthThemeFile string
 }
 
 // WritePlat5Override writes a compose override that remaps gateway and registry host ports.
@@ -61,6 +68,10 @@ services:
 `, authPort)
 	if opts.HostGateway {
 		fmt.Fprintf(&b, "    extra_hosts:\n      - %q\n", hostGatewayExtraHost)
+	}
+	if opts.AuthThemeFile != "" {
+		fmt.Fprintf(&b, "    volumes:\n      - %q\n", opts.AuthThemeFile+":"+AuthThemeContainerPath+":ro")
+		fmt.Fprintf(&b, "    environment:\n      AUTH_THEME_FILE: %s\n", AuthThemeContainerPath)
 	}
 	return os.WriteFile(path, []byte(b.String()), 0o644)
 }

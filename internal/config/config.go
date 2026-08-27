@@ -62,6 +62,8 @@ type AuthBlock struct {
 	AllowedOrigins      []string `yaml:"allowed_origins"`
 	// PublicIssuerURL sets PUBLIC_ISSUER_URL (token iss). Empty = derive from auth URL at start.
 	PublicIssuerURL string `yaml:"public_issuer_url"`
+	// ThemeFile is optional OpenAuth Theme JSON (relative to plat5.yml or absolute).
+	ThemeFile string `yaml:"theme_file"`
 }
 
 // ObservabilityBlock is optional local LGTM stack settings.
@@ -105,6 +107,7 @@ type Resolved struct {
 	AuthAllowedRedirectURIs  []string
 	AuthAllowedOrigins       []string
 	AuthPublicIssuerURL      string // empty until start derives from AuthURL if unset in yml
+	AuthThemeFile            string // absolute host path; empty = no mount
 	authPublicIssuerExplicit bool
 	ObservabilityEnabled     bool
 	OtelEndpoint             string
@@ -170,6 +173,7 @@ func Load(flags Flags) (Resolved, error) {
 		AuthAllowedRedirectURIs:  trimNonEmpty(file.Auth.AllowedRedirectURIs),
 		AuthAllowedOrigins:       trimNonEmpty(file.Auth.AllowedOrigins),
 		AuthPublicIssuerURL:      strings.TrimSpace(file.Auth.PublicIssuerURL),
+		AuthThemeFile:            resolveAgainst(configDir, strings.TrimSpace(file.Auth.ThemeFile)),
 		ObservabilityEnabled:     file.Observability.Enabled,
 		OtelEndpoint:             strings.TrimSpace(file.Otel.Endpoint),
 		AdminToken:               DefaultAdminToken,
@@ -205,7 +209,7 @@ func Load(flags Flags) (Resolved, error) {
 	}
 	r.AuthVersion = firstNonEmpty(flags.AuthVersion, os.Getenv("AUTH_VERSION"), file.Auth.Version)
 	if r.AuthVersion == "" {
-		r.AuthVersion = "v0.1.5"
+		r.AuthVersion = "v0.1.6"
 	}
 	brand, err := resolveAPIKeyBrand(file.APIKeyBrand)
 	if err != nil {
@@ -512,6 +516,25 @@ func sanitizeProjectID(id string) string {
 		id = id[:64]
 	}
 	return strings.ToLower(id)
+}
+
+// CheckAuthThemeFile fails if a configured theme file is missing or not a regular file.
+// Empty path is omitted (today's behavior: no mount). Call before starting Auth.
+func CheckAuthThemeFile(path string) error {
+	if path == "" {
+		return nil
+	}
+	st, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("auth.theme_file: file not found: %s", path)
+		}
+		return fmt.Errorf("auth.theme_file: %s: %w", path, err)
+	}
+	if st.IsDir() {
+		return fmt.Errorf("auth.theme_file: not a file: %s", path)
+	}
+	return nil
 }
 
 // NeedsHostGateway reports whether endpoint targets host.docker.internal
