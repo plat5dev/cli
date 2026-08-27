@@ -73,6 +73,7 @@ auth:
   # allowed_origins:
   #   - http://localhost:5173
   # public_issuer_url:                 # default: derived auth URL (localhost:<ports.auth>)
+  # theme_file: ./theme.json           # optional OpenAuth Theme JSON
 
 observability:
   enabled: false
