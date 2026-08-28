@@ -7,6 +7,18 @@ import (
 	"testing"
 )
 
+func TestIdentityRoutesCatalogIncludesInvites(t *testing.T) {
+	for _, want := range []string{
+		"/api/organizations/{organization_id}/invites",
+		"/api/organizations/{organization_id}/invites/{invite_id}",
+		"/api/invites/redeem",
+	} {
+		if !strings.Contains(identityRoutesCatalog, want) {
+			t.Fatalf("identity catalog missing %q", want)
+		}
+	}
+}
+
 func TestRenderPlat5YMLAuthDefaults(t *testing.T) {
 	body := renderPlat5YML("demo", "", "", true, "", false, nil, nil)
 	for _, want := range []string{
