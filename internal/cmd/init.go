@@ -150,7 +150,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	obsEnabled := initObservability
 	if session != nil && !cmd.Flags().Changed("observability") {
-	obsEnabled, err = session.YesNo("Enable observability?", false)
+		obsEnabled, err = session.YesNo("Enable observability?", false)
 		if err != nil {
 			return err
 		}
