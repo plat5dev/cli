@@ -51,7 +51,7 @@ type errorEnvelope struct {
 	} `json:"error"`
 }
 
-// ApplyResult is one service from POST /v1/apply.
+// ApplyResult is one service from POST /apply.
 type ApplyResult struct {
 	Service  string `json:"service"`
 	Status   string `json:"status"`
@@ -63,7 +63,7 @@ type applyResponse struct {
 	Results []ApplyResult `json:"results"`
 }
 
-// Apply posts a routes file to /v1/apply.
+// Apply posts a routes file to /apply.
 // upstreams injects service URLs (see internal/upstreams) before upload.
 func (c *Client) Apply(path string, upstreams map[string]string) ([]ApplyResult, error) {
 	data, err := os.ReadFile(path)
@@ -78,7 +78,7 @@ func (c *Client) Apply(path string, upstreams map[string]string) ([]ApplyResult,
 	return c.ApplyBody(data, ct, upstreams)
 }
 
-// ApplyBody posts routes bytes to /v1/apply after optional upstream bind.
+// ApplyBody posts routes bytes to /apply after optional upstream bind.
 func (c *Client) ApplyBody(data []byte, contentType string, ups map[string]string) ([]ApplyResult, error) {
 	if len(ups) > 0 {
 		bound, err := upstreams.Bind(data, ups)
@@ -93,7 +93,7 @@ func (c *Client) ApplyBody(data []byte, contentType string, ups map[string]strin
 	if contentType == "" {
 		contentType = "application/yaml"
 	}
-	req, err := http.NewRequest(http.MethodPost, c.BaseURL+"/v1/apply", bytes.NewReader(data))
+	req, err := http.NewRequest(http.MethodPost, c.BaseURL+"/apply", bytes.NewReader(data))
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +123,7 @@ func (c *Client) ApplyBody(data []byte, contentType string, ups map[string]strin
 
 // List returns registered services map (raw JSON object under services).
 func (c *Client) List() (map[string]json.RawMessage, error) {
-	req, err := http.NewRequest(http.MethodGet, c.BaseURL+"/v1/services", nil)
+	req, err := http.NewRequest(http.MethodGet, c.BaseURL+"/services", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +148,7 @@ func (c *Client) List() (map[string]json.RawMessage, error) {
 
 // Get returns one service config JSON.
 func (c *Client) Get(name string) (json.RawMessage, error) {
-	req, err := http.NewRequest(http.MethodGet, c.BaseURL+"/v1/services/"+name, nil)
+	req, err := http.NewRequest(http.MethodGet, c.BaseURL+"/services/"+name, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -167,7 +167,7 @@ func (c *Client) Get(name string) (json.RawMessage, error) {
 
 // Delete removes a service.
 func (c *Client) Delete(name string) error {
-	u := c.BaseURL + "/v1/services/" + name
+	u := c.BaseURL + "/services/" + name
 	req, err := http.NewRequest(http.MethodDelete, u, nil)
 	if err != nil {
 		return err

@@ -47,7 +47,7 @@ Templates: first-party short names (`plat5 init --list-templates`) fetch public 
 | `plat5 status` | URLs, health, registered routes |
 | `plat5 doctor` | Docker, project config, ports |
 | `plat5 logs [-f] [service…]` | Plat5 compose logs (`--auth` / `--observability`) |
-| `plat5 routes apply [file…]` | `POST /v1/apply` (defaults to `routes:` list) |
+| `plat5 routes apply [file…]` | `POST /apply` (defaults to `routes:` list) |
 | `plat5 routes list` | List services |
 | `plat5 routes get <name>` | Show service config |
 | `plat5 routes rm <name>` | Delete service |
@@ -131,7 +131,7 @@ Flags / env still override: `--plat5-compose`, `PLAT5_COMPOSE`, `PLAT5_ADMIN_TOK
 | `host:port` or hostname | `http://…` | Named host on a shared network |
 | `https://…` / `http://…` | unchanged | Public or remote origin |
 
-Keys must match service names in the routes file(s). `plat5 routes apply` and `plat5 start` bind upstreams before `POST /v1/apply`.
+Keys must match service names in the routes file(s). `plat5 routes apply` and `plat5 start` bind upstreams before `POST /apply`.
 
 You can still set `url` directly in `routes.yml`; an `upstreams` entry for that service wins.
 
