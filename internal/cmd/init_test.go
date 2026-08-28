@@ -27,7 +27,7 @@ func TestRenderPlat5YMLAuthDefaults(t *testing.T) {
 		"https://oauth.pstmn.io/v1/callback",
 		"http://localhost:5173",
 		"version: v0.1.6",
-		"plat5_version: v0.1.9",
+		"plat5_version: v0.2.0",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("missing %q in:\n%s", want, body)
@@ -45,8 +45,8 @@ func TestRenderPlat5YMLAuthDefaults(t *testing.T) {
 	if strings.Contains(body, "version: v0.1.5") {
 		t.Fatalf("stale auth.version v0.1.5:\n%s", body)
 	}
-	if strings.Contains(body, "plat5_version: v0.1.8") {
-		t.Fatalf("stale plat5_version v0.1.8:\n%s", body)
+	if strings.Contains(body, "plat5_version: v0.1.9") {
+		t.Fatalf("stale plat5_version v0.1.9:\n%s", body)
 	}
 }
 

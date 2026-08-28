@@ -9,7 +9,7 @@ import (
 )
 
 // DefaultVersion is the Plat5 runtime image tag when plat5_version is unset.
-const DefaultVersion = "v0.1.9"
+const DefaultVersion = "v0.2.0"
 
 // DefaultAuthVersion is the Auth image tag when auth.version is unset.
 const DefaultAuthVersion = "v0.1.6"

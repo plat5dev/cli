@@ -33,7 +33,7 @@ plat5 status
 plat5 stop
 ```
 
-`plat5_version` (default `v0.1.9`) pins runtime GHCR tags. With Auth enabled, `auth.version` / `AUTH_VERSION` (default `v0.1.6`) pins `ghcr.io/plat5dev/auth` independently.
+`plat5_version` (default `v0.2.0`) pins runtime GHCR tags. With Auth enabled, `auth.version` / `AUTH_VERSION` (default `v0.1.6`) pins `ghcr.io/plat5dev/auth` independently.
 
 Templates: first-party short names (`plat5 init --list-templates`) fetch public GitHub repos under `plat5dev/template-*` (branch `master`, override with `--template-ref` / `PLAT5_TEMPLATE_REF`). Also accepts `owner/repo` or an archive URL. Cached under `~/.cache/plat5/templates/`. Local: `--templates-dir` / `PLAT5_TEMPLATES` (directory of template folders).
 
@@ -60,7 +60,7 @@ Walks up from cwd. **Required** for all project commands.
 ```yaml
 project_id: my-app          # default: directory name; local compose isolation slug
 
-plat5_version: v0.1.9                  # runtime GHCR tag
+plat5_version: v0.2.0                  # runtime GHCR tag
 
 auth:
   enabled: false
