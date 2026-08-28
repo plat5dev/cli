@@ -49,7 +49,7 @@ func materialize(destDir, root string) error {
 		}
 		target := filepath.Join(destDir, rel)
 		if d.IsDir() {
-			return os.MkdirAll(target, 0o644)
+			return os.MkdirAll(target, 0o755)
 		}
 		data, err := content.ReadFile(path)
 		if err != nil {
