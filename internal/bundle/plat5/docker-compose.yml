@@ -73,7 +73,7 @@ services:
     restart: unless-stopped
 
   route-registry:
-    image: ghcr.io/plat5dev/route-registry:${PLAT5_VERSION:-v0.2.0}
+    image: ghcr.io/plat5dev/route-registry:${PLAT5_VERSION:-v0.2.2}
     labels:
       service.name: route-registry
       service.namespace: edge
@@ -107,7 +107,7 @@ services:
     restart: unless-stopped
 
   gateway:
-    image: ghcr.io/plat5dev/gateway:${PLAT5_VERSION:-v0.2.0}
+    image: ghcr.io/plat5dev/gateway:${PLAT5_VERSION:-v0.2.2}
     labels:
       service.name: gateway
       service.namespace: edge
@@ -161,7 +161,7 @@ services:
       - "host.docker.internal:host-gateway"
 
   identity:
-    image: ghcr.io/plat5dev/identity:${PLAT5_VERSION:-v0.2.0}
+    image: ghcr.io/plat5dev/identity:${PLAT5_VERSION:-v0.2.2}
     labels:
       service.name: identity
       service.namespace: identity

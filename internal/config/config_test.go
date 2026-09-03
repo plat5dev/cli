@@ -104,10 +104,10 @@ routes:
 	if cfg.Plat5Compose != "" {
 		t.Fatalf("expected empty plat5_compose, got %q", cfg.Plat5Compose)
 	}
-	if cfg.Plat5Version != "v0.2.0" {
+	if cfg.Plat5Version != "v0.2.2" {
 		t.Fatalf("version %q", cfg.Plat5Version)
 	}
-	if cfg.AuthVersion != "v0.1.6" {
+	if cfg.AuthVersion != "v0.1.8" {
 		t.Fatalf("auth version %q", cfg.AuthVersion)
 	}
 }
@@ -134,7 +134,7 @@ auth:
 	if cfg.AuthVersion != "v9.9.9" {
 		t.Fatalf("auth version %q", cfg.AuthVersion)
 	}
-	if cfg.Plat5Version != "v0.2.0" {
+	if cfg.Plat5Version != "v0.2.2" {
 		t.Fatalf("plat5 version should stay default, got %q", cfg.Plat5Version)
 	}
 }

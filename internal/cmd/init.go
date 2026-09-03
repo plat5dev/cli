@@ -67,8 +67,8 @@ func init() {
 	initCmd.Flags().BoolVarP(&initYes, "yes", "y", false, "Non-interactive; do not prompt")
 	initCmd.Flags().StringVar(&initTemplate, "template", "", "Starter: official name, owner/repo, or https://…/archive/….tar.gz")
 	initCmd.Flags().StringVar(&initTemplatesDir, "templates-dir", "", "Local templates root (skip remote fetch)")
-	initCmd.Flags().StringVar(&initPlat5Version, "plat5-version", "", "Runtime GHCR pin written to plat5.yml (default v0.2.0)")
-	initCmd.Flags().StringVar(&initAuthVersion, "auth-version", "", "Auth GHCR pin written to auth.version (default v0.1.6)")
+	initCmd.Flags().StringVar(&initPlat5Version, "plat5-version", "", "Runtime GHCR pin written to plat5.yml (default v0.2.2)")
+	initCmd.Flags().StringVar(&initAuthVersion, "auth-version", "", "Auth GHCR pin written to auth.version (default v0.1.8)")
 	initCmd.Flags().StringVar(&initTemplateRef, "template-ref", "", "Git ref for remote templates (default master; or PLAT5_TEMPLATE_REF)")
 	initCmd.Flags().BoolVar(&initListTemplates, "list-templates", false, "List first-party templates and exit")
 }
@@ -307,7 +307,7 @@ func initVersion() string {
 	if v := os.Getenv("PLAT5_VERSION"); v != "" {
 		return v
 	}
-	return "v0.2.0"
+	return "v0.2.2"
 }
 
 func initAuthVer() string {
@@ -317,7 +317,7 @@ func initAuthVer() string {
 	if v := os.Getenv("AUTH_VERSION"); v != "" {
 		return v
 	}
-	return "v0.1.6"
+	return "v0.1.8"
 }
 
 // templateResolveOpts prefers explicit local dirs; otherwise remote GitHub archives.

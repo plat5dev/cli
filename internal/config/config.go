@@ -205,11 +205,11 @@ func Load(flags Flags) (Resolved, error) {
 
 	r.Plat5Version = firstNonEmpty(flags.Plat5Version, os.Getenv("PLAT5_VERSION"), file.Plat5Version)
 	if r.Plat5Version == "" {
-		r.Plat5Version = "v0.2.0"
+		r.Plat5Version = "v0.2.2"
 	}
 	r.AuthVersion = firstNonEmpty(flags.AuthVersion, os.Getenv("AUTH_VERSION"), file.Auth.Version)
 	if r.AuthVersion == "" {
-		r.AuthVersion = "v0.1.6"
+		r.AuthVersion = "v0.1.8"
 	}
 	brand, err := resolveAPIKeyBrand(file.APIKeyBrand)
 	if err != nil {
