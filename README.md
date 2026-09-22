@@ -146,25 +146,6 @@ plat5 routes apply ./other.yml
 
 `plat5 start` applies the configured route files after the registry is ready.
 
-## Growth path: targets (not built yet)
-
-Today config is flat and means **local**. A natural extension is named targets without changing the route contract:
-
-```yaml
-# future sketch — not implemented
-targets:
-  local:
-    plat5_compose: …
-    upstreams: { api: 3000 }
-    routes: [./routes.yml, ./routes.dev.yml]
-  staging:
-    # control-plane URL + creds (Cloud), no compose
-    upstreams: { api: https://api.staging.example.com }
-    routes: [./routes.yml]
-```
-
-Same verbs (`routes apply`, etc.); `--target` / env selects topology. Until that exists, one project = one local topology via top-level `upstreams` / `routes`.
-
 ## Ports and multi-project
 
 Each project gets compose project names `plat5-<project_id>`, `plat5-<project_id>-auth`, `plat5-<project_id>-observability`.
@@ -175,12 +156,11 @@ Start order: observability → auth → plat5. Stop is the reverse.
 
 ## State (XDG)
 
-Same paths on macOS and Linux:
+Same path on macOS and Linux:
 
 | Path | Role |
 |------|------|
 | `$XDG_STATE_HOME/plat5/projects/<id>/` | `state.json`, compose overrides (default `~/.local/state/plat5/…`) |
-| `$XDG_CONFIG_HOME/plat5/` | Reserved for machine config / future Cloud creds (default `~/.config/plat5`) |
 
 ## Path mode (contributors)
 

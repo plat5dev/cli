@@ -1,7 +1,6 @@
 package xdg
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 )
@@ -23,21 +22,6 @@ func TestStateHomeOverride(t *testing.T) {
 	}
 	if p != filepath.Join(want, "projects", "demo") {
 		t.Fatalf("project dir %s", p)
-	}
-}
-
-func TestConfigHomeDefault(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", "")
-	// ensure unset
-	_ = os.Unsetenv("XDG_CONFIG_HOME")
-	got, err := Plat5ConfigDir()
-	if err != nil {
-		t.Fatal(err)
-	}
-	home, _ := os.UserHomeDir()
-	want := filepath.Join(home, ".config", "plat5")
-	if got != want {
-		t.Fatalf("got %s want %s", got, want)
 	}
 }
 
