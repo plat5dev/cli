@@ -33,7 +33,7 @@ plat5 status
 plat5 stop
 ```
 
-`plat5_version` (default `v0.2.2`) pins runtime GHCR tags. With Auth enabled, `auth.version` / `AUTH_VERSION` (default `v0.1.8`) pins `ghcr.io/plat5dev/auth` independently.
+`plat5_version` (default `v0.4.0`) pins runtime GHCR tags. With Auth enabled, `auth.version` / `AUTH_VERSION` (default `v0.1.8`) pins `ghcr.io/plat5dev/auth` independently.
 
 Templates: first-party short names (`plat5 init --list-templates`) fetch public GitHub repos under `plat5dev/template-*` (branch `master`, override with `--template-ref` / `PLAT5_TEMPLATE_REF`). Also accepts `owner/repo` or an archive URL. Cached under `~/.cache/plat5/templates/`. Local: `--templates-dir` / `PLAT5_TEMPLATES` (directory of template folders).
 
@@ -60,7 +60,7 @@ Walks up from cwd. **Required** for all project commands.
 ```yaml
 project_id: my-app          # default: directory name; local compose isolation slug
 
-plat5_version: v0.2.2                  # runtime GHCR tag
+plat5_version: v0.4.0                  # runtime GHCR tag
 
 auth:
   enabled: false
@@ -92,7 +92,7 @@ ports:
 admin_token: dev-admin-token   # local only; do not put production tokens here
 
 # API key brand → identity + gateway APIKEY_BRAND. Unset → plat5.
-# [a-z][a-z0-9]*, max 32. Keys are {brand}-sk-1- / {brand}-mk-1-.
+# [a-z][a-z0-9]*, max 32. Keys are {brand}-sk-1- / {brand}-mk-1-. Sessions are {brand}-ms-1-.
 # apikey_brand: plat5
 
 # Optional OTLP for Plat5/Auth containers (unset = no export).

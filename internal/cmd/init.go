@@ -67,7 +67,7 @@ func init() {
 	initCmd.Flags().BoolVarP(&initYes, "yes", "y", false, "Non-interactive; do not prompt")
 	initCmd.Flags().StringVar(&initTemplate, "template", "", "Starter: official name, owner/repo, or https://…/archive/….tar.gz")
 	initCmd.Flags().StringVar(&initTemplatesDir, "templates-dir", "", "Local templates root (skip remote fetch)")
-	initCmd.Flags().StringVar(&initPlat5Version, "plat5-version", "", "Runtime GHCR pin written to plat5.yml (default v0.2.2)")
+	initCmd.Flags().StringVar(&initPlat5Version, "plat5-version", "", "Runtime GHCR pin written to plat5.yml (default v0.4.0)")
 	initCmd.Flags().StringVar(&initAuthVersion, "auth-version", "", "Auth GHCR pin written to auth.version (default v0.1.8)")
 	initCmd.Flags().StringVar(&initTemplateRef, "template-ref", "", "Git ref for remote templates (default master; or PLAT5_TEMPLATE_REF)")
 	initCmd.Flags().BoolVar(&initListTemplates, "list-templates", false, "List first-party templates and exit")
@@ -307,7 +307,7 @@ func initVersion() string {
 	if v := os.Getenv("PLAT5_VERSION"); v != "" {
 		return v
 	}
-	return "v0.2.2"
+	return "v0.4.0"
 }
 
 func initAuthVer() string {
@@ -407,7 +407,7 @@ func renderPlat5YML(projectID, plat5Path, auth string, authEnabled bool, obs str
 	fmt.Fprintf(&b, "# ports:\n#   gateway: 5001\n#   registry: 5002\n#   auth: 5000\n")
 	fmt.Fprintf(&b, "#   grafana: 3002\n#   otlp_grpc: 4317\n#   otlp_http: 4318\n#   alloy: 12345\n\n")
 	fmt.Fprintf(&b, "admin_token: %s\n\n", config.DefaultAdminToken)
-	fmt.Fprintf(&b, "# API key brand (identity + gateway). Keys {brand}-sk-1- / {brand}-mk-1-.\n")
+	fmt.Fprintf(&b, "# API key brand (identity + gateway). Keys {brand}-sk-1- / {brand}-mk-1-. Sessions {brand}-ms-1-.\n")
 	fmt.Fprintf(&b, "# [a-z][a-z0-9]*, max 32. Same value on both processes.\n")
 	fmt.Fprintf(&b, "# apikey_brand: plat5\n\n")
 	if obsEnabled {
@@ -535,47 +535,74 @@ func writeIfAbsent(dir, name, body string) error {
 	return nil
 }
 
-const identityRoutesCatalog = `# Identity public surface. Edit or omit paths. Internal validate/resolve are not listed.
+const identityRoutesCatalog = `# Catalog of identity public routes. Apply via route-registry (or a subset).
+# Not auto-published. Internal validate stays on INTERNAL_PORT.
+# GET /organizations is served by identity and omitted here.
 services:
   identity:
     url: identity:3000
     user:
       routes:
-        - path: /api/users/{user_id}/api-keys
+        - path: /user/memberships
+          upstream: /users/{subject.user_id}/memberships
+          methods: [GET]
+        - path: /user/api-keys
+          upstream: /users/{subject.user_id}/api-keys
           methods: [GET, POST]
-        - path: /api/users/{user_id}/api-keys/{key_id}
+        - path: /user/api-keys/{key_id}
+          upstream: /users/{subject.user_id}/api-keys/{path.key_id}
           methods: [DELETE]
-        - path: /api/organizations
-          methods: [POST, GET]
-        - path: /api/organizations/{organization_id}
-          methods: [GET, PATCH, DELETE]
-        - path: /api/organizations/{organization_id}/members
-          methods: [GET, POST]
-        - path: /api/organizations/{organization_id}/members/{member_id}
-          methods: [GET, PATCH, DELETE]
-        - path: /api/organizations/{organization_id}/members/{member_id}/api-keys
-          methods: [GET, POST]
-        - path: /api/organizations/{organization_id}/members/{member_id}/api-keys/{key_id}
-          methods: [DELETE]
-        - path: /api/organizations/{organization_id}/invites
-          methods: [GET, POST]
-        - path: /api/organizations/{organization_id}/invites/{invite_id}
-          methods: [DELETE]
-        - path: /api/invites/redeem
+        - path: /user/organizations
+          upstream: /users/{subject.user_id}/organizations
           methods: [POST]
-        - path: /api/organizations/{organization_id}/service-accounts
-          methods: [GET, POST]
-        - path: /api/organizations/{organization_id}/service-accounts/{service_account_id}
+        - path: /user/invites/redeem
+          upstream: /users/{subject.user_id}/invites/redeem
+          methods: [POST]
+        - path: /user/organizations/{organization_id}/session
+          upstream: /users/{subject.user_id}/organizations/{path.organization_id}/session
+          methods: [POST]
+    organization:
+      routes:
+        - path: /org
+          upstream: /organizations/{subject.organization_id}
           methods: [GET, PATCH, DELETE]
+        - path: /org/members
+          upstream: /organizations/{subject.organization_id}/members
+          methods: [GET, POST]
+        - path: /org/invites
+          upstream: /organizations/{subject.organization_id}/invites
+          methods: [GET, POST]
+        - path: /org/invites/{invite_id}
+          upstream: /organizations/{subject.organization_id}/invites/{path.invite_id}
+          methods: [DELETE]
+        - path: /org/service-accounts
+          upstream: /organizations/{subject.organization_id}/service-accounts
+          methods: [GET, POST]
+        - path: /org/service-accounts/{service_account_id}
+          upstream: /organizations/{subject.organization_id}/service-accounts/{path.service_account_id}
+          methods: [GET, PATCH, DELETE]
+    member:
+      routes:
+        - path: /member
+          upstream: /members/{subject.member_id}
+          methods: [GET, PATCH, DELETE]
+        - path: /member/api-keys
+          upstream: /members/{subject.member_id}/api-keys
+          methods: [GET, POST]
+        - path: /member/api-keys/{key_id}
+          upstream: /members/{subject.member_id}/api-keys/{path.key_id}
+          methods: [DELETE]
 `
 
 const sampleRoutes = `services:
   api:
     # url comes from plat5.yml upstreams (applied by the CLI)
-    public:
+    user:
       routes:
-        - path: /api
-          methods: [GET, POST, PUT, PATCH, DELETE]
-        - path: /api/{id}
-          methods: [GET, POST, PUT, PATCH, DELETE]
+        - path: /user/widgets
+          upstream: /users/{subject.user_id}/widgets
+          methods: [GET, POST]
+        - path: /user/widgets/{id}
+          upstream: /users/{subject.user_id}/widgets/{path.id}
+          methods: [GET, PATCH, DELETE]
 `

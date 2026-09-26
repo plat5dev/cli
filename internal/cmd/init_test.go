@@ -9,9 +9,10 @@ import (
 
 func TestIdentityRoutesCatalogIncludesInvites(t *testing.T) {
 	for _, want := range []string{
-		"/api/organizations/{organization_id}/invites",
-		"/api/organizations/{organization_id}/invites/{invite_id}",
-		"/api/invites/redeem",
+		"/org/invites",
+		"/org/invites/{invite_id}",
+		"/user/invites/redeem",
+		"/user/organizations/{organization_id}/session",
 	} {
 		if !strings.Contains(identityRoutesCatalog, want) {
 			t.Fatalf("identity catalog missing %q", want)
@@ -27,7 +28,7 @@ func TestRenderPlat5YMLAuthDefaults(t *testing.T) {
 		"https://oauth.pstmn.io/v1/callback",
 		"http://localhost:5173",
 		"version: v0.1.8",
-		"plat5_version: v0.2.2",
+		"plat5_version: v0.4.0",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("missing %q in:\n%s", want, body)

@@ -73,7 +73,7 @@ services:
     restart: unless-stopped
 
   route-registry:
-    image: ghcr.io/plat5dev/route-registry:${PLAT5_VERSION:-v0.2.2}
+    image: ghcr.io/plat5dev/route-registry:${PLAT5_VERSION:-v0.4.0}
     labels:
       service.name: route-registry
       service.namespace: edge
@@ -107,7 +107,7 @@ services:
     restart: unless-stopped
 
   gateway:
-    image: ghcr.io/plat5dev/gateway:${PLAT5_VERSION:-v0.2.2}
+    image: ghcr.io/plat5dev/gateway:${PLAT5_VERSION:-v0.4.0}
     labels:
       service.name: gateway
       service.namespace: edge
@@ -123,12 +123,11 @@ services:
       AUTH_USER_ID_CLAIM: ${AUTH_USER_ID_CLAIM:-properties.user_id}
       USER_APIKEY_VALIDATE_URL: http://identity:3001/internal/user-keys/validate
       MEMBER_APIKEY_VALIDATE_URL: http://identity:3001/internal/member-keys/validate
-      MEMBER_RESOLVE_URL: http://identity:3001/internal/members/resolve
+      MEMBER_SESSION_VALIDATE_URL: http://identity:3001/internal/member-sessions/validate
       APIKEY_BRAND: ${APIKEY_BRAND:-plat5}
       INTERNAL_AUTH_TOKEN: ${INTERNAL_AUTH_TOKEN:-dev-internal-token}
       RUST_LOG: info
       APIKEY_CACHE_TTL_SECS: "300"
-      MEMBER_CACHE_TTL_SECS: "300"
       RATE_LIMIT_REQUESTS: ${RATE_LIMIT_REQUESTS:-60}
       RATE_LIMIT_WINDOW_SECONDS: ${RATE_LIMIT_WINDOW_SECONDS:-60}
       RATE_LIMIT_AUTH_FAILURE_REQUESTS: ${RATE_LIMIT_AUTH_FAILURE_REQUESTS:-60}
@@ -161,7 +160,7 @@ services:
       - "host.docker.internal:host-gateway"
 
   identity:
-    image: ghcr.io/plat5dev/identity:${PLAT5_VERSION:-v0.2.2}
+    image: ghcr.io/plat5dev/identity:${PLAT5_VERSION:-v0.4.0}
     labels:
       service.name: identity
       service.namespace: identity
