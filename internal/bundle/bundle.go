@@ -12,7 +12,7 @@ import (
 const DefaultVersion = "v0.3.0"
 
 // DefaultAuthVersion is the Auth image tag when auth.version is unset.
-const DefaultAuthVersion = "v0.1.8"
+const DefaultAuthVersion = "v0.1.9"
 
 //go:embed plat5/docker-compose.yml auth/docker-compose.yml observability/docker-compose.yml observability/monitoring/* observability/dashboards/*
 var content embed.FS

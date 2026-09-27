@@ -27,7 +27,7 @@ func TestRenderPlat5YMLAuthDefaults(t *testing.T) {
 		"http://localhost:5173/callback",
 		"https://oauth.pstmn.io/v1/callback",
 		"http://localhost:5173",
-		"version: v0.1.8",
+		"version: v0.1.9",
 		"plat5_version: v0.3.0",
 	} {
 		if !strings.Contains(body, want) {
@@ -43,8 +43,8 @@ func TestRenderPlat5YMLAuthDefaults(t *testing.T) {
 	if strings.Contains(body, "theme_file") {
 		t.Fatalf("init --auth must not invent a theme file:\n%s", body)
 	}
-	if strings.Contains(body, "version: v0.1.6") {
-		t.Fatalf("stale auth.version v0.1.6:\n%s", body)
+	if strings.Contains(body, "version: v0.1.8") {
+		t.Fatalf("stale auth.version v0.1.8:\n%s", body)
 	}
 	if strings.Contains(body, "plat5_version: v0.2.0") {
 		t.Fatalf("stale plat5_version v0.2.0:\n%s", body)

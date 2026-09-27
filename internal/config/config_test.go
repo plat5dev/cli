@@ -107,7 +107,7 @@ routes:
 	if cfg.Plat5Version != "v0.3.0" {
 		t.Fatalf("version %q", cfg.Plat5Version)
 	}
-	if cfg.AuthVersion != "v0.1.8" {
+	if cfg.AuthVersion != "v0.1.9" {
 		t.Fatalf("auth version %q", cfg.AuthVersion)
 	}
 }
