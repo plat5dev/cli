@@ -13,6 +13,9 @@ func TestIdentityRoutesCatalogIncludesInvites(t *testing.T) {
 		"/org/invites/{invite_id}",
 		"/user/invites/redeem",
 		"/user/organizations/{organization_id}/session",
+		"/org/service-accounts/{service_account_id}/api-keys",
+		"/org/service-accounts/{service_account_id}/api-keys/{key_id}",
+		"/organizations/{subject.organization_id}/service-accounts/{path.service_account_id}/api-keys",
 	} {
 		if !strings.Contains(identityRoutesCatalog, want) {
 			t.Fatalf("identity catalog missing %q", want)
