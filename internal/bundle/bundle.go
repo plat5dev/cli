@@ -14,7 +14,10 @@ const DefaultVersion = "v0.3.0"
 // DefaultAuthVersion is the Auth image tag when auth.version is unset.
 const DefaultAuthVersion = "v0.1.9"
 
-//go:embed plat5/docker-compose.yml auth/docker-compose.yml observability/docker-compose.yml observability/monitoring/* observability/dashboards/*
+// DefaultOperatorVersion is the Operator image tag when operator.version is unset.
+const DefaultOperatorVersion = "v0.2.0"
+
+//go:embed plat5/docker-compose.yml auth/docker-compose.yml operator/docker-compose.yml observability/docker-compose.yml observability/monitoring/* observability/dashboards/*
 var content embed.FS
 
 // MaterializePlat5 writes the embedded Plat5 image-mode stack under destDir.
@@ -30,6 +33,11 @@ func MaterializeAuth(destDir string) error {
 // MaterializeObservability writes the embedded observability stack under destDir.
 func MaterializeObservability(destDir string) error {
 	return materialize(destDir, "observability")
+}
+
+// MaterializeOperator writes the embedded Operator image-mode stack under destDir.
+func MaterializeOperator(destDir string) error {
+	return materialize(destDir, "operator")
 }
 
 func materialize(destDir, root string) error {

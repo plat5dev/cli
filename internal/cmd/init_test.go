@@ -24,7 +24,7 @@ func TestIdentityRoutesCatalogIncludesInvites(t *testing.T) {
 }
 
 func TestRenderPlat5YMLAuthDefaults(t *testing.T) {
-	body := renderPlat5YML("demo", "", "", true, "", false, nil, nil)
+	body := renderPlat5YML("demo", "", "", true, "", false, "", false, nil, nil)
 	for _, want := range []string{
 		"allowed_clients: [plat5]",
 		"http://localhost:5173/callback",
@@ -46,6 +46,12 @@ func TestRenderPlat5YMLAuthDefaults(t *testing.T) {
 	if strings.Contains(body, "theme_file") {
 		t.Fatalf("init --auth must not invent a theme file:\n%s", body)
 	}
+	if strings.Contains(body, "bootstrap_password") {
+		t.Fatalf("operator off must not write a bootstrap password:\n%s", body)
+	}
+	if !strings.Contains(body, "operator:\n  enabled: false") {
+		t.Fatalf("operator block missing:\n%s", body)
+	}
 	if strings.Contains(body, "version: v0.1.8") {
 		t.Fatalf("stale auth.version v0.1.8:\n%s", body)
 	}
@@ -54,8 +60,24 @@ func TestRenderPlat5YMLAuthDefaults(t *testing.T) {
 	}
 }
 
+func TestRenderPlat5YMLOperator(t *testing.T) {
+	body := renderPlat5YML("demo", "", "", false, "", false, "/tmp/operator/compose", true, nil, nil)
+	for _, want := range []string{
+		"operator_compose: /tmp/operator/compose",
+		"operator:\n  enabled: true",
+		"version: v0.2.0",
+		"bootstrap_email: \"operator@localhost\"",
+		"bootstrap_password: dev-operator-password",
+		"#   operator: 5004",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing %q in:\n%s", want, body)
+		}
+	}
+}
+
 func TestRenderPlat5YMLOtelWhenObservability(t *testing.T) {
-	body := renderPlat5YML("demo", "", "", false, "", true, nil, nil)
+	body := renderPlat5YML("demo", "", "", false, "", true, "", false, nil, nil)
 	if !strings.Contains(body, "otel:\n  endpoint: http://host.docker.internal:4318") {
 		t.Fatalf("expected active otel block:\n%s", body)
 	}

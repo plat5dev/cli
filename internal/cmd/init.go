@@ -19,14 +19,17 @@ var (
 	initPlat5Compose         string
 	initAuthCompose          string
 	initObservabilityCompose string
+	initOperatorCompose      string
 	initAuth                 bool
 	initObservability        bool
+	initOperator             bool
 	initForce                bool
 	initYes                  bool
 	initTemplate             string
 	initTemplatesDir         string
 	initPlat5Version         string
 	initAuthVersion          string
+	initOperatorVersion      string
 	initTemplateRef          string
 	initListTemplates        bool
 )
@@ -52,7 +55,8 @@ Community: plat5 init --template owner/my-template
 Copy refuses to overwrite existing files.
 
 Advanced (local compose trees for development): --plat5-compose / --auth-compose /
---observability-compose or PLAT5_COMPOSE / PLAT5_AUTH_COMPOSE / PLAT5_OBSERVABILITY_COMPOSE.`,
+--observability-compose / --operator-compose or PLAT5_COMPOSE / PLAT5_AUTH_COMPOSE /
+PLAT5_OBSERVABILITY_COMPOSE / PLAT5_OPERATOR_COMPOSE.`,
 	RunE: runInit,
 }
 
@@ -61,14 +65,17 @@ func init() {
 	initCmd.Flags().StringVar(&initPlat5Compose, "plat5-compose", "", "Advanced: local Plat5 compose dir (or PLAT5_COMPOSE)")
 	initCmd.Flags().StringVar(&initAuthCompose, "auth-compose", "", "Advanced: local Auth compose dir (or PLAT5_AUTH_COMPOSE)")
 	initCmd.Flags().StringVar(&initObservabilityCompose, "observability-compose", "", "Advanced: local observability compose dir")
+	initCmd.Flags().StringVar(&initOperatorCompose, "operator-compose", "", "Advanced: local Operator compose dir (or PLAT5_OPERATOR_COMPOSE)")
 	initCmd.Flags().BoolVar(&initAuth, "auth", false, "Enable Plat5 Auth in plat5.yml")
 	initCmd.Flags().BoolVar(&initObservability, "observability", false, "Enable observability stack in plat5.yml")
+	initCmd.Flags().BoolVar(&initOperator, "operator", false, "Enable Operator stack in plat5.yml")
 	initCmd.Flags().BoolVar(&initForce, "force", false, "Overwrite existing plat5.yml (bare init only)")
 	initCmd.Flags().BoolVarP(&initYes, "yes", "y", false, "Non-interactive; do not prompt")
 	initCmd.Flags().StringVar(&initTemplate, "template", "", "Starter: official name, owner/repo, or https://…/archive/….tar.gz")
 	initCmd.Flags().StringVar(&initTemplatesDir, "templates-dir", "", "Local templates root (skip remote fetch)")
 	initCmd.Flags().StringVar(&initPlat5Version, "plat5-version", "", "Runtime GHCR pin written to plat5.yml (default v0.3.0)")
 	initCmd.Flags().StringVar(&initAuthVersion, "auth-version", "", "Auth GHCR pin written to auth.version (default v0.1.9)")
+	initCmd.Flags().StringVar(&initOperatorVersion, "operator-version", "", "Operator GHCR pin written to operator.version (default v0.2.0)")
 	initCmd.Flags().StringVar(&initTemplateRef, "template-ref", "", "Git ref for remote templates (default master; or PLAT5_TEMPLATE_REF)")
 	initCmd.Flags().BoolVar(&initListTemplates, "list-templates", false, "List first-party templates and exit")
 }
@@ -167,6 +174,25 @@ func runInit(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	operatorEnabled := initOperator
+	if session != nil && !cmd.Flags().Changed("operator") {
+		operatorEnabled, err = session.YesNo("Enable Operator?", false)
+		if err != nil {
+			return err
+		}
+	}
+
+	operatorCompose := initOperatorCompose
+	if operatorCompose == "" {
+		operatorCompose = os.Getenv("PLAT5_OPERATOR_COMPOSE")
+	}
+	if operatorCompose != "" {
+		operatorCompose, err = resolveOperatorFlag(operatorCompose)
+		if err != nil {
+			return fmt.Errorf("operator-compose: %w", err)
+		}
+	}
+
 	var tpl *template.Template
 	if chosenTemplate != "" {
 		opts, err := templateResolveOpts()
@@ -197,7 +223,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	body := renderPlat5YML(projectID, plat5Compose, authCompose, authEnabled, obsCompose, obsEnabled, upstreams, routes)
+	body := renderPlat5YML(projectID, plat5Compose, authCompose, authEnabled, obsCompose, obsEnabled, operatorCompose, operatorEnabled, upstreams, routes)
 	if err := os.WriteFile(ymlPath, []byte(body), 0o644); err != nil {
 		return err
 	}
@@ -320,6 +346,16 @@ func initAuthVer() string {
 	return "v0.1.9"
 }
 
+func initOperatorVer() string {
+	if initOperatorVersion != "" {
+		return initOperatorVersion
+	}
+	if v := os.Getenv("OPERATOR_VERSION"); v != "" {
+		return v
+	}
+	return "v0.2.0"
+}
+
 // templateResolveOpts prefers explicit local dirs; otherwise remote GitHub archives.
 func templateResolveOpts() (template.ResolveOptions, error) {
 	opts := template.ResolveOptions{Ref: initTemplateRef}
@@ -372,7 +408,11 @@ func resolveObservabilityFlag(p string) (string, error) {
 	return compose.ResolveDir(prompt.ExpandPath(p))
 }
 
-func renderPlat5YML(projectID, plat5Path, auth string, authEnabled bool, obs string, obsEnabled bool, upstreams map[string]string, routes []string) string {
+func resolveOperatorFlag(p string) (string, error) {
+	return compose.ResolveDir(prompt.ExpandPath(p))
+}
+
+func renderPlat5YML(projectID, plat5Path, auth string, authEnabled bool, obs string, obsEnabled bool, operator string, operatorEnabled bool, upstreams map[string]string, routes []string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "project_id: %s\n\n", yamlString(projectID))
 	fmt.Fprintf(&b, "# Runtime GHCR tag (gateway, registry, identity).\n")
@@ -386,7 +426,10 @@ func renderPlat5YML(projectID, plat5Path, auth string, authEnabled bool, obs str
 	if obs != "" {
 		fmt.Fprintf(&b, "observability_compose: %s\n", yamlString(obs))
 	}
-	if plat5Path != "" || auth != "" || obs != "" {
+	if operator != "" {
+		fmt.Fprintf(&b, "operator_compose: %s\n", yamlString(operator))
+	}
+	if plat5Path != "" || auth != "" || obs != "" || operator != "" {
 		fmt.Fprintf(&b, "\n")
 	}
 	fmt.Fprintf(&b, "auth:\n  enabled: %t\n", authEnabled)
@@ -402,19 +445,27 @@ func renderPlat5YML(projectID, plat5Path, auth string, authEnabled bool, obs str
 	}
 	fmt.Fprintf(&b, "\n")
 	fmt.Fprintf(&b, "observability:\n  enabled: %t\n\n", obsEnabled)
+	fmt.Fprintf(&b, "operator:\n  enabled: %t\n", operatorEnabled)
+	if operatorEnabled {
+		fmt.Fprintf(&b, "  version: %s  # ghcr.io/plat5dev/operator\n", yamlString(initOperatorVer()))
+		fmt.Fprintf(&b, "  bootstrap_email: %s\n", yamlString(config.DefaultOperatorBootstrapEmail))
+		fmt.Fprintf(&b, "  bootstrap_password: %s\n", yamlString(config.DefaultOperatorBootstrapPassword))
+	}
+	fmt.Fprintf(&b, "\n")
 	fmt.Fprintf(&b, "# Optional host port pins. Omit a key to use defaults;\n")
 	fmt.Fprintf(&b, "# unpinned busy ports are auto-allocated. Pinned + busy → start fails.\n")
 	fmt.Fprintf(&b, "# ports:\n#   gateway: 5001\n#   registry: 5002\n#   auth: 5000\n")
+	fmt.Fprintf(&b, "#   operator: 5004\n")
 	fmt.Fprintf(&b, "#   grafana: 3002\n#   otlp_grpc: 4317\n#   otlp_http: 4318\n#   alloy: 12345\n\n")
 	fmt.Fprintf(&b, "admin_token: %s\n\n", config.DefaultAdminToken)
 	fmt.Fprintf(&b, "# API key brand (identity + gateway). Keys {brand}-sk-1- / {brand}-mk-1-. Sessions {brand}-ms-1-.\n")
 	fmt.Fprintf(&b, "# [a-z][a-z0-9]*, max 32. Same value on both processes.\n")
 	fmt.Fprintf(&b, "# apikey_brand: plat5\n\n")
 	if obsEnabled {
-		fmt.Fprintf(&b, "# OTLP for Plat5/Auth containers (matches default ports.otlp_http).\n")
+		fmt.Fprintf(&b, "# OTLP for Plat5/Auth/Operator containers (matches default ports.otlp_http).\n")
 		fmt.Fprintf(&b, "otel:\n  endpoint: http://host.docker.internal:4318\n\n")
 	} else {
-		fmt.Fprintf(&b, "# Optional OTLP for Plat5/Auth containers (unset = no export).\n")
+		fmt.Fprintf(&b, "# Optional OTLP for Plat5/Auth/Operator containers (unset = no export).\n")
 		fmt.Fprintf(&b, "# When observability.enabled, CLI auto-wires host.docker.internal:<otlp_http> if unset.\n")
 		fmt.Fprintf(&b, "# otel:\n#   endpoint: http://host.docker.internal:4318\n\n")
 	}

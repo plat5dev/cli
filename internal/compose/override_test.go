@@ -166,6 +166,65 @@ func TestResolveDir(t *testing.T) {
 	}
 }
 
+func TestPlat5NetworkName(t *testing.T) {
+	if got := Plat5NetworkName("plat5-demo"); got != "plat5-demo_plat5" {
+		t.Fatalf("network %q", got)
+	}
+}
+
+func TestWriteOperatorOverride(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "compose.operator.override.yml")
+	if err := WriteOperatorOverride(p, 5014, "plat5-demo_plat5", OverrideOpts{}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	for _, want := range []string{
+		`ports: !override`,
+		`"5014:5004"`,
+		`external: true`,
+		`name: "plat5-demo_plat5"`,
+		`networks:`,
+		`- plat5`,
+	} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("missing %q in:\n%s", want, s)
+		}
+	}
+	if strings.Contains(s, "extra_hosts") {
+		t.Fatalf("unexpected extra_hosts:\n%s", s)
+	}
+	if strings.Contains(s, "!override\n    networks") || strings.Contains(s, "networks: !override") {
+		t.Fatalf("service networks must be appended, not replaced:\n%s", s)
+	}
+}
+
+func TestWriteOperatorOverrideHostGateway(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "compose.operator.override.yml")
+	if err := WriteOperatorOverride(p, 5004, "plat5-demo_plat5", OverrideOpts{HostGateway: true}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	if !strings.Contains(s, "extra_hosts:") || !strings.Contains(s, "host.docker.internal:host-gateway") {
+		t.Fatalf("unexpected:\n%s", s)
+	}
+}
+
+func TestWriteOperatorOverrideRequiresNetwork(t *testing.T) {
+	if err := WriteOperatorOverride(filepath.Join(t.TempDir(), "x.yml"), 5004, "", OverrideOpts{}); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
 func TestWriteObservabilityOverride(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "compose.observability.override.yml")

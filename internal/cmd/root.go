@@ -15,8 +15,10 @@ var (
 	flagPlat5Compose         string
 	flagAuthCompose          string
 	flagObservabilityCompose string
+	flagOperatorCompose      string
 	flagPlat5Version         string
 	flagAuthVersion          string
+	flagOperatorVersion      string
 	flagRegistryURL          string
 	flagGatewayURL           string
 	flagAuthURL              string
@@ -52,8 +54,10 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&flagPlat5Compose, "plat5-compose", "", "Advanced: local Plat5 compose directory (or PLAT5_COMPOSE)")
 	rootCmd.PersistentFlags().StringVar(&flagAuthCompose, "auth-compose", "", "Advanced: local Auth compose directory (or PLAT5_AUTH_COMPOSE)")
 	rootCmd.PersistentFlags().StringVar(&flagObservabilityCompose, "observability-compose", "", "Advanced: local observability compose directory")
+	rootCmd.PersistentFlags().StringVar(&flagOperatorCompose, "operator-compose", "", "Advanced: local Operator compose directory (or PLAT5_OPERATOR_COMPOSE)")
 	rootCmd.PersistentFlags().StringVar(&flagPlat5Version, "plat5-version", "", "Runtime GHCR tag (or PLAT5_VERSION / plat5_version in yml)")
 	rootCmd.PersistentFlags().StringVar(&flagAuthVersion, "auth-version", "", "Auth GHCR tag (or AUTH_VERSION / auth.version in yml)")
+	rootCmd.PersistentFlags().StringVar(&flagOperatorVersion, "operator-version", "", "Operator GHCR tag (or OPERATOR_VERSION / operator.version in yml)")
 	rootCmd.PersistentFlags().StringVar(&flagRegistryURL, "registry-url", "", "Route registry URL")
 	rootCmd.PersistentFlags().StringVar(&flagGatewayURL, "gateway-url", "", "Gateway URL")
 	rootCmd.PersistentFlags().StringVar(&flagAuthURL, "auth-url", "", "Auth IdP URL")
@@ -74,8 +78,10 @@ func loadConfig() (config.Resolved, error) {
 		Plat5Compose:         flagPlat5Compose,
 		AuthCompose:          flagAuthCompose,
 		ObservabilityCompose: flagObservabilityCompose,
+		OperatorCompose:      flagOperatorCompose,
 		Plat5Version:         flagPlat5Version,
 		AuthVersion:          flagAuthVersion,
+		OperatorVersion:      flagOperatorVersion,
 		RegistryURL:          flagRegistryURL,
 		GatewayURL:           flagGatewayURL,
 		AuthURL:              flagAuthURL,
@@ -101,12 +107,13 @@ func loadConfigWithState() (config.Resolved, state.State, error) {
 	if err != nil {
 		return config.Resolved{}, state.State{}, err
 	}
-	if st.GatewayPort > 0 || st.RegistryPort > 0 || st.AuthPort > 0 ||
+	if st.GatewayPort > 0 || st.RegistryPort > 0 || st.AuthPort > 0 || st.OperatorPort > 0 ||
 		st.GrafanaPort > 0 || st.OTLPGRPCPort > 0 || st.OTLPHTTPPort > 0 || st.AlloyPort > 0 {
 		config.ApplySavedPorts(&cfg, ports.Set{
 			Gateway:  st.GatewayPort,
 			Registry: st.RegistryPort,
 			Auth:     st.AuthPort,
+			Operator: st.OperatorPort,
 			Grafana:  st.GrafanaPort,
 			OTLPGRPC: st.OTLPGRPCPort,
 			OTLPHTTP: st.OTLPHTTPPort,

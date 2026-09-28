@@ -13,6 +13,7 @@ const (
 	DefaultGateway  = 5001
 	DefaultRegistry = 5002
 	DefaultAuth     = 5000
+	DefaultOperator = 5004
 	DefaultGrafana  = 3002
 	DefaultOTLPGRPC = 4317
 	DefaultOTLPHTTP = 4318
@@ -24,6 +25,7 @@ type Set struct {
 	Gateway  int
 	Registry int
 	Auth     int
+	Operator int
 	Grafana  int
 	OTLPGRPC int
 	OTLPHTTP int
@@ -35,6 +37,7 @@ type Explicit struct {
 	Gateway  bool
 	Registry bool
 	Auth     bool
+	Operator bool
 	Grafana  bool
 	OTLPGRPC bool
 	OTLPHTTP bool
@@ -46,7 +49,7 @@ type Explicit struct {
 // Unpinned ports try the default, then allocate a free port if busy.
 // When a default is skipped, a line is written to stdout (CLI DX).
 func Resolve(want Set, exp Explicit) (Set, error) {
-	used := make(map[int]struct{}, 7)
+	used := make(map[int]struct{}, 8)
 	out := Set{}
 
 	var err error
@@ -59,6 +62,10 @@ func Resolve(want Set, exp Explicit) (Set, error) {
 		return Set{}, err
 	}
 	out.Auth, err = resolveOne("auth", want.Auth, DefaultAuth, exp.Auth, used)
+	if err != nil {
+		return Set{}, err
+	}
+	out.Operator, err = resolveOne("operator", want.Operator, DefaultOperator, exp.Operator, used)
 	if err != nil {
 		return Set{}, err
 	}

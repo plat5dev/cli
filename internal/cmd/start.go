@@ -20,20 +20,25 @@ var (
 	startBuildSet      bool
 	startAuth          bool
 	startObservability bool
+	startOperator      bool
 	startWait          time.Duration
 )
 
 var startCmd = &cobra.Command{
 	Use:   "start",
-	Short: "Start Plat5 (and Auth / Observability if enabled)",
+	Short: "Start Plat5 (and Auth / Observability / Operator if enabled)",
 	Long: `Start local Plat5 stacks with Docker Compose.
 
-Pulls runtime images via plat5_version / PLAT5_VERSION and Auth via
-auth.version / AUTH_VERSION (independent pins; defaults v0.3.0 / v0.1.9) using
+Pulls runtime images via plat5_version / PLAT5_VERSION, Auth via
+auth.version / AUTH_VERSION, and Operator via operator.version /
+OPERATOR_VERSION (independent pins; defaults v0.3.0 / v0.1.9 / v0.2.0) using
 compose files embedded in the CLI.
 
-Advanced: set plat5_compose / auth_compose / observability_compose to local
-compose trees; --build rebuilds from those trees.
+Advanced: set plat5_compose / auth_compose / observability_compose /
+operator_compose to local compose trees; --build rebuilds from those trees.
+
+Operator starts after Plat5 and joins the Plat5 network so identity:3000
+resolves. Identity is not published. Routes are not rewritten.
 
 Applies routes listed in plat5.yml after the registry is ready.`,
 	RunE: runStart,
@@ -44,6 +49,7 @@ func init() {
 	startCmd.Flags().BoolVar(&startBuild, "build", false, "Build images before starting (local compose trees only)")
 	startCmd.Flags().BoolVar(&startAuth, "auth", false, "Also start Plat5 Auth (or set auth.enabled in plat5.yml)")
 	startCmd.Flags().BoolVar(&startObservability, "observability", false, "Also start observability stack (or set observability.enabled)")
+	startCmd.Flags().BoolVar(&startOperator, "operator", false, "Also start Operator (or set operator.enabled)")
 	startCmd.Flags().DurationVar(&startWait, "wait", 5*time.Minute, "Max time to wait for readiness")
 }
 
@@ -61,8 +67,12 @@ func runStart(cmd *cobra.Command, args []string) error {
 
 	wantAuth := startAuth || cfg.AuthEnabled
 	wantObs := startObservability || cfg.ObservabilityEnabled
+	wantOperator := startOperator || cfg.OperatorEnabled
 	if wantObs {
 		cfg.ObservabilityEnabled = true
+	}
+	if wantOperator && !startDetach {
+		return fmt.Errorf("operator requires detached start (it joins the Plat5 network after Plat5 is up)")
 	}
 
 	if err := config.ResolvePorts(&cfg); err != nil {
@@ -97,6 +107,15 @@ func runStart(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	var opDir string
+	var opImage bool
+	if wantOperator {
+		opDir, opImage, err = resolveOperatorStack(cfg, stateDir)
+		if err != nil {
+			return err
+		}
+	}
+
 	// --build defaults: on only for local compose trees when flag omitted.
 	buildPlat5 := startBuild
 	if !startBuildSet {
@@ -109,6 +128,10 @@ func runStart(cmd *cobra.Command, args []string) error {
 	buildObs := startBuild
 	if !startBuildSet {
 		buildObs = !obsImage
+	}
+	buildOperator := startBuild
+	if !startBuildSet {
+		buildOperator = !opImage
 	}
 
 	overrideOpts := compose.OverrideOpts{
@@ -130,6 +153,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 		GatewayPort:              cfg.Ports.Gateway,
 		RegistryPort:             cfg.Ports.Registry,
 		AuthPort:                 cfg.Ports.Auth,
+		OperatorPort:             cfg.Ports.Operator,
 		GrafanaPort:              cfg.Ports.Grafana,
 		OTLPGRPCPort:             cfg.Ports.OTLPGRPC,
 		OTLPHTTPPort:             cfg.Ports.OTLPHTTP,
@@ -243,6 +267,34 @@ func runStart(cmd *cobra.Command, args []string) error {
 	fmt.Println("Waiting for gateway…")
 	if err := waitHTTP(cfg.GatewayURL, startWait); err != nil {
 		return fmt.Errorf("gateway not ready: %w", err)
+	}
+
+	if wantOperator {
+		opOverride := filepath.Join(stateDir, "compose.operator.override.yml")
+		if err := compose.WriteOperatorOverride(opOverride, cfg.Ports.Operator, compose.Plat5NetworkName(cfg.ComposeProject), overrideOpts); err != nil {
+			return err
+		}
+		st.OperatorOverride = opOverride
+		st.OperatorCompose = opDir
+		st.OperatorComposeName = cfg.OperatorComposeName
+		st.StartedOperator = true
+
+		fmt.Println("Starting Operator…")
+		op := compose.Runner{
+			Dir:           opDir,
+			ProjectName:   cfg.OperatorComposeName,
+			OverrideFiles: []string{opOverride},
+		}
+		if err := op.Up(true, buildOperator, operatorStackEnv(cfg)); err != nil {
+			return err
+		}
+		if err := waitHTTP(cfg.OperatorURL+"/health/ready", startWait); err != nil {
+			return fmt.Errorf("operator not ready: %w", err)
+		}
+		fmt.Println("Operator is up:", cfg.OperatorURL)
+		if cfg.OperatorBootstrapEmail != "" {
+			fmt.Println("  login:", cfg.OperatorBootstrapEmail)
+		}
 	}
 
 	if err := state.Save(st); err != nil {

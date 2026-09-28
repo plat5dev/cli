@@ -81,6 +81,19 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		fmt.Println("· observability: not enabled (optional)")
 	}
 
+	if cfg.OperatorEnabled || cfg.OperatorCompose != "" {
+		fmt.Printf("✓ operator.version: %s\n", cfg.OperatorVersion)
+		if cfg.OperatorCompose == "" {
+			fmt.Println("✓ operator: published images (GHCR)")
+		} else if dir, err := compose.ResolveDir(cfg.OperatorCompose); err != nil {
+			check("operator_compose", err)
+		} else {
+			fmt.Printf("✓ operator_compose: %s\n", dir)
+		}
+	} else {
+		fmt.Println("· operator: not enabled (optional)")
+	}
+
 	for _, p := range []struct {
 		name string
 		port int
@@ -89,6 +102,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		{"gateway port", cfg.Ports.Gateway, cfg.PortsExplicit.Gateway},
 		{"registry port", cfg.Ports.Registry, cfg.PortsExplicit.Registry},
 		{"auth port", cfg.Ports.Auth, cfg.PortsExplicit.Auth},
+		{"operator port", cfg.Ports.Operator, cfg.PortsExplicit.Operator},
 		{"grafana port", cfg.Ports.Grafana, cfg.PortsExplicit.Grafana},
 		{"otlp_http port", cfg.Ports.OTLPHTTP, cfg.PortsExplicit.OTLPHTTP},
 		{"alloy port", cfg.Ports.Alloy, cfg.PortsExplicit.Alloy},

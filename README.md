@@ -2,10 +2,10 @@
 
 Local development CLI for **consumer projects** using Plat5.
 
-Requires a project `plat5.yml` (`plat5 init`). Starts Plat5 (and optionally Auth / observability) via Docker Compose and applies gateway routes through the route-registry admin API.
+Requires a project `plat5.yml` (`plat5 init`). Starts Plat5 (and optionally Auth / observability / Operator) via Docker Compose and applies gateway routes through the route-registry admin API.
 
 `plat5 start` pulls runtime images via `plat5_version` and Auth via `auth.version` (independent pins) using compose embedded in the CLI.  
-Advanced (local development): set `plat5_compose` / `auth_compose` / `observability_compose` to local compose trees.
+Advanced (local development): set `plat5_compose` / `auth_compose` / `observability_compose` / `operator_compose` to local compose trees.
 
 Self-host (server) uses published images + compose — see [plat5dev/plat5 self-hosting](https://github.com/plat5dev/plat5/blob/master/docs/self-hosting.md).
 
@@ -33,7 +33,7 @@ plat5 status
 plat5 stop
 ```
 
-`plat5_version` (default `v0.3.0`) pins runtime GHCR tags. With Auth enabled, `auth.version` / `AUTH_VERSION` (default `v0.1.9`) pins `ghcr.io/plat5dev/auth` independently.
+`plat5_version` (default `v0.3.0`) pins runtime GHCR tags. With Auth enabled, `auth.version` / `AUTH_VERSION` (default `v0.1.9`) pins `ghcr.io/plat5dev/auth` independently. With Operator enabled, `operator.version` / `OPERATOR_VERSION` (default `v0.2.0`) pins `ghcr.io/plat5dev/operator` independently.
 
 Templates: first-party short names (`plat5 init --list-templates`) fetch public GitHub repos under `plat5dev/template-*` (branch `master`, override with `--template-ref` / `PLAT5_TEMPLATE_REF`). Also accepts `owner/repo` or an archive URL. Cached under `~/.cache/plat5/templates/`. Local: `--templates-dir` / `PLAT5_TEMPLATES` (directory of template folders).
 
@@ -41,12 +41,12 @@ Templates: first-party short names (`plat5 init --list-templates`) fetch public 
 
 | Command | Description |
 |---------|-------------|
-| `plat5 init` | Create project; `--template` copies a reference app + writes `plat5.yml` |
-| `plat5 start [-d] [--auth] [--observability] [--build]` | Start stacks, wait for registry, apply routes |
-| `plat5 stop [--auth] [--observability]` | Stop Plat5; modules if started / enabled |
+| `plat5 init` | Create project; `--template` copies a reference app + writes `plat5.yml` (`--auth` / `--operator`) |
+| `plat5 start [-d] [--auth] [--observability] [--operator] [--build]` | Start stacks, wait for registry, apply routes |
+| `plat5 stop [--auth] [--observability] [--operator]` | Stop Plat5; modules if started / enabled |
 | `plat5 status` | URLs, health, registered routes |
 | `plat5 doctor` | Docker, project config, ports |
-| `plat5 logs [-f] [service…]` | Plat5 compose logs (`--auth` / `--observability`) |
+| `plat5 logs [-f] [service…]` | Plat5 compose logs (`--auth` / `--observability` / `--operator`) |
 | `plat5 routes apply [file…]` | `POST /apply` (defaults to `routes:` list) |
 | `plat5 routes list` | List services |
 | `plat5 routes get <name>` | Show service config |
@@ -78,12 +78,19 @@ auth:
 observability:
   enabled: false
 
+operator:
+  enabled: false
+  # version: v0.2.0                 # Operator image pin when enabled (OPERATOR_VERSION)
+  # bootstrap_email: operator@localhost
+  # bootstrap_password: dev-operator-password
+
 # Optional host port pins. Omitted keys use defaults;
 # if a default is busy, start auto-allocates. Pinned + busy → error.
 ports:
   gateway: 5001
   registry: 5002
   auth: 5000
+  operator: 5004
   grafana: 3002
   otlp_grpc: 4317
   otlp_http: 4318
@@ -95,7 +102,7 @@ admin_token: dev-admin-token   # local only; do not put production tokens here
 # [a-z][a-z0-9]*, max 32. Keys are {brand}-sk-1- / {brand}-mk-1-. Sessions are {brand}-ms-1-.
 # apikey_brand: plat5
 
-# Optional OTLP for Plat5/Auth containers (unset = no export).
+# Optional OTLP for Plat5/Auth/Operator containers (unset = no export).
 # When observability.enabled, CLI auto-wires host.docker.internal:<otlp_http>
 # if otel.endpoint is unset. Explicit endpoint always wins.
 # Host-published Alloy: CLI injects env and adds host-gateway extra_hosts
@@ -148,11 +155,11 @@ plat5 routes apply ./other.yml
 
 ## Ports and multi-project
 
-Each project gets compose project names `plat5-<project_id>`, `plat5-<project_id>-auth`, `plat5-<project_id>-observability`.
+Each project gets compose project names `plat5-<project_id>`, `plat5-<project_id>-auth`, `plat5-<project_id>-observability`, `plat5-<project_id>-operator`.
 
-Host port mappings are written to override files under XDG state so two projects do not share containers. Defaults: gateway 5001, registry 5002, auth 5000, grafana 3002, OTLP 4317/4318, alloy 12345. Unpinned busy ports are reallocated; **pinned** ports never auto-move.
+Host port mappings are written to override files under XDG state so two projects do not share containers. Defaults: gateway 5001, registry 5002, auth 5000, operator 5004, grafana 3002, OTLP 4317/4318, alloy 12345. Unpinned busy ports are reallocated; **pinned** ports never auto-move.
 
-Start order: observability → auth → plat5. Stop is the reverse.
+Start order: observability → auth → plat5 → operator. Stop is the reverse. Operator joins the Plat5 compose network (`<project>_plat5`) after Plat5 is up so the image route list can dial `identity:3000`. Identity is not published. Routes are not rewritten. Operator requires detached start (the default).
 
 ## State (XDG)
 
@@ -164,4 +171,4 @@ Same path on macOS and Linux:
 
 ## Path mode (contributors)
 
-Point `plat5_compose` / `auth_compose` / `observability_compose` (flags/env/yml) at a directory that **contains** `docker-compose.yml` (or `compose.yml`). No layout probing — exact path only. Image mode (embedded compose + GHCR) is the default for consumers.
+Point `plat5_compose` / `auth_compose` / `observability_compose` / `operator_compose` (flags/env/yml) at a directory that **contains** `docker-compose.yml` (or `compose.yml`). No layout probing — exact path only. Image mode (embedded compose + GHCR) is the default for consumers.

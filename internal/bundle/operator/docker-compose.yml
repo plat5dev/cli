@@ -1,0 +1,42 @@
+# Embedded by plat5 CLI. Pulls ghcr.io/plat5dev/operator:${OPERATOR_VERSION}.
+# The image route list dials http://identity:3000. start attaches this service
+# to the Plat5 compose network so that name resolves. Identity is not published.
+name: operator
+
+volumes:
+  operator_data:
+
+networks:
+  operator:
+    driver: bridge
+
+services:
+  operator:
+    image: ghcr.io/plat5dev/operator:${OPERATOR_VERSION:-v0.2.0}
+    labels:
+      service.name: operator
+      service.namespace: operator
+    ports:
+      - "5004:5004"
+    environment:
+      ADDR: ${ADDR:-:5004}
+      DB_PATH: ${DB_PATH:-/data/operator.db}
+      ROUTES_FILE: ${ROUTES_FILE:-/routes.yml}
+      CONSOLE_ASSETS: ${CONSOLE_ASSETS:-/console}
+      OPERATOR_BOOTSTRAP_EMAIL: ${OPERATOR_BOOTSTRAP_EMAIL:-}
+      OPERATOR_BOOTSTRAP_PASSWORD: ${OPERATOR_BOOTSTRAP_PASSWORD:-}
+      OTEL_SERVICE_NAME: operator
+      OTEL_SERVICE_NAMESPACE: operator
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      DEPLOYMENT_ENV: local
+    volumes:
+      - operator_data:/data
+    networks:
+      - operator
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5004/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped

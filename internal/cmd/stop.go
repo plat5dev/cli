@@ -11,17 +11,19 @@ import (
 var (
 	stopAuth          bool
 	stopObservability bool
+	stopOperator      bool
 )
 
 var stopCmd = &cobra.Command{
 	Use:   "stop",
-	Short: "Stop Plat5 (and Auth / Observability if this CLI started them)",
+	Short: "Stop Plat5 (and Auth / Observability / Operator if this CLI started them)",
 	RunE:  runStop,
 }
 
 func init() {
 	stopCmd.Flags().BoolVar(&stopAuth, "auth", false, "Also stop Plat5 Auth even if not recorded in state")
 	stopCmd.Flags().BoolVar(&stopObservability, "observability", false, "Also stop observability even if not recorded in state")
+	stopCmd.Flags().BoolVar(&stopOperator, "operator", false, "Also stop Operator even if not recorded in state")
 }
 
 func runStop(cmd *cobra.Command, args []string) error {
@@ -51,6 +53,32 @@ func runStop(cmd *cobra.Command, args []string) error {
 	var plat5Overrides []string
 	if st.Plat5Override != "" {
 		plat5Overrides = []string{st.Plat5Override}
+	}
+
+	// Operator joins the Plat5 network. Stop it first so Plat5 can drop that network.
+	shouldStopOperator := stopOperator || st.StartedOperator || cfg.OperatorEnabled
+	if shouldStopOperator {
+		opDir, err := resolveOperatorStackForOps(cfg, st, stateDir)
+		if err != nil {
+			fmt.Println("Warning: could not resolve operator compose:", err)
+		} else if opDir != "" {
+			opProject := st.OperatorComposeName
+			if opProject == "" {
+				opProject = cfg.OperatorComposeName
+			}
+			var opOverrides []string
+			if st.OperatorOverride != "" {
+				opOverrides = []string{st.OperatorOverride}
+			}
+			fmt.Println("Stopping Operator…")
+			if err := (compose.Runner{
+				Dir:           opDir,
+				ProjectName:   opProject,
+				OverrideFiles: opOverrides,
+			}).Down(); err != nil {
+				return err
+			}
+		}
 	}
 
 	fmt.Println("Stopping Plat5…")

@@ -45,6 +45,23 @@ func resolveAuthStack(cfg config.Resolved, stateDir string) (dir string, imageMo
 	return dir, true, nil
 }
 
+// resolveOperatorStack returns the compose directory for Operator.
+// Path mode when operator_compose set; otherwise embedded image stack.
+func resolveOperatorStack(cfg config.Resolved, stateDir string) (dir string, imageMode bool, err error) {
+	if cfg.OperatorCompose != "" {
+		dir, err = compose.ResolveDir(cfg.OperatorCompose)
+		if err != nil {
+			return "", false, fmt.Errorf("operator_compose: %w", err)
+		}
+		return dir, false, nil
+	}
+	dir = filepath.Join(stateDir, "bundle", "operator")
+	if err := bundle.MaterializeOperator(dir); err != nil {
+		return "", true, fmt.Errorf("materialize operator bundle: %w", err)
+	}
+	return dir, true, nil
+}
+
 // resolveObservabilityStack returns the compose directory for observability.
 func resolveObservabilityStack(cfg config.Resolved, stateDir string) (dir string, imageMode bool, err error) {
 	if cfg.ObservabilityCompose != "" {
@@ -81,6 +98,17 @@ func resolveAuthStackForOps(cfg config.Resolved, st state.State, stateDir string
 	return dir, err
 }
 
+func resolveOperatorStackForOps(cfg config.Resolved, st state.State, stateDir string) (string, error) {
+	if st.OperatorCompose != "" && compose.ValidateComposeDir(st.OperatorCompose) == nil {
+		return st.OperatorCompose, nil
+	}
+	if cfg.OperatorCompose == "" && !cfg.OperatorEnabled && !st.StartedOperator {
+		return "", nil
+	}
+	dir, _, err := resolveOperatorStack(cfg, stateDir)
+	return dir, err
+}
+
 func resolveObservabilityStackForOps(cfg config.Resolved, st state.State, stateDir string) (string, error) {
 	if st.ObservabilityCompose != "" && compose.ValidateComposeDir(st.ObservabilityCompose) == nil {
 		return st.ObservabilityCompose, nil
@@ -102,6 +130,26 @@ func plat5StackEnv(cfg config.Resolved) []string {
 
 func authVersionEnv(cfg config.Resolved) []string {
 	return []string{fmt.Sprintf("AUTH_VERSION=%s", cfg.AuthVersion)}
+}
+
+func operatorVersionEnv(cfg config.Resolved) []string {
+	return []string{fmt.Sprintf("OPERATOR_VERSION=%s", cfg.OperatorVersion)}
+}
+
+// operatorStackEnv is compose env for Operator (image pin, local bootstrap, OTLP).
+// Empty bootstrap is omitted so the process does not create an account.
+func operatorStackEnv(cfg config.Resolved) []string {
+	env := append([]string{}, operatorVersionEnv(cfg)...)
+	if cfg.OperatorBootstrapEmail != "" {
+		env = append(env, "OPERATOR_BOOTSTRAP_EMAIL="+cfg.OperatorBootstrapEmail)
+	}
+	if cfg.OperatorBootstrapPassword != "" {
+		env = append(env, "OPERATOR_BOOTSTRAP_PASSWORD="+cfg.OperatorBootstrapPassword)
+	}
+	if cfg.OtelEndpoint != "" {
+		env = append(env, fmt.Sprintf("OTEL_EXPORTER_OTLP_ENDPOINT=%s", cfg.OtelEndpoint))
+	}
+	return env
 }
 
 // authStackEnv is compose env for the Auth issuer (version + project OAuth surface).

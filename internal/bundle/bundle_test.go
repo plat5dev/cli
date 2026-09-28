@@ -60,6 +60,27 @@ func TestDefaultAuthVersion(t *testing.T) {
 	if DefaultVersion != "v0.3.0" {
 		t.Fatalf("DefaultVersion should be v0.3.0, got %q", DefaultVersion)
 	}
+	if DefaultOperatorVersion != "v0.2.0" {
+		t.Fatalf("DefaultOperatorVersion %q", DefaultOperatorVersion)
+	}
+}
+
+func TestMaterializeOperator(t *testing.T) {
+	dir := t.TempDir()
+	if err := MaterializeOperator(dir); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "docker-compose.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	if !strings.Contains(s, "${OPERATOR_VERSION:-v0.2.0}") {
+		t.Fatalf("operator compose default pin missing:\n%s", s)
+	}
+	if !strings.Contains(s, "ghcr.io/plat5dev/operator:") {
+		t.Fatalf("operator image missing:\n%s", s)
+	}
 }
 
 func TestMaterializeObservability(t *testing.T) {

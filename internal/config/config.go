@@ -15,6 +15,11 @@ import (
 
 const DefaultAdminToken = "dev-admin-token"
 const DefaultAPIKeyBrand = "plat5"
+
+// Local Operator console bootstrap. Written by init when operator is enabled.
+// Same class of local default as admin_token. Empty means no account is created.
+const DefaultOperatorBootstrapEmail = "operator@localhost"
+const DefaultOperatorBootstrapPassword = "dev-operator-password"
 const maxAPIKeyBrandLen = 32
 
 var projectIDSanitizer = regexp.MustCompile(`[^a-zA-Z0-9_-]+`)
@@ -24,8 +29,10 @@ type Flags struct {
 	Plat5Compose         string
 	AuthCompose          string
 	ObservabilityCompose string
+	OperatorCompose      string
 	Plat5Version         string
 	AuthVersion          string
+	OperatorVersion      string
 	RegistryURL          string
 	GatewayURL           string
 	AuthURL              string
@@ -39,8 +46,10 @@ type File struct {
 	Plat5Compose         string             `yaml:"plat5_compose"`
 	AuthCompose          string             `yaml:"auth_compose"`
 	ObservabilityCompose string             `yaml:"observability_compose"`
+	OperatorCompose      string             `yaml:"operator_compose"`
 	Auth                 AuthBlock          `yaml:"auth"`
 	Observability        ObservabilityBlock `yaml:"observability"`
+	Operator             OperatorBlock      `yaml:"operator"`
 	Otel                 OtelBlock          `yaml:"otel"`
 	Ports                PortsBlock         `yaml:"ports"`
 	RegistryURL          string             `yaml:"registry_url"`
@@ -71,6 +80,15 @@ type ObservabilityBlock struct {
 	Enabled bool `yaml:"enabled"`
 }
 
+// OperatorBlock is optional Operator gateway + console settings.
+// Operator is a second front door. It is not a mode of the customer gateway.
+type OperatorBlock struct {
+	Enabled           bool   `yaml:"enabled"`
+	Version           string `yaml:"version"` // ghcr.io/plat5dev/operator tag (OPERATOR_VERSION)
+	BootstrapEmail    string `yaml:"bootstrap_email"`
+	BootstrapPassword string `yaml:"bootstrap_password"`
+}
+
 // OtelBlock is optional OpenTelemetry export for local stacks started by the CLI.
 type OtelBlock struct {
 	// Endpoint is OTEL_EXPORTER_OTLP_ENDPOINT (e.g. http://host.docker.internal:4318).
@@ -83,6 +101,7 @@ type PortsBlock struct {
 	Gateway  *int `yaml:"gateway"`
 	Registry *int `yaml:"registry"`
 	Auth     *int `yaml:"auth"`
+	Operator *int `yaml:"operator"`
 	Grafana  *int `yaml:"grafana"`
 	OTLPGRPC *int `yaml:"otlp_grpc"`
 	OTLPHTTP *int `yaml:"otlp_http"`
@@ -102,6 +121,7 @@ type Resolved struct {
 	Plat5Compose             string
 	AuthCompose              string
 	ObservabilityCompose     string
+	OperatorCompose          string
 	AuthEnabled              bool
 	AuthAllowedClients       []string
 	AuthAllowedRedirectURIs  []string
@@ -110,17 +130,23 @@ type Resolved struct {
 	AuthThemeFile            string // absolute host path; empty = no mount
 	authPublicIssuerExplicit bool
 	ObservabilityEnabled     bool
-	OtelEndpoint             string
-	otelExplicit             bool // set from yml/env/flag — not auto-wired
-	Ports                    ports.Set
-	PortsExplicit            ports.Explicit
-	GatewayURL               string
-	RegistryURL              string
-	AuthURL                  string
-	GrafanaURL               string
-	AlloyURL                 string
-	urlExplicit              urlExplicit
-	AdminToken               string
+	// Operator is a second front door onto identity. Not the customer gateway.
+	OperatorEnabled           bool
+	OperatorVersion           string
+	OperatorBootstrapEmail    string
+	OperatorBootstrapPassword string
+	OtelEndpoint              string
+	otelExplicit              bool // set from yml/env/flag — not auto-wired
+	Ports                     ports.Set
+	PortsExplicit             ports.Explicit
+	GatewayURL                string
+	RegistryURL               string
+	AuthURL                   string
+	OperatorURL               string
+	GrafanaURL                string
+	AlloyURL                  string
+	urlExplicit               urlExplicit
+	AdminToken                string
 	// APIKeyBrand is identity + gateway APIKEY_BRAND. Unset → plat5.
 	APIKeyBrand              string
 	RouteFiles               []string
@@ -128,6 +154,7 @@ type Resolved struct {
 	ComposeProject           string
 	AuthComposeName          string
 	ObservabilityComposeName string
+	OperatorComposeName      string
 }
 
 type urlExplicit struct {
@@ -165,21 +192,25 @@ func Load(flags Flags) (Resolved, error) {
 	}
 
 	r := Resolved{
-		ProjectID:                projectID,
-		ConfigPath:               configPath,
-		ConfigDir:                configDir,
-		AuthEnabled:              file.Auth.Enabled,
-		AuthAllowedClients:       trimNonEmpty(file.Auth.AllowedClients),
-		AuthAllowedRedirectURIs:  trimNonEmpty(file.Auth.AllowedRedirectURIs),
-		AuthAllowedOrigins:       trimNonEmpty(file.Auth.AllowedOrigins),
-		AuthPublicIssuerURL:      strings.TrimSpace(file.Auth.PublicIssuerURL),
-		AuthThemeFile:            resolveAgainst(configDir, strings.TrimSpace(file.Auth.ThemeFile)),
-		ObservabilityEnabled:     file.Observability.Enabled,
-		OtelEndpoint:             strings.TrimSpace(file.Otel.Endpoint),
-		AdminToken:               DefaultAdminToken,
-		ComposeProject:           "plat5-" + projectID,
-		AuthComposeName:          "plat5-" + projectID + "-auth",
-		ObservabilityComposeName: "plat5-" + projectID + "-observability",
+		ProjectID:                 projectID,
+		ConfigPath:                configPath,
+		ConfigDir:                 configDir,
+		AuthEnabled:               file.Auth.Enabled,
+		AuthAllowedClients:        trimNonEmpty(file.Auth.AllowedClients),
+		AuthAllowedRedirectURIs:   trimNonEmpty(file.Auth.AllowedRedirectURIs),
+		AuthAllowedOrigins:        trimNonEmpty(file.Auth.AllowedOrigins),
+		AuthPublicIssuerURL:       strings.TrimSpace(file.Auth.PublicIssuerURL),
+		AuthThemeFile:             resolveAgainst(configDir, strings.TrimSpace(file.Auth.ThemeFile)),
+		ObservabilityEnabled:      file.Observability.Enabled,
+		OperatorEnabled:           file.Operator.Enabled,
+		OperatorBootstrapEmail:    strings.TrimSpace(file.Operator.BootstrapEmail),
+		OperatorBootstrapPassword: strings.TrimSpace(file.Operator.BootstrapPassword),
+		OtelEndpoint:              strings.TrimSpace(file.Otel.Endpoint),
+		AdminToken:                DefaultAdminToken,
+		ComposeProject:            "plat5-" + projectID,
+		AuthComposeName:           "plat5-" + projectID + "-auth",
+		ObservabilityComposeName:  "plat5-" + projectID + "-observability",
+		OperatorComposeName:       "plat5-" + projectID + "-operator",
 	}
 	if r.AuthPublicIssuerURL != "" {
 		r.authPublicIssuerExplicit = true
@@ -211,6 +242,10 @@ func Load(flags Flags) (Resolved, error) {
 	if r.AuthVersion == "" {
 		r.AuthVersion = "v0.1.9"
 	}
+	r.OperatorVersion = firstNonEmpty(flags.OperatorVersion, os.Getenv("OPERATOR_VERSION"), file.Operator.Version)
+	if r.OperatorVersion == "" {
+		r.OperatorVersion = "v0.2.0"
+	}
 	brand, err := resolveAPIKeyBrand(file.APIKeyBrand)
 	if err != nil {
 		return Resolved{}, err
@@ -219,9 +254,11 @@ func Load(flags Flags) (Resolved, error) {
 	r.Plat5Compose = firstNonEmpty(flags.Plat5Compose, os.Getenv("PLAT5_COMPOSE"), file.Plat5Compose)
 	r.AuthCompose = firstNonEmpty(flags.AuthCompose, os.Getenv("PLAT5_AUTH_COMPOSE"), file.AuthCompose)
 	r.ObservabilityCompose = firstNonEmpty(flags.ObservabilityCompose, os.Getenv("PLAT5_OBSERVABILITY_COMPOSE"), file.ObservabilityCompose)
+	r.OperatorCompose = firstNonEmpty(flags.OperatorCompose, os.Getenv("PLAT5_OPERATOR_COMPOSE"), file.OperatorCompose)
 	r.Plat5Compose = resolveAgainst(configDir, r.Plat5Compose)
 	r.AuthCompose = resolveAgainst(configDir, r.AuthCompose)
 	r.ObservabilityCompose = resolveAgainst(configDir, r.ObservabilityCompose)
+	r.OperatorCompose = resolveAgainst(configDir, r.OperatorCompose)
 
 	if file.Ports.Gateway != nil {
 		r.Ports.Gateway = *file.Ports.Gateway
@@ -234,6 +271,10 @@ func Load(flags Flags) (Resolved, error) {
 	if file.Ports.Auth != nil {
 		r.Ports.Auth = *file.Ports.Auth
 		r.PortsExplicit.Auth = true
+	}
+	if file.Ports.Operator != nil {
+		r.Ports.Operator = *file.Ports.Operator
+		r.PortsExplicit.Operator = true
 	}
 	if file.Ports.Grafana != nil {
 		r.Ports.Grafana = *file.Ports.Grafana
@@ -308,6 +349,9 @@ func Load(flags Flags) (Resolved, error) {
 	if r.Ports.Auth == 0 {
 		r.Ports.Auth = ports.DefaultAuth
 	}
+	if r.Ports.Operator == 0 {
+		r.Ports.Operator = ports.DefaultOperator
+	}
 	if r.Ports.Grafana == 0 {
 		r.Ports.Grafana = ports.DefaultGrafana
 	}
@@ -349,6 +393,9 @@ func ApplySavedPorts(r *Resolved, st ports.Set) {
 	if st.Auth > 0 {
 		r.Ports.Auth = st.Auth
 	}
+	if st.Operator > 0 {
+		r.Ports.Operator = st.Operator
+	}
 	if st.Grafana > 0 {
 		r.Ports.Grafana = st.Grafana
 	}
@@ -386,6 +433,9 @@ func deriveURLs(r *Resolved) {
 	}
 	if !r.urlExplicit.Auth {
 		r.AuthURL = fmt.Sprintf("http://localhost:%d", r.Ports.Auth)
+	}
+	if r.Ports.Operator > 0 {
+		r.OperatorURL = fmt.Sprintf("http://localhost:%d", r.Ports.Operator)
 	}
 	if !r.authPublicIssuerExplicit {
 		// Token iss should match the browser-facing Auth origin.

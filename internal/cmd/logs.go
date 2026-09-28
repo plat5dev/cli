@@ -11,6 +11,7 @@ import (
 var (
 	logsAuth          bool
 	logsObservability bool
+	logsOperator      bool
 	logsFollow        bool
 )
 
@@ -23,6 +24,7 @@ var logsCmd = &cobra.Command{
 func init() {
 	logsCmd.Flags().BoolVar(&logsAuth, "auth", false, "Show Plat5 Auth compose logs")
 	logsCmd.Flags().BoolVar(&logsObservability, "observability", false, "Show observability compose logs")
+	logsCmd.Flags().BoolVar(&logsOperator, "operator", false, "Show Operator compose logs")
 	logsCmd.Flags().BoolVarP(&logsFollow, "follow", "f", true, "Follow log output")
 }
 
@@ -35,8 +37,18 @@ func runLogs(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if logsAuth && logsObservability {
-		return fmt.Errorf("use only one of --auth or --observability")
+	selected := 0
+	if logsAuth {
+		selected++
+	}
+	if logsObservability {
+		selected++
+	}
+	if logsOperator {
+		selected++
+	}
+	if selected > 1 {
+		return fmt.Errorf("use only one of --auth, --observability, or --operator")
 	}
 
 	stateDir, err := state.Dir(cfg.ProjectID)
@@ -70,6 +82,21 @@ func runLogs(cmd *cobra.Command, args []string) error {
 		r := composeRunner(dir, st.ObservabilityComposeName, cfg.ObservabilityComposeName, st.ObservabilityOverride)
 		if r == nil {
 			return fmt.Errorf("observability compose not configured")
+		}
+		return r.Logs(logsFollow, args...)
+	}
+
+	if logsOperator {
+		dir, err := resolveOperatorStackForOps(cfg, st, stateDir)
+		if err != nil {
+			return err
+		}
+		if dir == "" {
+			return fmt.Errorf("operator compose not configured")
+		}
+		r := composeRunner(dir, st.OperatorComposeName, cfg.OperatorComposeName, st.OperatorOverride)
+		if r == nil {
+			return fmt.Errorf("operator compose not configured")
 		}
 		return r.Logs(logsFollow, args...)
 	}

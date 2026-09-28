@@ -404,6 +404,60 @@ otel:
 	}
 }
 
+func TestLoadOperator(t *testing.T) {
+	root := t.TempDir()
+	op := filepath.Join(root, "operator-compose")
+	if err := os.MkdirAll(op, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	yml := `project_id: p
+operator_compose: ./operator-compose
+operator:
+  enabled: true
+  version: v0.2.0
+  bootstrap_email: operator@localhost
+  bootstrap_password: dev-operator-password
+ports:
+  operator: 5004
+`
+	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(Flags{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.OperatorEnabled {
+		t.Fatal("operator.enabled")
+	}
+	if cfg.OperatorVersion != "v0.2.0" {
+		t.Fatalf("version %q", cfg.OperatorVersion)
+	}
+	if !samePath(cfg.OperatorCompose, op) {
+		t.Fatalf("compose %q want %q", cfg.OperatorCompose, op)
+	}
+	if cfg.OperatorComposeName != "plat5-p-operator" {
+		t.Fatalf("compose name %q", cfg.OperatorComposeName)
+	}
+	if cfg.OperatorBootstrapEmail != "operator@localhost" || cfg.OperatorBootstrapPassword != "dev-operator-password" {
+		t.Fatalf("bootstrap %q / %q", cfg.OperatorBootstrapEmail, cfg.OperatorBootstrapPassword)
+	}
+	if !cfg.PortsExplicit.Operator || cfg.Ports.Operator != 5004 {
+		t.Fatalf("port pin %+v", cfg.Ports)
+	}
+	if err := ResolvePorts(&cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.OperatorURL != "http://localhost:5004" {
+		t.Fatalf("url %q", cfg.OperatorURL)
+	}
+}
+
 func TestLoadAPIKeyBrand(t *testing.T) {
 	unsetAPIKeyBrand(t)
 

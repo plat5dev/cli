@@ -36,10 +36,12 @@ func printStatus(cfg config.Resolved, st state.State) error {
 	plat5Dir, _ := resolvePlat5StackForOps(cfg, st, stateDir)
 	authDir, _ := resolveAuthStackForOps(cfg, st, stateDir)
 	obsDir, _ := resolveObservabilityStackForOps(cfg, st, stateDir)
+	opDir, _ := resolveOperatorStackForOps(cfg, st, stateDir)
 
 	edgeRunner := composeRunner(plat5Dir, st.ComposeProject, cfg.ComposeProject, st.Plat5Override)
 	authRunner := composeRunner(authDir, st.AuthComposeName, cfg.AuthComposeName, st.AuthOverride)
 	obsRunner := composeRunner(obsDir, st.ObservabilityComposeName, cfg.ObservabilityComposeName, st.ObservabilityOverride)
+	opRunner := composeRunner(opDir, st.OperatorComposeName, cfg.OperatorComposeName, st.OperatorOverride)
 
 	edgeRunning := false
 	if edgeRunner != nil {
@@ -52,6 +54,10 @@ func printStatus(cfg config.Resolved, st state.State) error {
 	obsRunning := false
 	if obsRunner != nil {
 		obsRunning, _ = obsRunner.Running()
+	}
+	opRunning := false
+	if opRunner != nil {
+		opRunning, _ = opRunner.Running()
 	}
 
 	gw := output.ProbeHTTP(cfg.GatewayURL, 2*time.Second)
@@ -71,6 +77,11 @@ func printStatus(cfg config.Resolved, st state.State) error {
 		authProbe = output.ProbeHTTP(cfg.AuthURL, 2*time.Second)
 	}
 
+	opProbe := "skipped"
+	if st.StartedOperator || opRunning || cfg.OperatorEnabled {
+		opProbe = output.ProbeHTTP(cfg.OperatorURL, 2*time.Second)
+	}
+
 	obsProbe := "skipped"
 	if st.StartedObservability || obsRunning || cfg.ObservabilityEnabled {
 		if cfg.GrafanaURL != "" {
@@ -86,6 +97,9 @@ func printStatus(cfg config.Resolved, st state.State) error {
 	}
 	if cfg.AuthEnabled || cfg.AuthCompose != "" {
 		lines = append(lines, fmt.Sprintf("Auth version:    %s", cfg.AuthVersion))
+	}
+	if cfg.OperatorEnabled || cfg.OperatorCompose != "" {
+		lines = append(lines, fmt.Sprintf("Operator version: %s", cfg.OperatorVersion))
 	}
 	if plat5Dir != "" {
 		runLabel := "stopped"
@@ -118,10 +132,29 @@ func printStatus(cfg config.Resolved, st state.State) error {
 	} else {
 		lines = append(lines, "Obs compose:     (not set)")
 	}
+	if opDir != "" {
+		runLabel := "stopped"
+		if opRunning {
+			runLabel = "running"
+		}
+		if cfg.OperatorCompose != "" {
+			lines = append(lines, fmt.Sprintf("Op compose:      %s (%s)", opDir, runLabel))
+		} else {
+			lines = append(lines, fmt.Sprintf("Op compose:      %s", runLabel))
+		}
+	}
 	lines = append(lines, "")
 	lines = append(lines, fmt.Sprintf("Gateway:         %s  (%s)", cfg.GatewayURL, gw))
 	lines = append(lines, fmt.Sprintf("Route registry:  %s  (%s)", cfg.RegistryURL, regStatus))
 	lines = append(lines, fmt.Sprintf("Auth (IdP):      %s  (%s)", cfg.AuthURL, authProbe))
+	lines = append(lines, fmt.Sprintf("Operator:        %s  (%s)", cfg.OperatorURL, opProbe))
+	if cfg.OperatorBootstrapEmail != "" && (cfg.OperatorEnabled || st.StartedOperator || opRunning) {
+		login := cfg.OperatorBootstrapEmail
+		if cfg.OperatorBootstrapPassword != "" {
+			login += " / " + cfg.OperatorBootstrapPassword
+		}
+		lines = append(lines, fmt.Sprintf("Operator login:  %s", login))
+	}
 	if cfg.GrafanaURL != "" {
 		lines = append(lines, fmt.Sprintf("Grafana:         %s  (%s)", cfg.GrafanaURL, obsProbe))
 	}
