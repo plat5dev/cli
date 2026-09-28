@@ -27,7 +27,7 @@ func TestMaterializePlat5(t *testing.T) {
 	if len(data) < 100 {
 		t.Fatalf("compose too small: %d", len(data))
 	}
-	if !strings.Contains(string(data), "${PLAT5_VERSION:-v0.3.0}") {
+	if !strings.Contains(string(data), "${PLAT5_VERSION:-v0.3.1}") {
 		t.Fatalf("plat5 compose default pin missing:\n%s", data)
 	}
 	if strings.Contains(string(data), "${PLAT5_VERSION:-v0.2.0}") {
@@ -57,8 +57,8 @@ func TestDefaultAuthVersion(t *testing.T) {
 	if DefaultAuthVersion != "v0.1.9" {
 		t.Fatalf("DefaultAuthVersion %q", DefaultAuthVersion)
 	}
-	if DefaultVersion != "v0.3.0" {
-		t.Fatalf("DefaultVersion should be v0.3.0, got %q", DefaultVersion)
+	if DefaultVersion != "v0.3.1" {
+		t.Fatalf("DefaultVersion should be v0.3.1, got %q", DefaultVersion)
 	}
 	if DefaultOperatorVersion != "v0.2.0" {
 		t.Fatalf("DefaultOperatorVersion %q", DefaultOperatorVersion)

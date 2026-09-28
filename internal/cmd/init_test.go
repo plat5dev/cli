@@ -31,7 +31,7 @@ func TestRenderPlat5YMLAuthDefaults(t *testing.T) {
 		"https://oauth.pstmn.io/v1/callback",
 		"http://localhost:5173",
 		"version: v0.1.9",
-		"plat5_version: v0.3.0",
+		"plat5_version: v0.3.1",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("missing %q in:\n%s", want, body)
