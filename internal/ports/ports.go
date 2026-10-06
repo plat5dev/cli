@@ -14,34 +14,38 @@ const (
 	DefaultRegistry = 5002
 	DefaultAuth     = 5000
 	DefaultOperator = 5004
-	DefaultGrafana  = 3002
-	DefaultOTLPGRPC = 4317
-	DefaultOTLPHTTP = 4318
-	DefaultAlloy    = 12345
+	// DefaultOperatorIdP is the local staff IdP (Dex) beside Operator.
+	DefaultOperatorIdP = 5556
+	DefaultGrafana     = 3002
+	DefaultOTLPGRPC    = 4317
+	DefaultOTLPHTTP    = 4318
+	DefaultAlloy       = 12345
 )
 
 // Set is host ports for published services.
 type Set struct {
-	Gateway  int
-	Registry int
-	Auth     int
-	Operator int
-	Grafana  int
-	OTLPGRPC int
-	OTLPHTTP int
-	Alloy    int
+	Gateway     int
+	Registry    int
+	Auth        int
+	Operator    int
+	OperatorIdP int
+	Grafana     int
+	OTLPGRPC    int
+	OTLPHTTP    int
+	Alloy       int
 }
 
 // Explicit tracks which ports were pinned in plat5.yml.
 type Explicit struct {
-	Gateway  bool
-	Registry bool
-	Auth     bool
-	Operator bool
-	Grafana  bool
-	OTLPGRPC bool
-	OTLPHTTP bool
-	Alloy    bool
+	Gateway     bool
+	Registry    bool
+	Auth        bool
+	Operator    bool
+	OperatorIdP bool
+	Grafana     bool
+	OTLPGRPC    bool
+	OTLPHTTP    bool
+	Alloy       bool
 }
 
 // Resolve picks host ports.
@@ -66,6 +70,10 @@ func Resolve(want Set, exp Explicit) (Set, error) {
 		return Set{}, err
 	}
 	out.Operator, err = resolveOne("operator", want.Operator, DefaultOperator, exp.Operator, used)
+	if err != nil {
+		return Set{}, err
+	}
+	out.OperatorIdP, err = resolveOne("operator_idp", want.OperatorIdP, DefaultOperatorIdP, exp.OperatorIdP, used)
 	if err != nil {
 		return Set{}, err
 	}

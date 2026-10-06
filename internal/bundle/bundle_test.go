@@ -60,7 +60,7 @@ func TestDefaultAuthVersion(t *testing.T) {
 	if DefaultVersion != "v0.3.1" {
 		t.Fatalf("DefaultVersion should be v0.3.1, got %q", DefaultVersion)
 	}
-	if DefaultOperatorVersion != "v0.2.0" {
+	if DefaultOperatorVersion != "v0.3.0" {
 		t.Fatalf("DefaultOperatorVersion %q", DefaultOperatorVersion)
 	}
 }
@@ -75,8 +75,18 @@ func TestMaterializeOperator(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(data)
-	if !strings.Contains(s, "${OPERATOR_VERSION:-v0.2.0}") {
+	if !strings.Contains(s, "${OPERATOR_VERSION:-"+DefaultOperatorVersion+"}") {
 		t.Fatalf("operator compose default pin missing:\n%s", s)
+	}
+	for _, want := range []string{"ghcr.io/dexidp/dex:", "ROUTES_FILE: /routes.yml", "localhost:8004/health/ready"} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("missing %q:\n%s", want, s)
+		}
+	}
+	for _, old := range []string{"CONSOLE_ASSETS", "BOOTSTRAP", "DB_PATH", "operator_data"} {
+		if strings.Contains(s, old) {
+			t.Fatalf("old operator model %q still in compose:\n%s", old, s)
+		}
 	}
 	if !strings.Contains(s, "ghcr.io/plat5dev/operator:") {
 		t.Fatalf("operator image missing:\n%s", s)

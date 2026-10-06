@@ -33,6 +33,7 @@ type State struct {
 	RegistryPort             int       `json:"registry_port,omitempty"`
 	AuthPort                 int       `json:"auth_port,omitempty"`
 	OperatorPort             int       `json:"operator_port,omitempty"`
+	OperatorIdPPort          int       `json:"operator_idp_port,omitempty"`
 	GrafanaPort              int       `json:"grafana_port,omitempty"`
 	OTLPGRPCPort             int       `json:"otlp_grpc_port,omitempty"`
 	OTLPHTTPPort             int       `json:"otlp_http_port,omitempty"`

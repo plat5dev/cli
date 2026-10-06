@@ -46,8 +46,8 @@ func TestRenderPlat5YMLAuthDefaults(t *testing.T) {
 	if strings.Contains(body, "theme_file") {
 		t.Fatalf("init --auth must not invent a theme file:\n%s", body)
 	}
-	if strings.Contains(body, "bootstrap_password") {
-		t.Fatalf("operator off must not write a bootstrap password:\n%s", body)
+	if strings.Contains(body, "bootstrap_") {
+		t.Fatalf("operator has no bootstrap login:\n%s", body)
 	}
 	if !strings.Contains(body, "operator:\n  enabled: false") {
 		t.Fatalf("operator block missing:\n%s", body)
@@ -65,14 +65,17 @@ func TestRenderPlat5YMLOperator(t *testing.T) {
 	for _, want := range []string{
 		"operator_compose: /tmp/operator/compose",
 		"operator:\n  enabled: true",
-		"version: v0.2.0",
-		"bootstrap_email: \"operator@localhost\"",
-		"bootstrap_password: dev-operator-password",
+		"version: v0.3.0",
+		"allowed_origins:\n    - http://localhost:5173",
 		"#   operator: 5004",
+		"#   operator_idp: 5556",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("missing %q in:\n%s", want, body)
 		}
+	}
+	if strings.Contains(body, "bootstrap_") {
+		t.Fatalf("operator has no bootstrap login:\n%s", body)
 	}
 }
 

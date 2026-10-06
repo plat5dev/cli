@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/plat5dev/cli/internal/compose"
@@ -148,12 +149,10 @@ func printStatus(cfg config.Resolved, st state.State) error {
 	lines = append(lines, fmt.Sprintf("Route registry:  %s  (%s)", cfg.RegistryURL, regStatus))
 	lines = append(lines, fmt.Sprintf("Auth (IdP):      %s  (%s)", cfg.AuthURL, authProbe))
 	lines = append(lines, fmt.Sprintf("Operator:        %s  (%s)", cfg.OperatorURL, opProbe))
-	if cfg.OperatorBootstrapEmail != "" && (cfg.OperatorEnabled || st.StartedOperator || opRunning) {
-		login := cfg.OperatorBootstrapEmail
-		if cfg.OperatorBootstrapPassword != "" {
-			login += " / " + cfg.OperatorBootstrapPassword
-		}
-		lines = append(lines, fmt.Sprintf("Operator login:  %s", login))
+	if cfg.OperatorEnabled || st.StartedOperator || opRunning {
+		lines = append(lines, fmt.Sprintf("Operator IdP:    %s", cfg.OperatorIssuerURL))
+		lines = append(lines, fmt.Sprintf("Operator login:  %s / %s", config.OperatorDevEmail, config.OperatorDevPassword))
+		lines = append(lines, fmt.Sprintf("Operator CORS:   %s", strings.Join(cfg.OperatorAllowedOrigins, ", ")))
 	}
 	if cfg.GrafanaURL != "" {
 		lines = append(lines, fmt.Sprintf("Grafana:         %s  (%s)", cfg.GrafanaURL, obsProbe))

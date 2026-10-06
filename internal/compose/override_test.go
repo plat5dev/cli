@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestWritePlat5Override(t *testing.T) {
@@ -172,10 +174,21 @@ func TestPlat5NetworkName(t *testing.T) {
 	}
 }
 
+func testOperatorOverride(dir string) OperatorOverride {
+	return OperatorOverride{
+		Port:           5014,
+		IdPPort:        5557,
+		IssuerURL:      "http://localhost:5557/dex",
+		AllowedOrigins: []string{"http://localhost:5173", "https://console.example.com"},
+		Plat5Network:   "plat5-demo_plat5",
+		DexConfig:      filepath.Join(dir, "operator-dex.yml"),
+	}
+}
+
 func TestWriteOperatorOverride(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "compose.operator.override.yml")
-	if err := WriteOperatorOverride(p, 5014, "plat5-demo_plat5", OverrideOpts{}); err != nil {
+	if err := WriteOperatorOverride(p, testOperatorOverride(dir)); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(p)
@@ -184,44 +197,98 @@ func TestWriteOperatorOverride(t *testing.T) {
 	}
 	s := string(data)
 	for _, want := range []string{
-		`ports: !override`,
-		`"5014:5004"`,
 		`external: true`,
 		`name: "plat5-demo_plat5"`,
-		`networks:`,
-		`- plat5`,
+		`"5014:5004"`,
+		"networks:\n      - default\n      - plat5",
+		`ROUTES_FILE: /routes.yml`,
+		`AUTH_ISSUER: "http://localhost:5557/dex"`,
+		`AUTH_JWKS_URI: http://dex:5556/dex/keys`,
+		`AUTH_AUDIENCES: "operator-cli,operator-console"`,
+		`ALLOWED_ORIGINS: "http://localhost:5173,https://console.example.com"`,
+		`"5557:5556"`,
+		`/operator-dex.yml:/etc/dex/config.yaml:ro"`,
 	} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("missing %q in:\n%s", want, s)
 		}
 	}
-	if strings.Contains(s, "extra_hosts") {
-		t.Fatalf("unexpected extra_hosts:\n%s", s)
+	if strings.Count(s, "ports: !override") != 2 {
+		t.Fatalf("both services' ports must be replaced:\n%s", s)
 	}
-	if strings.Contains(s, "!override\n    networks") || strings.Contains(s, "networks: !override") {
+	if strings.Contains(s, "networks: !override") {
 		t.Fatalf("service networks must be appended, not replaced:\n%s", s)
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		t.Fatalf("override is not YAML: %v\n%s", err, s)
 	}
 }
 
-func TestWriteOperatorOverrideHostGateway(t *testing.T) {
+func TestWriteOperatorOverrideRequires(t *testing.T) {
 	dir := t.TempDir()
-	p := filepath.Join(dir, "compose.operator.override.yml")
-	if err := WriteOperatorOverride(p, 5004, "plat5-demo_plat5", OverrideOpts{HostGateway: true}); err != nil {
+	noNet := testOperatorOverride(dir)
+	noNet.Plat5Network = ""
+	noDex := testOperatorOverride(dir)
+	noDex.DexConfig = ""
+	for _, o := range []OperatorOverride{noNet, noDex} {
+		if err := WriteOperatorOverride(filepath.Join(dir, "x.yml"), o); err == nil {
+			t.Fatalf("expected error for %+v", o)
+		}
+	}
+}
+
+func TestWriteOperatorDexConfig(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "operator-dex.yml")
+	origins := []string{"http://localhost:5173", "https://console.example.com/"}
+	if err := WriteOperatorDexConfig(p, "http://localhost:5557/dex", "staff@example.com", origins); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := string(data)
-	if !strings.Contains(s, "extra_hosts:") || !strings.Contains(s, "host.docker.internal:host-gateway") {
-		t.Fatalf("unexpected:\n%s", s)
+	var cfg struct {
+		Issuer string `yaml:"issuer"`
+		Web    struct {
+			HTTP           string   `yaml:"http"`
+			AllowedOrigins []string `yaml:"allowedOrigins"`
+		} `yaml:"web"`
+		StaticPasswords []struct {
+			Email string `yaml:"email"`
+			Hash  string `yaml:"hash"`
+		} `yaml:"staticPasswords"`
+		StaticClients []struct {
+			ID           string   `yaml:"id"`
+			Secret       string   `yaml:"secret"`
+			Public       bool     `yaml:"public"`
+			RedirectURIs []string `yaml:"redirectURIs"`
+		} `yaml:"staticClients"`
 	}
-}
-
-func TestWriteOperatorOverrideRequiresNetwork(t *testing.T) {
-	if err := WriteOperatorOverride(filepath.Join(t.TempDir(), "x.yml"), 5004, "", OverrideOpts{}); err == nil {
-		t.Fatal("expected error")
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("dex config is not YAML: %v\n%s", err, data)
+	}
+	if cfg.Issuer != "http://localhost:5557/dex" || cfg.Web.HTTP != "0.0.0.0:5556" {
+		t.Fatalf("issuer/web %+v", cfg)
+	}
+	if strings.Join(cfg.Web.AllowedOrigins, ",") != "http://localhost:5173,https://console.example.com/" {
+		t.Fatalf("cors %q", cfg.Web.AllowedOrigins)
+	}
+	if len(cfg.StaticPasswords) != 1 || cfg.StaticPasswords[0].Email != "staff@example.com" || !strings.HasPrefix(cfg.StaticPasswords[0].Hash, "$2a$") {
+		t.Fatalf("passwords %+v", cfg.StaticPasswords)
+	}
+	if len(cfg.StaticClients) != 2 {
+		t.Fatalf("clients %+v", cfg.StaticClients)
+	}
+	cli, console := cfg.StaticClients[0], cfg.StaticClients[1]
+	if cli.ID != OperatorCLIClientID || cli.Secret == "" || cli.Public {
+		t.Fatalf("cli client %+v", cli)
+	}
+	if console.ID != OperatorConsoleClientID || !console.Public || console.Secret != "" {
+		t.Fatalf("console client %+v", console)
+	}
+	if strings.Join(console.RedirectURIs, ",") != "http://localhost:5173/callback,https://console.example.com/callback" {
+		t.Fatalf("redirects %q", console.RedirectURIs)
 	}
 }
 

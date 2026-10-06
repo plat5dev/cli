@@ -33,7 +33,7 @@ plat5 status
 plat5 stop
 ```
 
-`plat5_version` (default `v0.3.1`) pins runtime GHCR tags. With Auth enabled, `auth.version` / `AUTH_VERSION` (default `v0.1.9`) pins `ghcr.io/plat5dev/auth` independently. With Operator enabled, `operator.version` / `OPERATOR_VERSION` (default `v0.2.0`) pins `ghcr.io/plat5dev/operator` independently.
+`plat5_version` (default `v0.3.1`) pins runtime GHCR tags. With Auth enabled, `auth.version` / `AUTH_VERSION` (default `v0.1.9`) pins `ghcr.io/plat5dev/auth` independently. With Operator enabled, `operator.version` / `OPERATOR_VERSION` (default `v0.3.0`) pins `ghcr.io/plat5dev/operator` independently.
 
 Templates: first-party short names (`plat5 init --list-templates`) fetch public GitHub repos under `plat5dev/template-*` (branch `master`, override with `--template-ref` / `PLAT5_TEMPLATE_REF`). Also accepts `owner/repo` or an archive URL. Cached under `~/.cache/plat5/templates/`. Local: `--templates-dir` / `PLAT5_TEMPLATES` (directory of template folders).
 
@@ -80,9 +80,9 @@ observability:
 
 operator:
   enabled: false
-  # version: v0.2.0                 # Operator image pin when enabled (OPERATOR_VERSION)
-  # bootstrap_email: operator@localhost
-  # bootstrap_password: dev-operator-password
+  # version: v0.3.0                 # Operator image pin when enabled (OPERATOR_VERSION)
+  # allowed_origins:                # browser consoles: gateway CORS + IdP redirect <origin>/callback
+  #   - http://localhost:5173
 
 # Optional host port pins. Omitted keys use defaults;
 # if a default is busy, start auto-allocates. Pinned + busy → error.
@@ -91,6 +91,7 @@ ports:
   registry: 5002
   auth: 5000
   operator: 5004
+  operator_idp: 5556
   grafana: 3002
   otlp_grpc: 4317
   otlp_http: 4318
@@ -102,7 +103,7 @@ admin_token: dev-admin-token   # local only; do not put production tokens here
 # [a-z][a-z0-9]*, max 32. Keys are {brand}-sk-1- / {brand}-mk-1-. Sessions are {brand}-ms-1-.
 # apikey_brand: plat5
 
-# Optional OTLP for Plat5/Auth/Operator containers (unset = no export).
+# Optional OTLP for Plat5/Auth containers (unset = no export).
 # When observability.enabled, CLI auto-wires host.docker.internal:<otlp_http>
 # if otel.endpoint is unset. Explicit endpoint always wins.
 # Host-published Alloy: CLI injects env and adds host-gateway extra_hosts
@@ -157,9 +158,32 @@ plat5 routes apply ./other.yml
 
 Each project gets compose project names `plat5-<project_id>`, `plat5-<project_id>-auth`, `plat5-<project_id>-observability`, `plat5-<project_id>-operator`.
 
-Host port mappings are written to override files under XDG state so two projects do not share containers. Defaults: gateway 5001, registry 5002, auth 5000, operator 5004, grafana 3002, OTLP 4317/4318, alloy 12345. Unpinned busy ports are reallocated; **pinned** ports never auto-move.
+Host port mappings are written to override files under XDG state so two projects do not share containers. Defaults: gateway 5001, registry 5002, auth 5000, operator 5004, operator_idp 5556, grafana 3002, OTLP 4317/4318, alloy 12345. Unpinned busy ports are reallocated; **pinned** ports never auto-move.
 
-Start order: observability → auth → plat5 → operator. Stop is the reverse. Operator joins the Plat5 compose network (`<project>_plat5`) after Plat5 is up so the image route list can dial `identity:3000`. Identity is not published. Routes are not rewritten. Operator requires detached start (the default).
+Start order: observability → auth → plat5 → operator. Stop runs operator first, then plat5, auth, observability. Operator joins the Plat5 compose network (`<project>_plat5`) after Plat5 is up so the image route list can dial `identity:3000`. Identity is not published. Routes are not rewritten. Operator requires detached start (the default).
+
+## Operator
+
+[Operator](https://github.com/plat5dev/operator) is a headless gateway for staff: staff JWT in, identity path out, attribution logged. It has no accounts. Staff sign in at a local Dex the CLI configures (`staff@example.com` / `password`, issuer `http://localhost:<operator_idp>/dex`).
+
+| Dex client | For |
+|------------|-----|
+| `operator-cli` (secret `operator-cli-secret`) | Scripts. Password grant |
+| `operator-console` (public, PKCE) | Browser consoles on `operator.allowed_origins`, redirect `<origin>/callback` |
+
+Both client ids are in the gateway's `AUTH_AUDIENCES`. `allowed_origins` is also its `ALLOWED_ORIGINS`.
+
+```bash
+TOKEN=$(curl -s http://localhost:5556/dex/token \
+  -u operator-cli:operator-cli-secret \
+  -d grant_type=password -d scope="openid email" \
+  -d username=staff@example.com -d password=password | jq -r .access_token)
+curl -s http://localhost:5004/organizations -H "Authorization: Bearer $TOKEN"
+```
+
+For a browser console, run [operator-console](https://github.com/plat5dev/operator-console) with `VITE_GATEWAY_URL=http://localhost:5004`, `VITE_AUTH_ISSUER=http://localhost:5556/dex`, `VITE_AUTH_CLIENT_ID=operator-console`.
+
+The Dex config and the gateway's IdP settings live in the generated override under XDG state, so path mode (`operator_compose` → `operator/compose`) gets the same wiring.
 
 ## State (XDG)
 
