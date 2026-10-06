@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/plat5dev/cli/internal/bundle"
 	"github.com/plat5dev/cli/internal/compose"
 	"github.com/plat5dev/cli/internal/config"
 	"github.com/plat5dev/cli/internal/prompt"
@@ -75,7 +76,7 @@ func init() {
 	initCmd.Flags().StringVar(&initTemplatesDir, "templates-dir", "", "Local templates root (skip remote fetch)")
 	initCmd.Flags().StringVar(&initPlat5Version, "plat5-version", "", "Runtime GHCR pin written to plat5.yml (default v0.3.1)")
 	initCmd.Flags().StringVar(&initAuthVersion, "auth-version", "", "Auth GHCR pin written to auth.version (default v0.1.9)")
-	initCmd.Flags().StringVar(&initOperatorVersion, "operator-version", "", "Operator GHCR pin written to operator.version (default v0.2.0)")
+	initCmd.Flags().StringVar(&initOperatorVersion, "operator-version", "", "Operator GHCR pin written to operator.version (default "+bundle.DefaultOperatorVersion+")")
 	initCmd.Flags().StringVar(&initTemplateRef, "template-ref", "", "Git ref for remote templates (default master; or PLAT5_TEMPLATE_REF)")
 	initCmd.Flags().BoolVar(&initListTemplates, "list-templates", false, "List first-party templates and exit")
 }
@@ -353,7 +354,7 @@ func initOperatorVer() string {
 	if v := os.Getenv("OPERATOR_VERSION"); v != "" {
 		return v
 	}
-	return "v0.2.0"
+	return bundle.DefaultOperatorVersion
 }
 
 // templateResolveOpts prefers explicit local dirs; otherwise remote GitHub archives.
@@ -448,24 +449,25 @@ func renderPlat5YML(projectID, plat5Path, auth string, authEnabled bool, obs str
 	fmt.Fprintf(&b, "operator:\n  enabled: %t\n", operatorEnabled)
 	if operatorEnabled {
 		fmt.Fprintf(&b, "  version: %s  # ghcr.io/plat5dev/operator\n", yamlString(initOperatorVer()))
-		fmt.Fprintf(&b, "  bootstrap_email: %s\n", yamlString(config.DefaultOperatorBootstrapEmail))
-		fmt.Fprintf(&b, "  bootstrap_password: %s\n", yamlString(config.DefaultOperatorBootstrapPassword))
+		fmt.Fprintf(&b, "  # Browser consoles: gateway CORS and staff IdP redirect <origin>/callback.\n")
+		fmt.Fprintf(&b, "  allowed_origins:\n")
+		fmt.Fprintf(&b, "    - %s\n", config.DefaultOperatorAllowedOrigin)
 	}
 	fmt.Fprintf(&b, "\n")
 	fmt.Fprintf(&b, "# Optional host port pins. Omit a key to use defaults;\n")
 	fmt.Fprintf(&b, "# unpinned busy ports are auto-allocated. Pinned + busy → start fails.\n")
 	fmt.Fprintf(&b, "# ports:\n#   gateway: 5001\n#   registry: 5002\n#   auth: 5000\n")
-	fmt.Fprintf(&b, "#   operator: 5004\n")
+	fmt.Fprintf(&b, "#   operator: 5004\n#   operator_idp: 5556\n")
 	fmt.Fprintf(&b, "#   grafana: 3002\n#   otlp_grpc: 4317\n#   otlp_http: 4318\n#   alloy: 12345\n\n")
 	fmt.Fprintf(&b, "admin_token: %s\n\n", config.DefaultAdminToken)
 	fmt.Fprintf(&b, "# API key brand (identity + gateway). Keys {brand}-sk-1- / {brand}-mk-1-. Sessions {brand}-ms-1-.\n")
 	fmt.Fprintf(&b, "# [a-z][a-z0-9]*, max 32. Same value on both processes.\n")
 	fmt.Fprintf(&b, "# apikey_brand: plat5\n\n")
 	if obsEnabled {
-		fmt.Fprintf(&b, "# OTLP for Plat5/Auth/Operator containers (matches default ports.otlp_http).\n")
+		fmt.Fprintf(&b, "# OTLP for Plat5/Auth containers (matches default ports.otlp_http).\n")
 		fmt.Fprintf(&b, "otel:\n  endpoint: http://host.docker.internal:4318\n\n")
 	} else {
-		fmt.Fprintf(&b, "# Optional OTLP for Plat5/Auth/Operator containers (unset = no export).\n")
+		fmt.Fprintf(&b, "# Optional OTLP for Plat5/Auth containers (unset = no export).\n")
 		fmt.Fprintf(&b, "# When observability.enabled, CLI auto-wires host.docker.internal:<otlp_http> if unset.\n")
 		fmt.Fprintf(&b, "# otel:\n#   endpoint: http://host.docker.internal:4318\n\n")
 	}

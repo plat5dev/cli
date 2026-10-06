@@ -136,20 +136,10 @@ func operatorVersionEnv(cfg config.Resolved) []string {
 	return []string{fmt.Sprintf("OPERATOR_VERSION=%s", cfg.OperatorVersion)}
 }
 
-// operatorStackEnv is compose env for Operator (image pin, local bootstrap, OTLP).
-// Empty bootstrap is omitted so the process does not create an account.
+// operatorStackEnv is compose env for Operator: the image pin. Everything else
+// (IdP, audiences, origins, routes) is in the generated override so path mode gets it too.
 func operatorStackEnv(cfg config.Resolved) []string {
-	env := append([]string{}, operatorVersionEnv(cfg)...)
-	if cfg.OperatorBootstrapEmail != "" {
-		env = append(env, "OPERATOR_BOOTSTRAP_EMAIL="+cfg.OperatorBootstrapEmail)
-	}
-	if cfg.OperatorBootstrapPassword != "" {
-		env = append(env, "OPERATOR_BOOTSTRAP_PASSWORD="+cfg.OperatorBootstrapPassword)
-	}
-	if cfg.OtelEndpoint != "" {
-		env = append(env, fmt.Sprintf("OTEL_EXPORTER_OTLP_ENDPOINT=%s", cfg.OtelEndpoint))
-	}
-	return env
+	return operatorVersionEnv(cfg)
 }
 
 // authStackEnv is compose env for the Auth issuer (version + project OAuth surface).

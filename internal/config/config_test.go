@@ -1,6 +1,8 @@
 package config
 
 import (
+	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -414,12 +416,17 @@ func TestLoadOperator(t *testing.T) {
 operator_compose: ./operator-compose
 operator:
   enabled: true
-  version: v0.2.0
+  version: v0.3.0
+  # Old-model keys are ignored, so existing plat5.yml files still load.
   bootstrap_email: operator@localhost
   bootstrap_password: dev-operator-password
 ports:
-  operator: 5004
+  operator: %d
+  operator_idp: %d
 `
+	// Pinned ports must be free on this machine, so pick free ones.
+	opPort, idpPort := freeTestPort(t), freeTestPort(t)
+	yml = fmt.Sprintf(yml, opPort, idpPort)
 	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte(yml), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -435,7 +442,7 @@ ports:
 	if !cfg.OperatorEnabled {
 		t.Fatal("operator.enabled")
 	}
-	if cfg.OperatorVersion != "v0.2.0" {
+	if cfg.OperatorVersion != "v0.3.0" {
 		t.Fatalf("version %q", cfg.OperatorVersion)
 	}
 	if !samePath(cfg.OperatorCompose, op) {
@@ -444,17 +451,54 @@ ports:
 	if cfg.OperatorComposeName != "plat5-p-operator" {
 		t.Fatalf("compose name %q", cfg.OperatorComposeName)
 	}
-	if cfg.OperatorBootstrapEmail != "operator@localhost" || cfg.OperatorBootstrapPassword != "dev-operator-password" {
-		t.Fatalf("bootstrap %q / %q", cfg.OperatorBootstrapEmail, cfg.OperatorBootstrapPassword)
+	if len(cfg.OperatorAllowedOrigins) != 1 || cfg.OperatorAllowedOrigins[0] != "http://localhost:5173" {
+		t.Fatalf("allowed origins %q", cfg.OperatorAllowedOrigins)
 	}
-	if !cfg.PortsExplicit.Operator || cfg.Ports.Operator != 5004 {
+	if !cfg.PortsExplicit.OperatorIdP || cfg.Ports.OperatorIdP != idpPort {
+		t.Fatalf("idp port pin %+v", cfg.Ports)
+	}
+	if !cfg.PortsExplicit.Operator || cfg.Ports.Operator != opPort {
 		t.Fatalf("port pin %+v", cfg.Ports)
 	}
 	if err := ResolvePorts(&cfg); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.OperatorURL != "http://localhost:5004" {
+	if cfg.OperatorURL != fmt.Sprintf("http://localhost:%d", opPort) {
 		t.Fatalf("url %q", cfg.OperatorURL)
+	}
+	if cfg.OperatorIssuerURL != fmt.Sprintf("http://localhost:%d/dex", idpPort) {
+		t.Fatalf("issuer %q", cfg.OperatorIssuerURL)
+	}
+}
+
+func TestLoadOperatorAllowedOrigins(t *testing.T) {
+	root := t.TempDir()
+	yml := `project_id: p
+operator:
+  enabled: true
+  allowed_origins: [" https://console.example.com/ ", "http://localhost:3000"]
+`
+	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(Flags{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(cfg.OperatorAllowedOrigins, ",")
+	if got != "https://console.example.com,http://localhost:3000" {
+		t.Fatalf("allowed origins %q", got)
+	}
+	if cfg.OperatorVersion != "v0.3.0" {
+		t.Fatalf("default version %q", cfg.OperatorVersion)
+	}
+	if cfg.OperatorIssuerURL != "http://localhost:5556/dex" {
+		t.Fatalf("default issuer %q", cfg.OperatorIssuerURL)
 	}
 }
 
@@ -671,4 +715,15 @@ func samePath(a, b string) bool {
 		b = be
 	}
 	return a == b
+}
+
+// freeTestPort returns a port nothing listens on right now.
+func freeTestPort(t *testing.T) int {
+	t.Helper()
+	ln, err := net.Listen("tcp4", "0.0.0.0:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	return ln.Addr().(*net.TCPAddr).Port
 }

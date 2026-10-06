@@ -31,14 +31,16 @@ var startCmd = &cobra.Command{
 
 Pulls runtime images via plat5_version / PLAT5_VERSION, Auth via
 auth.version / AUTH_VERSION, and Operator via operator.version /
-OPERATOR_VERSION (independent pins; defaults v0.3.1 / v0.1.9 / v0.2.0) using
+OPERATOR_VERSION (independent pins; defaults v0.3.1 / v0.1.9 / v0.3.0) using
 compose files embedded in the CLI.
 
 Advanced: set plat5_compose / auth_compose / observability_compose /
 operator_compose to local compose trees; --build rebuilds from those trees.
 
-Operator starts after Plat5 and joins the Plat5 network so identity:3000
-resolves. Identity is not published. Routes are not rewritten.
+Operator starts after Plat5 with a local staff IdP (Dex) and joins the Plat5
+network so identity:3000 resolves. Identity is not published. Routes are not
+rewritten. Staff sign in at the IdP; consoles in operator.allowed_origins can
+use its public operator-console client.
 
 Applies routes listed in plat5.yml after the registry is ready.`,
 	RunE: runStart,
@@ -154,6 +156,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 		RegistryPort:             cfg.Ports.Registry,
 		AuthPort:                 cfg.Ports.Auth,
 		OperatorPort:             cfg.Ports.Operator,
+		OperatorIdPPort:          cfg.Ports.OperatorIdP,
 		GrafanaPort:              cfg.Ports.Grafana,
 		OTLPGRPCPort:             cfg.Ports.OTLPGRPC,
 		OTLPHTTPPort:             cfg.Ports.OTLPHTTP,
@@ -270,8 +273,19 @@ func runStart(cmd *cobra.Command, args []string) error {
 	}
 
 	if wantOperator {
+		dexConfig := filepath.Join(stateDir, "operator-dex.yml")
+		if err := compose.WriteOperatorDexConfig(dexConfig, cfg.OperatorIssuerURL, config.OperatorDevEmail, cfg.OperatorAllowedOrigins); err != nil {
+			return err
+		}
 		opOverride := filepath.Join(stateDir, "compose.operator.override.yml")
-		if err := compose.WriteOperatorOverride(opOverride, cfg.Ports.Operator, compose.Plat5NetworkName(cfg.ComposeProject), overrideOpts); err != nil {
+		if err := compose.WriteOperatorOverride(opOverride, compose.OperatorOverride{
+			Port:           cfg.Ports.Operator,
+			IdPPort:        cfg.Ports.OperatorIdP,
+			IssuerURL:      cfg.OperatorIssuerURL,
+			AllowedOrigins: cfg.OperatorAllowedOrigins,
+			Plat5Network:   compose.Plat5NetworkName(cfg.ComposeProject),
+			DexConfig:      dexConfig,
+		}); err != nil {
 			return err
 		}
 		st.OperatorOverride = opOverride
@@ -280,21 +294,20 @@ func runStart(cmd *cobra.Command, args []string) error {
 		st.StartedOperator = true
 
 		fmt.Println("Starting Operator…")
+		// Readiness is the operator healthcheck (internal port): it passes once IdP keys are
+		// fetched. The API port answers 401 to anything unauthenticated, so it says nothing.
 		op := compose.Runner{
 			Dir:           opDir,
 			ProjectName:   cfg.OperatorComposeName,
 			OverrideFiles: []string{opOverride},
+			Wait:          true,
 		}
 		if err := op.Up(true, buildOperator, operatorStackEnv(cfg)); err != nil {
-			return err
-		}
-		if err := waitHTTP(cfg.OperatorURL+"/health/ready", startWait); err != nil {
 			return fmt.Errorf("operator not ready: %w", err)
 		}
 		fmt.Println("Operator is up:", cfg.OperatorURL)
-		if cfg.OperatorBootstrapEmail != "" {
-			fmt.Println("  login:", cfg.OperatorBootstrapEmail)
-		}
+		fmt.Println("  staff IdP:", cfg.OperatorIssuerURL)
+		fmt.Printf("  login:     %s / %s\n", config.OperatorDevEmail, config.OperatorDevPassword)
 	}
 
 	if err := state.Save(st); err != nil {

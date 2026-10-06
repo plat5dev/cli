@@ -107,17 +107,18 @@ func loadConfigWithState() (config.Resolved, state.State, error) {
 	if err != nil {
 		return config.Resolved{}, state.State{}, err
 	}
-	if st.GatewayPort > 0 || st.RegistryPort > 0 || st.AuthPort > 0 || st.OperatorPort > 0 ||
+	if st.GatewayPort > 0 || st.RegistryPort > 0 || st.AuthPort > 0 || st.OperatorPort > 0 || st.OperatorIdPPort > 0 ||
 		st.GrafanaPort > 0 || st.OTLPGRPCPort > 0 || st.OTLPHTTPPort > 0 || st.AlloyPort > 0 {
 		config.ApplySavedPorts(&cfg, ports.Set{
-			Gateway:  st.GatewayPort,
-			Registry: st.RegistryPort,
-			Auth:     st.AuthPort,
-			Operator: st.OperatorPort,
-			Grafana:  st.GrafanaPort,
-			OTLPGRPC: st.OTLPGRPCPort,
-			OTLPHTTP: st.OTLPHTTPPort,
-			Alloy:    st.AlloyPort,
+			Gateway:     st.GatewayPort,
+			Registry:    st.RegistryPort,
+			Auth:        st.AuthPort,
+			Operator:    st.OperatorPort,
+			OperatorIdP: st.OperatorIdPPort,
+			Grafana:     st.GrafanaPort,
+			OTLPGRPC:    st.OTLPGRPCPort,
+			OTLPHTTP:    st.OTLPHTTPPort,
+			Alloy:       st.AlloyPort,
 		})
 	}
 	return cfg, st, nil

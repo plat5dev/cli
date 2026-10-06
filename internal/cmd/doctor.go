@@ -103,6 +103,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		{"registry port", cfg.Ports.Registry, cfg.PortsExplicit.Registry},
 		{"auth port", cfg.Ports.Auth, cfg.PortsExplicit.Auth},
 		{"operator port", cfg.Ports.Operator, cfg.PortsExplicit.Operator},
+		{"operator_idp port", cfg.Ports.OperatorIdP, cfg.PortsExplicit.OperatorIdP},
 		{"grafana port", cfg.Ports.Grafana, cfg.PortsExplicit.Grafana},
 		{"otlp_http port", cfg.Ports.OTLPHTTP, cfg.PortsExplicit.OTLPHTTP},
 		{"alloy port", cfg.Ports.Alloy, cfg.PortsExplicit.Alloy},

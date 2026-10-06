@@ -15,7 +15,7 @@ const DefaultVersion = "v0.3.1"
 const DefaultAuthVersion = "v0.1.9"
 
 // DefaultOperatorVersion is the Operator image tag when operator.version is unset.
-const DefaultOperatorVersion = "v0.2.0"
+const DefaultOperatorVersion = "v0.3.0"
 
 //go:embed plat5/docker-compose.yml auth/docker-compose.yml operator/docker-compose.yml observability/docker-compose.yml observability/monitoring/* observability/dashboards/*
 var content embed.FS

@@ -55,6 +55,8 @@ type Runner struct {
 	Dir           string
 	ProjectName   string
 	OverrideFiles []string // absolute paths
+	// Wait adds --wait to detached up: return once services are running and healthy.
+	Wait bool
 }
 
 func (r Runner) fileArgs() []string {
@@ -88,6 +90,9 @@ func (r Runner) Up(detach, build bool, extraEnv []string) error {
 	args := []string{"up"}
 	if detach {
 		args = append(args, "-d")
+		if r.Wait {
+			args = append(args, "--wait")
+		}
 	}
 	if build {
 		args = append(args, "--build")
