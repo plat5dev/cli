@@ -78,17 +78,7 @@ func runRoutesApply(cmd *cobra.Command, args []string) error {
 	}
 
 	client := registry.New(cfg.RegistryURL, cfg.AdminToken)
-	for _, f := range files {
-		fmt.Printf("Applying %s…\n", f)
-		results, err := client.Apply(f, cfg.Upstreams)
-		for _, r := range results {
-			printApplyResult(r)
-		}
-		if err != nil {
-			return fmt.Errorf("%s: %w", f, err)
-		}
-	}
-	return nil
+	return applyFiles(client, files, cfg.Upstreams, false)
 }
 
 func runRoutesList(cmd *cobra.Command, args []string) error {

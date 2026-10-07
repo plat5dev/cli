@@ -150,7 +150,7 @@ The url written into the route config is always exactly `http://host:port`. An `
 
 Unknown keys in `plat5.yml` are also a config error naming the key. A leftover `bootstrap:` key was removed in v0.3.3; delete it.
 
-Keys must match service names in the routes file(s). `plat5 routes apply` and `plat5 start` bind upstreams before `POST /apply`.
+Keys must match service names in the routes file(s). `plat5 routes apply` and `plat5 start` bind upstreams before `POST /apply`. A key that matches no service in any applied file prints `warning: upstreams.<name> matches no service …` (the apply still succeeds). A service with no `url` and no `upstreams` entry fails before upload: `service "<name>" has no url: add it under upstreams: in plat5.yml, or set url in the routes file`.
 
 You can still set `url` directly in `routes.yml`; an `upstreams` entry for that service wins.
 
