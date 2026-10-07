@@ -9,6 +9,7 @@ import (
 
 	"github.com/plat5dev/cli/internal/compose"
 	"github.com/plat5dev/cli/internal/config"
+	"github.com/plat5dev/cli/internal/ports"
 	"github.com/plat5dev/cli/internal/registry"
 	"github.com/plat5dev/cli/internal/state"
 	"github.com/spf13/cobra"
@@ -77,7 +78,15 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("operator requires detached start (it joins the Plat5 network after Plat5 is up)")
 	}
 
-	if err := config.ResolvePorts(&cfg); err != nil {
+	prev, err := state.Load(cfg.ProjectID)
+	if err != nil {
+		return err
+	}
+	owned := runningPorts(cfg, prev)
+	if owned != (ports.Set{}) {
+		fmt.Println("Plat5 is already running for this project; keeping its ports.")
+	}
+	if err := config.ResolvePorts(&cfg, owned); err != nil {
 		return err
 	}
 
@@ -349,4 +358,29 @@ func waitHTTP(url string, timeout time.Duration) error {
 		time.Sleep(2 * time.Second)
 	}
 	return fmt.Errorf("timeout waiting for %s", url)
+}
+
+// runningPorts is the host ports from the last start for each stack of this
+// project that still has a running container. Those ports belong to us, so
+// a second start keeps them and compose up leaves the containers alone.
+func runningPorts(cfg config.Resolved, prev state.State) ports.Set {
+	var owned ports.Set
+	if compose.ProjectRunning(cfg.ComposeProject) {
+		owned.Gateway = prev.GatewayPort
+		owned.Registry = prev.RegistryPort
+	}
+	if compose.ProjectRunning(cfg.AuthComposeName) {
+		owned.Auth = prev.AuthPort
+	}
+	if compose.ProjectRunning(cfg.ObservabilityComposeName) {
+		owned.Grafana = prev.GrafanaPort
+		owned.OTLPGRPC = prev.OTLPGRPCPort
+		owned.OTLPHTTP = prev.OTLPHTTPPort
+		owned.Alloy = prev.AlloyPort
+	}
+	if compose.ProjectRunning(cfg.OperatorComposeName) {
+		owned.Operator = prev.OperatorPort
+		owned.OperatorIdP = prev.OperatorIdPPort
+	}
+	return owned
 }

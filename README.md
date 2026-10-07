@@ -169,7 +169,7 @@ plat5 routes apply ./other.yml
 
 Each project gets compose project names `plat5-<project_id>`, `plat5-<project_id>-auth`, `plat5-<project_id>-observability`, `plat5-<project_id>-operator`.
 
-Host port mappings are written to override files under XDG state so two projects do not share containers. Defaults: gateway 5001, registry 5002, auth 5000, operator 5004, operator_idp 5556, grafana 3002, OTLP 4317/4318, alloy 12345. Unpinned busy ports are reallocated; **pinned** ports never auto-move.
+Host port mappings are written to override files under XDG state so two projects do not share containers. Defaults: gateway 5001, registry 5002, auth 5000, operator 5004, operator_idp 5556, grafana 3002, OTLP 4317/4318, alloy 12345. Unpinned busy ports are reallocated; **pinned** ports never auto-move. `plat5 start` is safe to re-run: a stack of this project that is already running keeps the ports it has (the CLI prints `Plat5 is already running for this project; keeping its ports.`), and `docker compose up` leaves unchanged containers alone. Run `plat5 stop` first to pick ports again.
 
 Start order: observability → auth → plat5 → operator. Stop runs operator first, then plat5, auth, observability. Operator joins the Plat5 compose network (`plat5-<project_id>_plat5`) after Plat5 is up so the image route list can dial `http://identity:3000`. Identity is not published. Routes are not rewritten. Operator requires detached start (the default).
 

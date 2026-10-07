@@ -8,7 +8,7 @@ import (
 
 func TestResolveDefaultsFree(t *testing.T) {
 	// May fail if ports in use on the machine; still validates pinned path.
-	got, err := Resolve(Set{}, Explicit{})
+	got, err := Resolve(Set{}, Explicit{}, Set{})
 	if err != nil {
 		t.Skipf("defaults busy on this machine: %v", err)
 	}
@@ -28,7 +28,7 @@ func TestResolvePinnedBusyFails(t *testing.T) {
 	defer ln.Close()
 	port := ln.Addr().(*net.TCPAddr).Port
 
-	_, err = Resolve(Set{Gateway: port, Registry: DefaultRegistry, Auth: DefaultAuth}, Explicit{Gateway: true})
+	_, err = Resolve(Set{Gateway: port, Registry: DefaultRegistry, Auth: DefaultAuth}, Explicit{Gateway: true}, Set{})
 	if err == nil {
 		t.Fatal("expected pinned busy error")
 	}
@@ -42,7 +42,7 @@ func TestResolveUnpinnedBusyAllocates(t *testing.T) {
 	defer ln.Close()
 	busy := ln.Addr().(*net.TCPAddr).Port
 
-	got, err := Resolve(Set{Gateway: busy}, Explicit{Gateway: false})
+	got, err := Resolve(Set{Gateway: busy}, Explicit{Gateway: false}, Set{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestResolveDistinctWhenAllBusy(t *testing.T) {
 	hold(b)
 	hold(c)
 
-	got, err := Resolve(Set{Gateway: a, Registry: b, Auth: c}, Explicit{})
+	got, err := Resolve(Set{Gateway: a, Registry: b, Auth: c}, Explicit{}, Set{})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -398,8 +398,10 @@ func Load(flags Flags) (Resolved, error) {
 // ResolvePorts allocates/validates host ports and refreshes non-explicit URLs.
 // When observability is enabled and otel.endpoint was not set explicitly, wires
 // OTEL to http://host.docker.internal:<otlp_http>.
-func ResolvePorts(r *Resolved) error {
-	resolved, err := ports.Resolve(r.Ports, r.PortsExplicit)
+// ResolvePorts picks host ports. owned is what this project's running stack
+// already publishes; those ports are kept (see ports.Resolve).
+func ResolvePorts(r *Resolved, owned ports.Set) error {
+	resolved, err := ports.Resolve(r.Ports, r.PortsExplicit, owned)
 	if err != nil {
 		return err
 	}

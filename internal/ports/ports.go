@@ -49,71 +49,78 @@ type Explicit struct {
 }
 
 // Resolve picks host ports.
-// Pinned ports must be free or Resolve fails.
+// owned holds ports this project's running stack already publishes (0 = none).
+// An owned port counts as free, and an unpinned port keeps its owned value,
+// so re-running start reuses the same ports instead of moving them.
+// Pinned ports must be free (or owned) or Resolve fails.
 // Unpinned ports try the default, then allocate a free port if busy.
 // When a default is skipped, a line is written to stdout (CLI DX).
-func Resolve(want Set, exp Explicit) (Set, error) {
+func Resolve(want Set, exp Explicit, owned Set) (Set, error) {
 	used := make(map[int]struct{}, 8)
 	out := Set{}
 
 	var err error
-	out.Gateway, err = resolveOne("gateway", want.Gateway, DefaultGateway, exp.Gateway, used)
+	out.Gateway, err = resolveOne("gateway", want.Gateway, DefaultGateway, exp.Gateway, owned.Gateway, used)
 	if err != nil {
 		return Set{}, err
 	}
-	out.Registry, err = resolveOne("registry", want.Registry, DefaultRegistry, exp.Registry, used)
+	out.Registry, err = resolveOne("registry", want.Registry, DefaultRegistry, exp.Registry, owned.Registry, used)
 	if err != nil {
 		return Set{}, err
 	}
-	out.Auth, err = resolveOne("auth", want.Auth, DefaultAuth, exp.Auth, used)
+	out.Auth, err = resolveOne("auth", want.Auth, DefaultAuth, exp.Auth, owned.Auth, used)
 	if err != nil {
 		return Set{}, err
 	}
-	out.Operator, err = resolveOne("operator", want.Operator, DefaultOperator, exp.Operator, used)
+	out.Operator, err = resolveOne("operator", want.Operator, DefaultOperator, exp.Operator, owned.Operator, used)
 	if err != nil {
 		return Set{}, err
 	}
-	out.OperatorIdP, err = resolveOne("operator_idp", want.OperatorIdP, DefaultOperatorIdP, exp.OperatorIdP, used)
+	out.OperatorIdP, err = resolveOne("operator_idp", want.OperatorIdP, DefaultOperatorIdP, exp.OperatorIdP, owned.OperatorIdP, used)
 	if err != nil {
 		return Set{}, err
 	}
-	out.Grafana, err = resolveOne("grafana", want.Grafana, DefaultGrafana, exp.Grafana, used)
+	out.Grafana, err = resolveOne("grafana", want.Grafana, DefaultGrafana, exp.Grafana, owned.Grafana, used)
 	if err != nil {
 		return Set{}, err
 	}
-	out.OTLPGRPC, err = resolveOne("otlp_grpc", want.OTLPGRPC, DefaultOTLPGRPC, exp.OTLPGRPC, used)
+	out.OTLPGRPC, err = resolveOne("otlp_grpc", want.OTLPGRPC, DefaultOTLPGRPC, exp.OTLPGRPC, owned.OTLPGRPC, used)
 	if err != nil {
 		return Set{}, err
 	}
-	out.OTLPHTTP, err = resolveOne("otlp_http", want.OTLPHTTP, DefaultOTLPHTTP, exp.OTLPHTTP, used)
+	out.OTLPHTTP, err = resolveOne("otlp_http", want.OTLPHTTP, DefaultOTLPHTTP, exp.OTLPHTTP, owned.OTLPHTTP, used)
 	if err != nil {
 		return Set{}, err
 	}
-	out.Alloy, err = resolveOne("alloy", want.Alloy, DefaultAlloy, exp.Alloy, used)
+	out.Alloy, err = resolveOne("alloy", want.Alloy, DefaultAlloy, exp.Alloy, owned.Alloy, used)
 	if err != nil {
 		return Set{}, err
 	}
 	return out, nil
 }
 
-func resolveOne(name string, want, def int, pinned bool, used map[int]struct{}) (int, error) {
+func resolveOne(name string, want, def int, pinned bool, own int, used map[int]struct{}) (int, error) {
 	candidate := def
 	if want != 0 {
 		candidate = want
 	}
+	if !pinned && own != 0 {
+		candidate = own
+	}
+	free := func(p int) bool { return (own != 0 && p == own) || Free(p) }
 
 	if pinned {
 		if _, taken := used[candidate]; taken {
 			return 0, fmt.Errorf("%s port %d already allocated to another service", name, candidate)
 		}
-		if !Free(candidate) {
+		if !free(candidate) {
 			return 0, fmt.Errorf("%s port %d is in use (pinned in plat5.yml)", name, candidate)
 		}
 		used[candidate] = struct{}{}
 		return candidate, nil
 	}
 
-	if _, taken := used[candidate]; !taken && Free(candidate) {
+	if _, taken := used[candidate]; !taken && free(candidate) {
 		used[candidate] = struct{}{}
 		return candidate, nil
 	}
