@@ -12,33 +12,35 @@ import (
 
 // State records what the CLI started for one project.
 type State struct {
-	ProjectID                string    `json:"project_id"`
-	ConfigPath               string    `json:"config_path,omitempty"`
-	Plat5Compose             string    `json:"plat5_compose,omitempty"`
-	AuthCompose              string    `json:"auth_compose,omitempty"`
-	ObservabilityCompose     string    `json:"observability_compose,omitempty"`
-	OperatorCompose          string    `json:"operator_compose,omitempty"`
-	StartedAuth              bool      `json:"started_auth"`
-	StartedObservability     bool      `json:"started_observability"`
-	StartedOperator          bool      `json:"started_operator"`
-	ComposeProject           string    `json:"compose_project,omitempty"`
-	AuthComposeName          string    `json:"auth_compose_name,omitempty"`
-	ObservabilityComposeName string    `json:"observability_compose_name,omitempty"`
-	OperatorComposeName      string    `json:"operator_compose_name,omitempty"`
-	Plat5Override            string    `json:"plat5_override,omitempty"`
-	AuthOverride             string    `json:"auth_override,omitempty"`
-	ObservabilityOverride    string    `json:"observability_override,omitempty"`
-	OperatorOverride         string    `json:"operator_override,omitempty"`
-	GatewayPort              int       `json:"gateway_port,omitempty"`
-	RegistryPort             int       `json:"registry_port,omitempty"`
-	AuthPort                 int       `json:"auth_port,omitempty"`
-	OperatorPort             int       `json:"operator_port,omitempty"`
-	OperatorIdPPort          int       `json:"operator_idp_port,omitempty"`
-	GrafanaPort              int       `json:"grafana_port,omitempty"`
-	OTLPGRPCPort             int       `json:"otlp_grpc_port,omitempty"`
-	OTLPHTTPPort             int       `json:"otlp_http_port,omitempty"`
-	AlloyPort                int       `json:"alloy_port,omitempty"`
-	StartedAt                time.Time `json:"started_at"`
+	ProjectID                string `json:"project_id"`
+	ConfigPath               string `json:"config_path,omitempty"`
+	Plat5Compose             string `json:"plat5_compose,omitempty"`
+	AuthCompose              string `json:"auth_compose,omitempty"`
+	ObservabilityCompose     string `json:"observability_compose,omitempty"`
+	OperatorCompose          string `json:"operator_compose,omitempty"`
+	StartedAuth              bool   `json:"started_auth"`
+	StartedObservability     bool   `json:"started_observability"`
+	StartedOperator          bool   `json:"started_operator"`
+	ComposeProject           string `json:"compose_project,omitempty"`
+	AuthComposeName          string `json:"auth_compose_name,omitempty"`
+	ObservabilityComposeName string `json:"observability_compose_name,omitempty"`
+	OperatorComposeName      string `json:"operator_compose_name,omitempty"`
+	Plat5Override            string `json:"plat5_override,omitempty"`
+	AuthOverride             string `json:"auth_override,omitempty"`
+	ObservabilityOverride    string `json:"observability_override,omitempty"`
+	OperatorOverride         string `json:"operator_override,omitempty"`
+	GatewayPort              int    `json:"gateway_port,omitempty"`
+	RegistryPort             int    `json:"registry_port,omitempty"`
+	AuthPort                 int    `json:"auth_port,omitempty"`
+	OperatorPort             int    `json:"operator_port,omitempty"`
+	OperatorIdPPort          int    `json:"operator_idp_port,omitempty"`
+	GrafanaPort              int    `json:"grafana_port,omitempty"`
+	OTLPGRPCPort             int    `json:"otlp_grpc_port,omitempty"`
+	OTLPHTTPPort             int    `json:"otlp_http_port,omitempty"`
+	AlloyPort                int    `json:"alloy_port,omitempty"`
+	// RolesHash is the sha256 of the roles file identity last started with ("" = none).
+	RolesHash string    `json:"roles_hash,omitempty"`
+	StartedAt time.Time `json:"started_at"`
 }
 
 func projectPath(projectID string) (string, error) {

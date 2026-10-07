@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"os"
@@ -149,8 +151,17 @@ func runStart(cmd *cobra.Command, args []string) error {
 	overrideOpts := compose.OverrideOpts{
 		HostGateway: config.NeedsHostGateway(cfg.OtelEndpoint),
 	}
+	if err := config.CheckRolesFile(cfg.RolesFile); err != nil {
+		return err
+	}
+	rolesHash, err := fileHash(cfg.RolesFile)
+	if err != nil {
+		return err
+	}
+	plat5Opts := overrideOpts
+	plat5Opts.RolesFile = cfg.RolesFile
 	plat5Override := filepath.Join(stateDir, "compose.override.yml")
-	if err := compose.WritePlat5Override(plat5Override, cfg.Ports.Gateway, cfg.Ports.Registry, overrideOpts); err != nil {
+	if err := compose.WritePlat5Override(plat5Override, cfg.Ports.Gateway, cfg.Ports.Registry, plat5Opts); err != nil {
 		return err
 	}
 
@@ -171,6 +182,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 		OTLPGRPCPort:             cfg.Ports.OTLPGRPC,
 		OTLPHTTPPort:             cfg.Ports.OTLPHTTP,
 		AlloyPort:                cfg.Ports.Alloy,
+		RolesHash:                rolesHash,
 		StartedAt:                time.Now().UTC(),
 	}
 
@@ -260,6 +272,14 @@ func runStart(cmd *cobra.Command, args []string) error {
 	}
 	if err := edge.Up(startDetach, buildPlat5, edgeEnv); err != nil {
 		return err
+	}
+	// Identity reads roles at boot. Up leaves a running container alone when only
+	// the mounted file changed, so restart it.
+	if startDetach && owned != (ports.Set{}) && prev.RolesHash != rolesHash {
+		fmt.Println("Roles changed; restarting identity…")
+		if err := edge.Restart("identity"); err != nil {
+			return err
+		}
 	}
 
 	if !startDetach {
@@ -399,4 +419,17 @@ func runningPorts(cfg config.Resolved, prev state.State) ports.Set {
 		owned.OperatorIdP = prev.OperatorIdPPort
 	}
 	return owned
+}
+
+// fileHash is the sha256 of path's contents, or "" when path is empty.
+func fileHash(path string) (string, error) {
+	if path == "" {
+		return "", nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
 }

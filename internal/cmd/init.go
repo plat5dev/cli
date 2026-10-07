@@ -246,6 +246,10 @@ func runInit(cmd *cobra.Command, args []string) error {
 			return err
 		}
 	}
+	// A template may ship its own roles with its labels; keep it.
+	if err := writeIfAbsent(cwd, "roles.yml", starterRoles); err != nil {
+		return err
+	}
 
 	fmt.Println()
 	fmt.Println("Next:")
@@ -506,6 +510,10 @@ func renderPlat5YML(projectID, plat5Path, auth string, authEnabled bool, obs str
 			fmt.Fprintf(&b, "  - %s\n", yamlString(r))
 		}
 	}
+	fmt.Fprintf(&b, "\n# Roles: each grants labels; routes require them (required_scopes).\n")
+	fmt.Fprintf(&b, "# Identity reads this file; plat5 start restarts identity when it changes.\n")
+	fmt.Fprintf(&b, "# Remove the line to run without roles (every member unrestricted).\n")
+	fmt.Fprintf(&b, "roles: ./roles.yml\n")
 	return b.String()
 }
 
@@ -596,6 +604,11 @@ func writeIfAbsent(dir, name, body string) error {
 const identityRoutesCatalog = `# Catalog of identity public routes. Apply via route-registry (or a subset).
 # Not auto-published. Internal validate stays on INTERNAL_PORT.
 # GET /organizations is served by identity and omitted here.
+#
+# Writes that manage the org carry labels. A member's role grants labels
+# (docs/roles.md); a key or session can narrow them. Reads stay unlabeled,
+# except the invite list, which returns live tokens. Labels are opaque: edit
+# them here, not in identity.
 services:
   identity:
     url: http://identity:3000
@@ -623,28 +636,61 @@ services:
       routes:
         - path: /org
           upstream: /organizations/{subject.organization_id}
-          methods: [GET, PATCH, DELETE]
+          methods:
+            GET:
+            PATCH:
+              required_scopes: [org:write]
+            DELETE:
+              required_scopes: [org:delete]
+        - path: /org/roles
+          upstream: /organizations/{subject.organization_id}/roles
+          methods: [GET]
         - path: /org/members
           upstream: /organizations/{subject.organization_id}/members
-          methods: [GET, POST]
+          methods:
+            GET:
+            POST:
+              required_scopes: [org:members:write]
+        - path: /org/members/{member_id}
+          upstream: /organizations/{subject.organization_id}/members/{path.member_id}
+          methods:
+            GET:
+            PATCH:
+              required_scopes: [org:members:write]
+            DELETE:
+              required_scopes: [org:members:write]
         - path: /org/invites
           upstream: /organizations/{subject.organization_id}/invites
           methods: [GET, POST]
+          required_scopes: [org:members:write]
         - path: /org/invites/{invite_id}
           upstream: /organizations/{subject.organization_id}/invites/{path.invite_id}
           methods: [DELETE]
+          required_scopes: [org:members:write]
         - path: /org/service-accounts
           upstream: /organizations/{subject.organization_id}/service-accounts
-          methods: [GET, POST]
+          methods:
+            GET:
+            POST:
+              required_scopes: [org:service-accounts:write]
         - path: /org/service-accounts/{service_account_id}
           upstream: /organizations/{subject.organization_id}/service-accounts/{path.service_account_id}
-          methods: [GET, PATCH, DELETE]
+          methods:
+            GET:
+            PATCH:
+              required_scopes: [org:service-accounts:write]
+            DELETE:
+              required_scopes: [org:service-accounts:write]
         - path: /org/service-accounts/{service_account_id}/api-keys
           upstream: /organizations/{subject.organization_id}/service-accounts/{path.service_account_id}/api-keys
-          methods: [GET, POST]
+          methods:
+            GET:
+            POST:
+              required_scopes: [org:service-accounts:write]
         - path: /org/service-accounts/{service_account_id}/api-keys/{key_id}
           upstream: /organizations/{subject.organization_id}/service-accounts/{path.service_account_id}/api-keys/{path.key_id}
           methods: [DELETE]
+          required_scopes: [org:service-accounts:write]
     member:
       routes:
         - path: /member
@@ -656,6 +702,19 @@ services:
         - path: /member/api-keys/{key_id}
           upstream: /members/{subject.member_id}/api-keys/{path.key_id}
           methods: [DELETE]
+`
+
+// starterRoles is a starting point, not Plat5's: Plat5 names no roles (docs/roles.md).
+const starterRoles = `# Your roles. Each grants labels; routes require them (required_scopes).
+# ["*"] grants every label. The org:* labels match routes.identity.yml.
+# Add your own services' labels here. Plat5 restarts identity on plat5 start
+# when this file changes.
+roles:
+  owner: ["*"]
+  admin: [org:write, org:members:write, org:service-accounts:write]
+  member: []
+creator_role: owner
+default_role: member
 `
 
 const sampleRoutes = `services:

@@ -34,8 +34,43 @@ func TestWritePlat5Override(t *testing.T) {
 	if strings.Contains(s, "extra_hosts") {
 		t.Fatalf("unexpected extra_hosts without HostGateway:\n%s", s)
 	}
-	if strings.Contains(s, "identity:") {
-		t.Fatalf("unexpected identity without HostGateway:\n%s", s)
+	if !strings.Contains(s, "ROLES_FILE: \"\"") {
+		t.Fatalf("no roles file must clear ROLES_FILE (a path-mode compose may default it):\n%s", s)
+	}
+	if strings.Contains(s, RolesContainerPath) {
+		t.Fatalf("unexpected roles mount without a roles file:\n%s", s)
+	}
+}
+
+func TestWritePlat5OverrideRolesFile(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "compose.override.yml")
+	if err := WritePlat5Override(p, 5001, 5002, OverrideOpts{HostGateway: true, RolesFile: "/proj/roles.yml"}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Services map[string]struct {
+			Environment map[string]string `yaml:"environment"`
+			Volumes     []string          `yaml:"volumes"`
+			ExtraHosts  []string          `yaml:"extra_hosts"`
+		} `yaml:"services"`
+	}
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		t.Fatalf("override is not valid YAML: %v\n%s", err, data)
+	}
+	id := doc.Services["identity"]
+	if id.Environment["ROLES_FILE"] != RolesContainerPath {
+		t.Fatalf("ROLES_FILE: %+v\n%s", id.Environment, data)
+	}
+	if len(id.Volumes) != 1 || id.Volumes[0] != "/proj/roles.yml:"+RolesContainerPath+":ro" {
+		t.Fatalf("volumes: %+v", id.Volumes)
+	}
+	if len(id.ExtraHosts) != 1 || len(doc.Services["route-registry"].ExtraHosts) != 1 {
+		t.Fatalf("host gateway kept on identity and registry:\n%s", data)
 	}
 }
 
