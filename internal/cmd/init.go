@@ -253,7 +253,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  %d. plat5 start\n", n)
 	n++
 	if authEnabled {
-		fmt.Printf("  %d. Get a dev token: curl -s -X POST http://localhost:5000/dev/token | jq -r .access_token\n", n)
+		fmt.Printf("  %d. Get a dev token: curl -s -X POST http://localhost:5000/dev/token -H 'Content-Type: application/json' -d '{\"email\":\"dev@example.com\"}' | jq -r .access_token\n", n)
 		fmt.Println("     (local auth runs with AUTH_DEV_MODE=true; adjust the port if ports.auth is set or busy — see plat5 status)")
 		n++
 	}
