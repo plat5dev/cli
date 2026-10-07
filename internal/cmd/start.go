@@ -31,7 +31,7 @@ var startCmd = &cobra.Command{
 
 Pulls runtime images via plat5_version / PLAT5_VERSION, Auth via
 auth.version / AUTH_VERSION, and Operator via operator.version /
-OPERATOR_VERSION (independent pins; defaults v0.3.2 / v0.1.10 / v0.3.0) using
+OPERATOR_VERSION (independent pins; defaults v0.3.2 / v0.1.11 / v0.3.0) using
 compose files embedded in the CLI.
 
 Advanced: set plat5_compose / auth_compose / observability_compose /
