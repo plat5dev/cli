@@ -65,10 +65,11 @@ type applyResponse struct {
 
 // Apply posts a routes file to /apply.
 // upstreams injects service URLs (see internal/upstreams) before upload.
-func (c *Client) Apply(path string, upstreams map[string]string) ([]ApplyResult, error) {
+// It also returns the upstreams names bound into the file.
+func (c *Client) Apply(path string, upstreams map[string]string) ([]ApplyResult, []string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	ct := "application/json"
 	ext := strings.ToLower(filepath.Ext(path))
@@ -78,18 +79,22 @@ func (c *Client) Apply(path string, upstreams map[string]string) ([]ApplyResult,
 	return c.ApplyBody(data, ct, upstreams)
 }
 
-// ApplyBody posts routes bytes to /apply after optional upstream bind.
-func (c *Client) ApplyBody(data []byte, contentType string, ups map[string]string) ([]ApplyResult, error) {
-	if len(ups) > 0 {
-		bound, err := upstreams.Bind(data, ups)
-		if err != nil {
-			return nil, err
-		}
-		if !bytes.Equal(bound, data) {
-			data = bound
-			contentType = "application/yaml"
-		}
+// ApplyBody posts routes bytes to /apply after the upstream bind.
+// It also returns the upstreams names the bind used.
+func (c *Client) ApplyBody(data []byte, contentType string, ups map[string]string) ([]ApplyResult, []string, error) {
+	bound, used, err := upstreams.Bind(data, ups)
+	if err != nil {
+		return nil, nil, err
 	}
+	if !bytes.Equal(bound, data) {
+		data = bound
+		contentType = "application/yaml"
+	}
+	results, err := c.post(data, contentType)
+	return results, used, err
+}
+
+func (c *Client) post(data []byte, contentType string) ([]ApplyResult, error) {
 	if contentType == "" {
 		contentType = "application/yaml"
 	}

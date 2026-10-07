@@ -85,7 +85,7 @@ services:
         - path: /x
           methods: [GET]
 `)
-	out, err := Bind(in, map[string]string{"api": "3000"})
+	out, _, err := Bind(in, map[string]string{"api": "3000"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ services:
 
 func TestBindEmptyNoop(t *testing.T) {
 	in := []byte("services:\n  a:\n    url: http://x\n")
-	out, err := Bind(in, nil)
+	out, _, err := Bind(in, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestBindEmptyNoop(t *testing.T) {
 
 func TestBindNoMatchReturnsOriginal(t *testing.T) {
 	in := []byte("services:\n  a:\n    url: http://x\n")
-	out, err := Bind(in, map[string]string{"missing": "3000"})
+	out, _, err := Bind(in, map[string]string{"missing": "3000"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestBindNoMatchReturnsOriginal(t *testing.T) {
 
 func TestBindOverwritesFileURL(t *testing.T) {
 	in := []byte("services:\n  api:\n    url: http://old:1\n    public:\n      routes: []\n")
-	out, err := Bind(in, map[string]string{"api": "new.example:8443"})
+	out, _, err := Bind(in, map[string]string{"api": "new.example:8443"})
 	if err != nil {
 		t.Fatal(err)
 	}

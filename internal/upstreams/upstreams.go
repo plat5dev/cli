@@ -3,6 +3,7 @@ package upstreams
 import (
 	"fmt"
 	"net"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -113,33 +114,41 @@ type routesFile struct {
 
 // Bind injects expanded upstream addresses into a routes document.
 // Matching service names get url set (overwrites file url). Other fields unchanged.
-// Returns the original data when upstreams is empty.
-func Bind(data []byte, ups map[string]string) ([]byte, error) {
-	if len(ups) == 0 {
-		return data, nil
-	}
-
+// It returns the upstream names it used, so callers can warn about unused ones.
+// A service left with no url is an error that points at plat5.yml (the
+// route-registry's own message doesn't know about plat5.yml).
+// Returns the original bytes when nothing was bound.
+func Bind(data []byte, ups map[string]string) ([]byte, []string, error) {
 	var doc routesFile
 	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return nil, fmt.Errorf("parse routes: %w", err)
+		return nil, nil, fmt.Errorf("parse routes: %w", err)
 	}
 	if doc.Services == nil {
-		return nil, fmt.Errorf("parse routes: missing services")
+		return nil, nil, fmt.Errorf("parse routes: missing services")
 	}
 
 	expanded := make(map[string]string, len(ups))
 	for name, raw := range ups {
 		u, err := Expand(raw)
 		if err != nil {
-			return nil, fmt.Errorf("upstreams.%s: %w", name, err)
+			return nil, nil, fmt.Errorf("upstreams.%s: %w", name, err)
 		}
 		expanded[name] = u
 	}
 
-	matched := 0
-	for name, svc := range doc.Services {
+	var used []string
+	names := make([]string, 0, len(doc.Services))
+	for name := range doc.Services {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		svc := doc.Services[name]
 		u, ok := expanded[name]
 		if !ok {
+			if s, _ := svc["url"].(string); strings.TrimSpace(s) == "" {
+				return nil, nil, fmt.Errorf("service %q has no url: add it under upstreams: in plat5.yml, or set url in the routes file", name)
+			}
 			continue
 		}
 		if svc == nil {
@@ -147,16 +156,27 @@ func Bind(data []byte, ups map[string]string) ([]byte, error) {
 			doc.Services[name] = svc
 		}
 		svc["url"] = u
-		matched++
+		used = append(used, name)
 	}
-	if matched == 0 {
-		// Still allow apply — file may be platform-only; upstreams apply to other files.
-		return data, nil
+	if len(used) == 0 {
+		return data, nil, nil
 	}
 
 	out, err := yaml.Marshal(&doc)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return out, nil
+	return out, used, nil
+}
+
+// Unused returns the upstreams keys not in used, sorted.
+func Unused(ups map[string]string, used map[string]bool) []string {
+	var out []string
+	for name := range ups {
+		if !used[name] {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
 }

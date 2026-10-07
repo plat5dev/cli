@@ -12,6 +12,7 @@ import (
 	"github.com/plat5dev/cli/internal/ports"
 	"github.com/plat5dev/cli/internal/registry"
 	"github.com/plat5dev/cli/internal/state"
+	"github.com/plat5dev/cli/internal/upstreams"
 	"github.com/spf13/cobra"
 )
 
@@ -327,19 +328,34 @@ func runStart(cmd *cobra.Command, args []string) error {
 }
 
 func applyRouteFiles(cfg config.Resolved, client *registry.Client) error {
-	for _, f := range cfg.RouteFiles {
-		if _, err := os.Stat(f); err != nil {
-			fmt.Printf("Skipping routes file %s (%v)\n", f, err)
-			continue
+	return applyFiles(client, cfg.RouteFiles, cfg.Upstreams, true)
+}
+
+// applyFiles applies routes files in order, binding plat5.yml upstreams.
+// After all files, it warns (non-fatal) about upstreams keys that matched no service.
+func applyFiles(client *registry.Client, files []string, ups map[string]string, skipMissing bool) error {
+	used := map[string]bool{}
+	for _, f := range files {
+		if skipMissing {
+			if _, err := os.Stat(f); err != nil {
+				fmt.Printf("Skipping routes file %s (%v)\n", f, err)
+				continue
+			}
 		}
 		fmt.Printf("Applying %s…\n", f)
-		results, err := client.Apply(f, cfg.Upstreams)
+		results, bound, err := client.Apply(f, ups)
 		for _, r := range results {
 			printApplyResult(r)
 		}
 		if err != nil {
 			return fmt.Errorf("%s: %w", f, err)
 		}
+		for _, name := range bound {
+			used[name] = true
+		}
+	}
+	for _, name := range upstreams.Unused(ups, used) {
+		fmt.Printf("warning: upstreams.%s matches no service in the applied routes files (not applied)\n", name)
 	}
 	return nil
 }
