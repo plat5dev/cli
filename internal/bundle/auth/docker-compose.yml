@@ -1,5 +1,5 @@
 # Embedded by plat5 CLI. Pulls ghcr.io/plat5dev/auth:${AUTH_VERSION}.
-# Local defaults: no SMTP (password codes logged by issuer).
+# Local defaults: no SMTP (password codes logged by issuer via AUTH_DEV_MODE).
 name: auth
 
 volumes:
@@ -49,8 +49,9 @@ services:
       OTEL_SERVICE_NAMESPACE: auth
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       DEPLOYMENT_ENV: local
-      # Local only: enables the dev POST /dev/token mint (any email -> valid token).
-      AUTH_DEV_TOKEN: "true"
+      # Local only: POST /dev/token mint + login codes logged without SMTP
+      # (any email -> valid token).
+      AUTH_DEV_MODE: "true"
     networks:
       - auth
     depends_on:
