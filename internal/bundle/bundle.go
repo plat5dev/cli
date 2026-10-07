@@ -12,7 +12,7 @@ import (
 const DefaultVersion = "v0.3.2"
 
 // DefaultAuthVersion is the Auth image tag when auth.version is unset.
-const DefaultAuthVersion = "v0.1.10"
+const DefaultAuthVersion = "v0.1.11"
 
 // DefaultOperatorVersion is the Operator image tag when operator.version is unset.
 const DefaultOperatorVersion = "v0.3.0"
