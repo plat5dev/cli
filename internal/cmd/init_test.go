@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"github.com/plat5dev/cli/internal/bundle"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,7 +31,7 @@ func TestRenderPlat5YMLAuthDefaults(t *testing.T) {
 		"http://localhost:5173/callback",
 		"https://oauth.pstmn.io/v1/callback",
 		"http://localhost:5173",
-		"version: v0.1.9",
+		"version: " + bundle.DefaultAuthVersion,
 		"plat5_version: v0.3.1",
 	} {
 		if !strings.Contains(body, want) {

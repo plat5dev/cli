@@ -45,7 +45,7 @@ func TestMaterializeAuth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "${AUTH_VERSION:-v0.1.9}") {
+	if !strings.Contains(string(data), "${AUTH_VERSION:-"+DefaultAuthVersion+"}") {
 		t.Fatalf("auth compose default pin missing:\n%s", data)
 	}
 	if strings.Contains(string(data), "${AUTH_VERSION:-v0.1.8}") {
@@ -57,7 +57,7 @@ func TestMaterializeAuth(t *testing.T) {
 }
 
 func TestDefaultAuthVersion(t *testing.T) {
-	if DefaultAuthVersion != "v0.1.9" {
+	if DefaultAuthVersion != "v0.1.10" {
 		t.Fatalf("DefaultAuthVersion %q", DefaultAuthVersion)
 	}
 	if DefaultVersion != "v0.3.1" {
