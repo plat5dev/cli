@@ -13,6 +13,9 @@ const hostGatewayExtraHost = "host.docker.internal:host-gateway"
 // Theme JSON. Matches plat5dev/auth (AUTH_THEME_FILE=/config/theme.json).
 const AuthThemeContainerPath = "/config/theme.json"
 
+// RolesContainerPath is where identity reads the project's roles file (ROLES_FILE).
+const RolesContainerPath = "/etc/plat5/roles.yml"
+
 // OverrideOpts controls optional bits written into CLI compose overrides.
 type OverrideOpts struct {
 	// HostGateway adds extra_hosts host.docker.internal:host-gateway on services
@@ -21,6 +24,9 @@ type OverrideOpts struct {
 	// AuthThemeFile is the host path of an OpenAuth Theme JSON to bind-mount
 	// into the Auth issuer at AuthThemeContainerPath. Empty = no mount.
 	AuthThemeFile string
+	// RolesFile is the host path of the project's roles file, bind-mounted into
+	// identity at RolesContainerPath. Empty = no roles (ROLES_FILE is cleared).
+	RolesFile string
 }
 
 // WritePlat5Override writes a compose override that remaps gateway and registry host ports.
@@ -44,12 +50,18 @@ services:
       - "%d:5002"
 `, registryPort)
 	if opts.HostGateway {
-		fmt.Fprintf(&b, `    extra_hosts:
-      - %q
-  identity:
-    extra_hosts:
-      - %q
-`, hostGatewayExtraHost, hostGatewayExtraHost)
+		fmt.Fprintf(&b, "    extra_hosts:\n      - %q\n", hostGatewayExtraHost)
+	}
+	// plat5.yml decides roles in both modes: a path-mode compose may have its own default.
+	b.WriteString("  identity:\n")
+	if opts.RolesFile != "" {
+		fmt.Fprintf(&b, "    environment:\n      ROLES_FILE: %q\n", RolesContainerPath)
+		fmt.Fprintf(&b, "    volumes:\n      - %q\n", opts.RolesFile+":"+RolesContainerPath+":ro")
+	} else {
+		b.WriteString("    environment:\n      ROLES_FILE: \"\"\n")
+	}
+	if opts.HostGateway {
+		fmt.Fprintf(&b, "    extra_hosts:\n      - %q\n", hostGatewayExtraHost)
 	}
 	return os.WriteFile(path, []byte(b.String()), 0o644)
 }

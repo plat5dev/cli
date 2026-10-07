@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestIdentityRoutesCatalogIncludesInvites(t *testing.T) {
@@ -136,5 +138,48 @@ func TestEnableTemplateOTLP(t *testing.T) {
 	}
 	if !strings.Contains(string(got), "      OTEL_EXPORTER_OTLP_ENDPOINT: http://host.docker.internal:4318") {
 		t.Fatalf("%s", got)
+	}
+}
+
+func TestIdentityRoutesCatalogLabelsOrgWrites(t *testing.T) {
+	for _, want := range []string{
+		"/org/members/{member_id}",
+		"/organizations/{subject.organization_id}/members/{path.member_id}",
+		"/org/roles",
+		"required_scopes: [org:write]",
+		"required_scopes: [org:delete]",
+		"required_scopes: [org:members:write]",
+		"required_scopes: [org:service-accounts:write]",
+	} {
+		if !strings.Contains(identityRoutesCatalog, want) {
+			t.Fatalf("identity catalog missing %q", want)
+		}
+	}
+}
+
+func TestRenderPlat5YMLRoles(t *testing.T) {
+	body := renderPlat5YML("demo", "", "", false, "", false, "", false, nil, nil)
+	if !strings.Contains(body, "\nroles: ./roles.yml\n") {
+		t.Fatalf("plat5.yml should point at roles.yml:\n%s", body)
+	}
+}
+
+func TestStarterRolesShape(t *testing.T) {
+	var doc struct {
+		Roles       map[string][]string `yaml:"roles"`
+		CreatorRole string              `yaml:"creator_role"`
+		DefaultRole string              `yaml:"default_role"`
+	}
+	if err := yaml.Unmarshal([]byte(starterRoles), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := doc.Roles[doc.CreatorRole]; !ok {
+		t.Fatalf("creator_role %q is not a role", doc.CreatorRole)
+	}
+	if _, ok := doc.Roles[doc.DefaultRole]; !ok {
+		t.Fatalf("default_role %q is not a role", doc.DefaultRole)
+	}
+	if got := doc.Roles["owner"]; len(got) != 1 || got[0] != "*" {
+		t.Fatalf("owner: %v", got)
 	}
 }

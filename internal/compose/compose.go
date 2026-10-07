@@ -104,6 +104,11 @@ func (r Runner) Up(detach, build bool, extraEnv []string) error {
 	return run(c)
 }
 
+// Restart runs docker compose restart for services.
+func (r Runner) Restart(services ...string) error {
+	return run(r.cmd(append([]string{"restart"}, services...)...))
+}
+
 // Down runs docker compose down.
 func (r Runner) Down() error {
 	return run(r.cmd("down"))

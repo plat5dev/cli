@@ -69,6 +69,9 @@ type File struct {
 	APIKeyBrand          string             `yaml:"apikey_brand"`
 	Routes               []string           `yaml:"routes"`
 	Upstreams            map[string]any     `yaml:"upstreams"`
+	// Roles is the project's roles file (relative to plat5.yml or absolute).
+	// Unset = no roles: every member is unrestricted.
+	Roles string `yaml:"roles"`
 }
 
 // AuthBlock is optional Plat5 Auth settings.
@@ -162,9 +165,11 @@ type Resolved struct {
 	urlExplicit       urlExplicit
 	AdminToken        string
 	// APIKeyBrand is identity + gateway APIKEY_BRAND. Unset → plat5.
-	APIKeyBrand              string
-	RouteFiles               []string
-	Upstreams                map[string]string // service name → raw value (port or URL); expanded at apply
+	APIKeyBrand string
+	RouteFiles  []string
+	Upstreams   map[string]string // service name → raw value (port or URL); expanded at apply
+	// RolesFile is the absolute host path of the roles file mounted into identity. Empty = no roles.
+	RolesFile                string
 	ComposeProject           string
 	AuthComposeName          string
 	ObservabilityComposeName string
@@ -215,6 +220,7 @@ func Load(flags Flags) (Resolved, error) {
 		AuthAllowedOrigins:       trimNonEmpty(file.Auth.AllowedOrigins),
 		AuthPublicIssuerURL:      strings.TrimSpace(file.Auth.PublicIssuerURL),
 		AuthThemeFile:            resolveAgainst(configDir, strings.TrimSpace(file.Auth.ThemeFile)),
+		RolesFile:                resolveAgainst(configDir, strings.TrimSpace(file.Roles)),
 		ObservabilityEnabled:     file.Observability.Enabled,
 		OperatorEnabled:          file.Operator.Enabled,
 		OperatorAllowedOrigins:   trimNonEmpty(file.Operator.AllowedOrigins),
@@ -654,6 +660,25 @@ func CheckAuthThemeFile(path string) error {
 	}
 	if st.IsDir() {
 		return fmt.Errorf("auth.theme_file: not a file: %s", path)
+	}
+	return nil
+}
+
+// CheckRolesFile fails if a configured roles file is missing or not a regular file.
+// Empty path is no roles. Identity validates the contents at boot.
+func CheckRolesFile(path string) error {
+	if path == "" {
+		return nil
+	}
+	st, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("roles: file not found: %s", path)
+		}
+		return fmt.Errorf("roles: %s: %w", path, err)
+	}
+	if st.IsDir() {
+		return fmt.Errorf("roles: not a file: %s", path)
 	}
 	return nil
 }

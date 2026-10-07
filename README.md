@@ -132,6 +132,9 @@ routes:
   - ./routes.identity.yml            # identity public surface (edit or omit)
   - ./routes.yml
   # - ./routes.dev.yml                   # optional extras (e.g. debug routes)
+
+# Roles: each grants labels; routes require them. Omit to run without roles.
+roles: ./roles.yml
 ```
 
 Relative paths resolve against the directory containing `plat5.yml`.
@@ -165,6 +168,21 @@ plat5 routes apply ./other.yml
 `routes.yml` holds the HTTP surface (paths, scopes). Keep deployment topology in `upstreams` so the same contract can point at different origins later.
 
 `plat5 start` applies the configured route files after the registry is ready.
+
+## Roles
+
+`roles.yml` is your deployment's roles: each role grants labels, and routes require labels with `required_scopes`. Plat5 names no roles; `plat5 init` writes a starter (`owner` / `admin` / `member`) whose `org:*` labels match `routes.identity.yml`. A template may ship its own. Contract: [plat5 `docs/roles.md`](https://github.com/plat5dev/plat5/blob/master/docs/roles.md).
+
+```yaml
+roles:
+  owner: ["*"]
+  admin: [org:write, org:members:write, org:service-accounts:write]
+  member: []
+creator_role: owner
+default_role: member
+```
+
+`plat5 start` mounts the file into identity (`ROLES_FILE`). Identity reads it at boot, so when the file changes, `plat5 start` restarts identity. The gateway caches credentials for up to `APIKEY_CACHE_TTL_SECS` (300s), so a role change reaches existing sessions and keys within that window. Remove `roles:` from `plat5.yml` to run without roles: every member is unrestricted.
 
 ## Ports and multi-project
 

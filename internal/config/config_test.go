@@ -762,3 +762,56 @@ func freeTestPort(t *testing.T) int {
 	defer ln.Close()
 	return ln.Addr().(*net.TCPAddr).Port
 }
+
+func TestLoadRolesFile(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "roles.yml"), []byte("roles: {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte("project_id: p\nroles: ./roles.yml\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(Flags{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(root, "roles.yml"); !samePath(cfg.RolesFile, want) {
+		t.Fatalf("roles %q want %q", cfg.RolesFile, want)
+	}
+
+	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte("project_id: p\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = Load(Flags{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.RolesFile != "" {
+		t.Fatalf("omitted roles is no roles, got %q", cfg.RolesFile)
+	}
+}
+
+func TestCheckRolesFile(t *testing.T) {
+	if err := CheckRolesFile(""); err != nil {
+		t.Fatalf("empty should be ok: %v", err)
+	}
+	dir := t.TempDir()
+	if err := CheckRolesFile(filepath.Join(dir, "nope.yml")); err == nil || !strings.Contains(err.Error(), "roles: file not found:") {
+		t.Fatalf("missing file: %v", err)
+	}
+	if err := CheckRolesFile(dir); err == nil || !strings.Contains(err.Error(), "roles: not a file:") {
+		t.Fatalf("directory: %v", err)
+	}
+	f := filepath.Join(dir, "roles.yml")
+	if err := os.WriteFile(f, []byte("roles: {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckRolesFile(f); err != nil {
+		t.Fatal(err)
+	}
+}
