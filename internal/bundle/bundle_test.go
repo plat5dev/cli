@@ -57,7 +57,7 @@ func TestMaterializeAuth(t *testing.T) {
 }
 
 func TestDefaultAuthVersion(t *testing.T) {
-	if DefaultAuthVersion != "v0.1.10" {
+	if DefaultAuthVersion != "v0.1.11" {
 		t.Fatalf("DefaultAuthVersion %q", DefaultAuthVersion)
 	}
 	if DefaultVersion != "v0.3.2" {
