@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"github.com/plat5dev/cli/internal/bundle"
+	"github.com/plat5dev/cli/internal/ports"
 	"net"
 	"os"
 	"path/filepath"
@@ -183,7 +184,7 @@ ports:
 	if cfg.AuthPublicIssuerURL != "https://auth.example.com" {
 		t.Fatalf("public issuer %q", cfg.AuthPublicIssuerURL)
 	}
-	if err := ResolvePorts(&cfg); err != nil {
+	if err := ResolvePorts(&cfg, ports.Set{}); err != nil {
 		t.Fatal(err)
 	}
 	if cfg.AuthPublicIssuerURL != "https://auth.example.com" {
@@ -402,7 +403,7 @@ ports:
 	if cfg.OtelEndpoint != "" {
 		t.Fatalf("otel should be empty before ResolvePorts, got %q", cfg.OtelEndpoint)
 	}
-	if err := ResolvePorts(&cfg); err != nil {
+	if err := ResolvePorts(&cfg, ports.Set{}); err != nil {
 		t.Fatal(err)
 	}
 	want := "http://host.docker.internal:4418"
@@ -435,7 +436,7 @@ otel:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ResolvePorts(&cfg); err != nil {
+	if err := ResolvePorts(&cfg, ports.Set{}); err != nil {
 		t.Fatal(err)
 	}
 	if cfg.OtelEndpoint != "http://remote.example:4318" {
@@ -494,7 +495,7 @@ ports:
 	if !cfg.PortsExplicit.Operator || cfg.Ports.Operator != opPort {
 		t.Fatalf("port pin %+v", cfg.Ports)
 	}
-	if err := ResolvePorts(&cfg); err != nil {
+	if err := ResolvePorts(&cfg, ports.Set{}); err != nil {
 		t.Fatal(err)
 	}
 	if cfg.OperatorURL != fmt.Sprintf("http://localhost:%d", opPort) {
