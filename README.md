@@ -11,7 +11,7 @@ Self-host (server) uses published images + compose — see [plat5dev/plat5 self-
 
 ## Install
 
-**Binary:** [GitHub Releases](https://github.com/plat5dev/cli/releases) — download `plat5_<version>_<os>_<arch>.tar.gz`, extract, put `plat5` on your `PATH`. `plat5 version` matches the release tag.
+**Binary:** [GitHub Releases](https://github.com/plat5dev/cli/releases) — download `plat5_<version>_<os>_<arch>.tar.gz`, extract, put `plat5` on your `PATH`. `plat5 version` prints the release version without the leading `v` (tag `v0.3.2` → `0.3.2`).
 
 **Go:**
 
@@ -115,7 +115,7 @@ admin_token: dev-admin-token   # local only; do not put production tokens here
 # Topology: where each service process listens (keys = services.* in routes files).
 # Injected as url at apply time (overwrites url in the file for that service).
 upstreams:
-  api: 3000                              # host port → http://host.docker.internal:3000
+  api: 3000                              # host port → host.docker.internal:3000
   # api: localhost:3000                  # gateway shares host network view
   # api: https://api.staging.example.com # remote origin
 
@@ -134,10 +134,12 @@ Flags / env still override: `--plat5-compose`, `PLAT5_COMPOSE`, `PLAT5_ADMIN_TOK
 
 | Value | Becomes | When to use |
 |-------|---------|-------------|
-| `3000` (bare port) | `http://host.docker.internal:3000` | App on the host; Plat5 gateway in Docker (default local) |
-| `localhost:3000` / `127.0.0.1:3000` | `http://localhost:3000` | Gateway can use loopback (non-Docker gateway, etc.) |
-| `host:port` or hostname | `http://…` | Named host on a shared network |
-| `https://…` / `http://…` | unchanged | Public or remote origin |
+| `3000` (bare port) | `host.docker.internal:3000` | App on the host; Plat5 gateway in Docker (default local) |
+| `localhost:3000` / `127.0.0.1:3000` | unchanged | Gateway can use loopback (non-Docker gateway, etc.) |
+| `host:port` | unchanged (a port is required) | Named host on a shared network |
+| `https://…` / `http://…` | `host:port` (scheme and path dropped; port defaults to 443 / 80) | Public or remote origin |
+
+The gateway dials every upstream over plain HTTP, including ones written as `https://…`.
 
 Keys must match service names in the routes file(s). `plat5 routes apply` and `plat5 start` bind upstreams before `POST /apply`.
 
@@ -160,7 +162,7 @@ Each project gets compose project names `plat5-<project_id>`, `plat5-<project_id
 
 Host port mappings are written to override files under XDG state so two projects do not share containers. Defaults: gateway 5001, registry 5002, auth 5000, operator 5004, operator_idp 5556, grafana 3002, OTLP 4317/4318, alloy 12345. Unpinned busy ports are reallocated; **pinned** ports never auto-move.
 
-Start order: observability → auth → plat5 → operator. Stop runs operator first, then plat5, auth, observability. Operator joins the Plat5 compose network (`<project>_plat5`) after Plat5 is up so the image route list can dial `identity:3000`. Identity is not published. Routes are not rewritten. Operator requires detached start (the default).
+Start order: observability → auth → plat5 → operator. Stop runs operator first, then plat5, auth, observability. Operator joins the Plat5 compose network (`plat5-<project_id>_plat5`) after Plat5 is up so the image route list can dial `identity:3000`. Identity is not published. Routes are not rewritten. Operator requires detached start (the default).
 
 ## Operator
 
