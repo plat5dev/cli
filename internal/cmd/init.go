@@ -213,7 +213,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Copied template %s → %s\n", tpl.Manifest.Name, cwd)
 	}
 
-	upstreams := map[string]string{"api": "3000"}
+	upstreams := map[string]string{"api": "http://host.docker.internal:3000"}
 	routes := []string{"./routes.identity.yml", "./routes.yml"}
 	if tpl != nil {
 		if len(tpl.Manifest.Upstreams) > 0 {
@@ -252,6 +252,11 @@ func runInit(cmd *cobra.Command, args []string) error {
 	n := 1
 	fmt.Printf("  %d. plat5 start\n", n)
 	n++
+	if authEnabled {
+		fmt.Printf("  %d. Get a dev token: curl -s -X POST http://localhost:5000/dev/token | jq -r .access_token\n", n)
+		fmt.Println("     (local auth runs with AUTH_DEV_MODE=true; adjust the port if ports.auth is set or busy — see plat5 status)")
+		n++
+	}
 	if tpl != nil {
 		for _, step := range tpl.Manifest.Next {
 			fmt.Printf("  %d. %s\n", n, step)
@@ -593,7 +598,7 @@ const identityRoutesCatalog = `# Catalog of identity public routes. Apply via ro
 # GET /organizations is served by identity and omitted here.
 services:
   identity:
-    url: identity:3000
+    url: http://identity:3000
     user:
       routes:
         - path: /user/memberships

@@ -100,7 +100,7 @@ func printStatus(cfg config.Resolved, st state.State) error {
 		lines = append(lines, fmt.Sprintf("Auth version:    %s", cfg.AuthVersion))
 	}
 	if cfg.OperatorEnabled || cfg.OperatorCompose != "" {
-		lines = append(lines, fmt.Sprintf("Operator version: %s", cfg.OperatorVersion))
+		lines = append(lines, fmt.Sprintf("Op version:      %s", cfg.OperatorVersion))
 	}
 	if plat5Dir != "" {
 		runLabel := "stopped"

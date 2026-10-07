@@ -3,21 +3,20 @@ package upstreams
 import (
 	"fmt"
 	"net"
-	"net/url"
 	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 )
 
-// Expand turns a plat5.yml upstream value into a gateway peer address (host:port).
-// The gateway HttpPeer expects host:port without a scheme (same as platform services).
+// Expand turns a plat5.yml upstream value into a route-config url, exactly
+// http://host:port (no path, no query, no other scheme).
 //
-//	3000                         → host.docker.internal:3000  (host process, gateway in Docker)
-//	localhost:3000               → localhost:3000
-//	127.0.0.1:3000               → 127.0.0.1:3000
-//	http://host.docker.internal:3000 → host.docker.internal:3000
-//	api:3000                     → api:3000
+//	3000                             → http://host.docker.internal:3000  (host process, gateway in Docker)
+//	localhost:3000                   → http://localhost:3000
+//	127.0.0.1:3000                   → http://127.0.0.1:3000
+//	api:3000                         → http://api:3000
+//	http://host.docker.internal:3000 → http://host.docker.internal:3000
 func Expand(raw string) (string, error) {
 	s := strings.TrimSpace(raw)
 	if s == "" {
@@ -28,36 +27,27 @@ func Expand(raw string) (string, error) {
 		if port < 1 || port > 65535 {
 			return "", fmt.Errorf("invalid port %d", port)
 		}
-		return fmt.Sprintf("host.docker.internal:%d", port), nil
+		return fmt.Sprintf("http://host.docker.internal:%d", port), nil
 	}
 
-	if strings.Contains(s, "://") {
-		u, err := url.Parse(s)
-		if err != nil || u.Host == "" {
-			return "", fmt.Errorf("invalid upstream URL %q", raw)
+	hostPort := s
+	if scheme, rest, ok := strings.Cut(s, "://"); ok {
+		switch strings.ToLower(scheme) {
+		case "http":
+		case "https":
+			return "", fmt.Errorf("TLS (https) upstreams aren't supported yet; use http://host:port")
+		default:
+			return "", fmt.Errorf("invalid upstream %q: unsupported scheme %q; use http://host:port", raw, scheme)
 		}
-		host := u.Host
-		if _, _, err := net.SplitHostPort(host); err != nil {
-			// host without port
-			switch u.Scheme {
-			case "https":
-				host = net.JoinHostPort(u.Hostname(), "443")
-			case "http":
-				host = net.JoinHostPort(u.Hostname(), "80")
-			default:
-				return "", fmt.Errorf("invalid upstream URL %q: missing port", raw)
-			}
-		}
-		return host, nil
+		hostPort = rest
+	}
+	if strings.ContainsAny(hostPort, "/?#") {
+		return "", fmt.Errorf("invalid upstream %q: use http://host:port (no path or query)", raw)
 	}
 
-	// host:port or bare host
-	host, port, err := net.SplitHostPort(s)
+	host, port, err := net.SplitHostPort(hostPort)
 	if err != nil {
-		if strings.Contains(s, "/") {
-			return "", fmt.Errorf("invalid upstream %q: use host:port or bare port", raw)
-		}
-		return "", fmt.Errorf("invalid upstream %q: missing port", raw)
+		return "", fmt.Errorf("invalid upstream %q: missing port; use http://host:port", raw)
 	}
 	if host == "" {
 		return "", fmt.Errorf("invalid upstream %q", raw)
@@ -65,7 +55,7 @@ func Expand(raw string) (string, error) {
 	if p, err := strconv.Atoi(port); err != nil || p < 1 || p > 65535 {
 		return "", fmt.Errorf("invalid port in upstream %q", raw)
 	}
-	return net.JoinHostPort(host, port), nil
+	return "http://" + net.JoinHostPort(host, port), nil
 }
 
 // ParseMap normalizes yaml upstream values (int or string) to strings.

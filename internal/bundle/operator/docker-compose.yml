@@ -2,7 +2,7 @@
 # Operator with a local staff IdP (Dex). start writes an override that:
 #   - mounts the CLI-generated Dex config (clients, dev login, CORS)
 #   - sets the gateway's issuer, audiences, and allowed origins
-#   - attaches operator to the Plat5 network so its route list can dial identity:3000
+#   - attaches operator to the Plat5 network so its route list can dial http://identity:3000
 # Identity is not published.
 name: operator
 
