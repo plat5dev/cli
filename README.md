@@ -39,7 +39,7 @@ plat5 stop
 
 The local stack always runs Auth with `AUTH_DEV_MODE=true`: `POST /dev/token` is open and login codes are written to the Auth logs (`plat5 logs --auth`) instead of being emailed. This can't be turned off locally. To test production behavior, run Auth's prod compose instead (point `auth_compose` at it).
 
-`plat5_version` (default `v0.3.1`) pins runtime GHCR tags. With Auth enabled, `auth.version` / `AUTH_VERSION` (default `v0.1.10`) pins `ghcr.io/plat5dev/auth` independently. With Operator enabled, `operator.version` / `OPERATOR_VERSION` (default `v0.3.0`) pins `ghcr.io/plat5dev/operator` independently.
+`plat5_version` (default `v0.5.0`) pins runtime GHCR tags. With Auth enabled, `auth.version` / `AUTH_VERSION` (default `v0.1.10`) pins `ghcr.io/plat5dev/auth` independently. With Operator enabled, `operator.version` / `OPERATOR_VERSION` (default `v0.3.0`) pins `ghcr.io/plat5dev/operator` independently.
 
 Templates: first-party short names (`plat5 init --list-templates`) fetch public GitHub repos under `plat5dev/template-*` (branch `master`, override with `--template-ref` / `PLAT5_TEMPLATE_REF`). Also accepts `owner/repo` or an archive URL. Cached under `~/.cache/plat5/templates/`. Local: `--templates-dir` / `PLAT5_TEMPLATES` (directory of template folders).
 
@@ -66,7 +66,7 @@ Walks up from cwd. **Required** for all project commands.
 ```yaml
 project_id: my-app          # default: directory name; local compose isolation slug
 
-plat5_version: v0.3.1                  # runtime GHCR tag
+plat5_version: v0.5.0                  # runtime GHCR tag
 
 auth:
   enabled: false
