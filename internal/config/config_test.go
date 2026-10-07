@@ -263,7 +263,7 @@ plat5_compose: ./e
 upstreams:
   api: 3000
   other: localhost:4000
-  remote: https://api.example.com
+  remote: http://api.example.com:8080
 `
 	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte(yml), 0o644); err != nil {
 		t.Fatal(err)
@@ -283,8 +283,44 @@ upstreams:
 	if cfg.Upstreams["other"] != "localhost:4000" {
 		t.Fatalf("other %q", cfg.Upstreams["other"])
 	}
-	if cfg.Upstreams["remote"] != "https://api.example.com" {
+	if cfg.Upstreams["remote"] != "http://api.example.com:8080" {
 		t.Fatalf("remote %q", cfg.Upstreams["remote"])
+	}
+}
+
+func loadYAML(t *testing.T, yml string) error {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Load(Flags{})
+	return err
+}
+
+func TestLoadRejectsTLSUpstream(t *testing.T) {
+	err := loadYAML(t, "project_id: p\nupstreams:\n  api: https://api.example.com\n")
+	if err == nil || !strings.Contains(err.Error(), "TLS (https) upstreams aren't supported yet; use http://host:port") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestLoadRejectsUnknownKey(t *testing.T) {
+	err := loadYAML(t, "project_id: p\nbootstrap:\n  enabled: true\n")
+	if err == nil || !strings.Contains(err.Error(), `"bootstrap"`) || !strings.Contains(err.Error(), "removed in v0.3.3") {
+		t.Fatalf("err=%v", err)
+	}
+	err = loadYAML(t, "project_id: p\nfoo: 1\n")
+	if err == nil || !strings.Contains(err.Error(), `unknown key "foo"`) {
+		t.Fatalf("err=%v", err)
+	}
+	if err := loadYAML(t, ""); err != nil {
+		t.Fatalf("empty file: %v", err)
 	}
 }
 
@@ -418,9 +454,6 @@ operator_compose: ./operator-compose
 operator:
   enabled: true
   version: v0.3.0
-  # Old-model keys are ignored, so existing plat5.yml files still load.
-  bootstrap_email: operator@localhost
-  bootstrap_password: dev-operator-password
 ports:
   operator: %d
   operator_idp: %d

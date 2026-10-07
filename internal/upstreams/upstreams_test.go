@@ -11,14 +11,12 @@ func TestExpand(t *testing.T) {
 	cases := []struct {
 		in, want string
 	}{
-		{"3000", "host.docker.internal:3000"},
-		{" 8080 ", "host.docker.internal:8080"},
-		{"localhost:3000", "localhost:3000"},
-		{"127.0.0.1:3000", "127.0.0.1:3000"},
-		{"api.example.com:8443", "api.example.com:8443"},
-		{"https://api.example.com/v1", "api.example.com:443"},
-		{"http://host.docker.internal:3000", "host.docker.internal:3000"},
-		{"http://api.example.com", "api.example.com:80"},
+		{"3000", "http://host.docker.internal:3000"},
+		{" 8080 ", "http://host.docker.internal:8080"},
+		{"localhost:3000", "http://localhost:3000"},
+		{"127.0.0.1:3000", "http://127.0.0.1:3000"},
+		{"api.example.com:8443", "http://api.example.com:8443"},
+		{"http://host.docker.internal:3000", "http://host.docker.internal:3000"},
 	}
 	for _, tc := range cases {
 		got, err := Expand(tc.in)
@@ -32,10 +30,24 @@ func TestExpand(t *testing.T) {
 }
 
 func TestExpandErrors(t *testing.T) {
-	for _, in := range []string{"", "0", "70000", "not a url path/only", "api.example.com"} {
+	for _, in := range []string{"", "0", "70000", "not a url path/only", "api.example.com",
+		"http://api.example.com", "http://api:3000/v1", "http://api:3000?x=1",
+		"ftp://api:3000", "api:3000/v1"} {
 		if _, err := Expand(in); err == nil {
 			t.Fatalf("Expand(%q) expected error", in)
 		}
+	}
+}
+
+func TestExpandRejectsTLS(t *testing.T) {
+	const msg = "TLS (https) upstreams aren't supported yet; use http://host:port"
+	for _, in := range []string{"https://api.example.com:443", "https://api.example.com/v1"} {
+		if _, err := Expand(in); err == nil || !strings.Contains(err.Error(), msg) {
+			t.Fatalf("Expand(%q) err=%v", in, err)
+		}
+	}
+	if _, err := ParseMap(map[string]any{"api": "https://api.example.com"}); err == nil || !strings.Contains(err.Error(), "upstreams.api") {
+		t.Fatalf("ParseMap err=%v", err)
 	}
 }
 
@@ -43,7 +55,7 @@ func TestParseMap(t *testing.T) {
 	raw := map[string]any{
 		"api":     3000,
 		"other":   "localhost:4000",
-		"remote":  "https://api.example.com",
+		"remote":  "http://api.example.com:8080",
 		"asfloat": float64(5000),
 	}
 	m, err := ParseMap(raw)
@@ -53,7 +65,7 @@ func TestParseMap(t *testing.T) {
 	if m["api"] != "3000" || m["other"] != "localhost:4000" {
 		t.Fatalf("%v", m)
 	}
-	if m["remote"] != "https://api.example.com" || m["asfloat"] != "5000" {
+	if m["remote"] != "http://api.example.com:8080" || m["asfloat"] != "5000" {
 		t.Fatalf("%v", m)
 	}
 }
@@ -83,7 +95,7 @@ services:
 	if err := yaml.Unmarshal(out, &doc); err != nil {
 		t.Fatal(err)
 	}
-	if doc.Services["api"]["url"] != "host.docker.internal:3000" {
+	if doc.Services["api"]["url"] != "http://host.docker.internal:3000" {
 		t.Fatalf("api url %v", doc.Services["api"]["url"])
 	}
 	if doc.Services["other"]["url"] != "keep.example:1" {
@@ -120,11 +132,11 @@ func TestBindNoMatchReturnsOriginal(t *testing.T) {
 
 func TestBindOverwritesFileURL(t *testing.T) {
 	in := []byte("services:\n  api:\n    url: http://old:1\n    public:\n      routes: []\n")
-	out, err := Bind(in, map[string]string{"api": "https://new.example"})
+	out, err := Bind(in, map[string]string{"api": "new.example:8443"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(out), "new.example:443") {
+	if !strings.Contains(string(out), "url: http://new.example:8443") {
 		t.Fatalf("%s", out)
 	}
 	if strings.Contains(string(out), "http://old:1") {
