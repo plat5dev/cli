@@ -558,7 +558,7 @@ func findYAML() (*File, string, error) {
 			if err != nil {
 				return nil, "", err
 			}
-			return &f, abs, nil
+			return f, abs, nil
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {

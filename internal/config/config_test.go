@@ -454,9 +454,6 @@ operator_compose: ./operator-compose
 operator:
   enabled: true
   version: v0.3.0
-  # Old-model keys are ignored, so existing plat5.yml files still load.
-  bootstrap_email: operator@localhost
-  bootstrap_password: dev-operator-password
 ports:
   operator: %d
   operator_idp: %d
