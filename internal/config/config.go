@@ -1,7 +1,10 @@
 package config
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -497,6 +500,41 @@ func trimNonEmpty(in []string) []string {
 	return out
 }
 
+var unknownFieldRE = regexp.MustCompile(`^line (\d+): field (\S+) not found in type `)
+
+// removedKeys maps dropped plat5.yml keys to a hint shown when one is left behind.
+var removedKeys = map[string]string{
+	"bootstrap": "bootstrap was removed in v0.3.3; delete it from plat5.yml",
+}
+
+// parseFile decodes plat5.yml strictly: an unknown key is an error naming the key.
+func parseFile(data []byte) (*File, error) {
+	var f File
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&f); err != nil && !errors.Is(err, io.EOF) {
+		var te *yaml.TypeError
+		if !errors.As(err, &te) {
+			return nil, err
+		}
+		var msgs []string
+		for _, e := range te.Errors {
+			m := unknownFieldRE.FindStringSubmatch(e)
+			if m == nil {
+				msgs = append(msgs, e)
+				continue
+			}
+			msg := fmt.Sprintf("line %s: unknown key %q", m[1], m[2])
+			if hint, ok := removedKeys[m[2]]; ok {
+				msg += " (" + hint + ")"
+			}
+			msgs = append(msgs, msg)
+		}
+		return nil, errors.New(strings.Join(msgs, "; "))
+	}
+	return &f, nil
+}
+
 func findYAML() (*File, string, error) {
 	dir, err := os.Getwd()
 	if err != nil {
@@ -512,8 +550,8 @@ func findYAML() (*File, string, error) {
 				}
 				return nil, "", fmt.Errorf("read %s: %w", p, err)
 			}
-			var f File
-			if err := yaml.Unmarshal(data, &f); err != nil {
+			f, err := parseFile(data)
+			if err != nil {
 				return nil, "", fmt.Errorf("parse %s: %w", p, err)
 			}
 			abs, err := filepath.Abs(p)

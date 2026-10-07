@@ -30,8 +30,14 @@ plat5 init --template bun-effect-api --auth -y
 plat5 start
 
 plat5 status
+
+# Get a dev token (local auth only; use the auth URL from `plat5 status`, default :5000)
+curl -s -X POST http://localhost:5000/dev/token | jq -r .access_token
+
 plat5 stop
 ```
+
+The local stack always runs Auth with `AUTH_DEV_MODE=true`: `POST /dev/token` is open and login codes are written to the Auth logs (`plat5 logs --auth`) instead of being emailed. This can't be turned off locally. To test production behavior, run Auth's prod compose instead (point `auth_compose` at it).
 
 `plat5_version` (default `v0.3.1`) pins runtime GHCR tags. With Auth enabled, `auth.version` / `AUTH_VERSION` (default `v0.1.10`) pins `ghcr.io/plat5dev/auth` independently. With Operator enabled, `operator.version` / `OPERATOR_VERSION` (default `v0.3.0`) pins `ghcr.io/plat5dev/operator` independently.
 
@@ -46,7 +52,7 @@ Templates: first-party short names (`plat5 init --list-templates`) fetch public 
 | `plat5 stop [--auth] [--observability] [--operator]` | Stop Plat5; modules if started / enabled |
 | `plat5 status` | URLs, health, registered routes |
 | `plat5 doctor` | Docker, project config, ports |
-| `plat5 logs [-f] [service…]` | Plat5 compose logs (`--auth` / `--observability` / `--operator`) |
+| `plat5 logs [-f=false] [service…]` | Plat5 compose logs (`--auth` / `--observability` / `--operator`). Follows by default; `-f=false` prints and exits |
 | `plat5 routes apply [file…]` | `POST /apply` (defaults to `routes:` list) |
 | `plat5 routes list` | List services |
 | `plat5 routes get <name>` | Show service config |
@@ -115,9 +121,10 @@ admin_token: dev-admin-token   # local only; do not put production tokens here
 # Topology: where each service process listens (keys = services.* in routes files).
 # Injected as url at apply time (overwrites url in the file for that service).
 upstreams:
-  api: 3000                              # host port → host.docker.internal:3000
-  # api: localhost:3000                  # gateway shares host network view
-  # api: https://api.staging.example.com # remote origin
+  api: http://host.docker.internal:3000  # app on the host (bare `3000` is shorthand for this)
+  # api: http://localhost:3000           # gateway shares host network view
+  # api: http://api.internal:8080        # named host on a shared network
+  # Always http://host:port: no path, no query. https:// is rejected (TLS upstreams aren't supported yet).
 
 # Route contract files (paths, scopes). Prefer upstreams for urls.
 routes:
@@ -134,12 +141,14 @@ Flags / env still override: `--plat5-compose`, `PLAT5_COMPOSE`, `PLAT5_ADMIN_TOK
 
 | Value | Becomes | When to use |
 |-------|---------|-------------|
-| `3000` (bare port) | `host.docker.internal:3000` | App on the host; Plat5 gateway in Docker (default local) |
-| `localhost:3000` / `127.0.0.1:3000` | unchanged | Gateway can use loopback (non-Docker gateway, etc.) |
-| `host:port` | unchanged (a port is required) | Named host on a shared network |
-| `https://…` / `http://…` | `host:port` (scheme and path dropped; port defaults to 443 / 80) | Public or remote origin |
+| `3000` (bare port) | `http://host.docker.internal:3000` | App on the host; Plat5 gateway in Docker (default local) |
+| `localhost:3000` / `127.0.0.1:3000` | `http://localhost:3000` | Gateway can use loopback (non-Docker gateway, etc.) |
+| `host:port` | `http://host:port` (a port is required) | Named host on a shared network |
+| `http://host:port` | unchanged | Same, written out |
 
-The gateway dials every upstream over plain HTTP, including ones written as `https://…`.
+The url written into the route config is always exactly `http://host:port`. An `https://` value, any other scheme, a path, or a query is a config error (`TLS (https) upstreams aren't supported yet; use http://host:port`).
+
+Unknown keys in `plat5.yml` are also a config error naming the key. A leftover `bootstrap:` key was removed in v0.3.3; delete it.
 
 Keys must match service names in the routes file(s). `plat5 routes apply` and `plat5 start` bind upstreams before `POST /apply`.
 
@@ -162,7 +171,7 @@ Each project gets compose project names `plat5-<project_id>`, `plat5-<project_id
 
 Host port mappings are written to override files under XDG state so two projects do not share containers. Defaults: gateway 5001, registry 5002, auth 5000, operator 5004, operator_idp 5556, grafana 3002, OTLP 4317/4318, alloy 12345. Unpinned busy ports are reallocated; **pinned** ports never auto-move.
 
-Start order: observability → auth → plat5 → operator. Stop runs operator first, then plat5, auth, observability. Operator joins the Plat5 compose network (`plat5-<project_id>_plat5`) after Plat5 is up so the image route list can dial `identity:3000`. Identity is not published. Routes are not rewritten. Operator requires detached start (the default).
+Start order: observability → auth → plat5 → operator. Stop runs operator first, then plat5, auth, observability. Operator joins the Plat5 compose network (`plat5-<project_id>_plat5`) after Plat5 is up so the image route list can dial `http://identity:3000`. Identity is not published. Routes are not rewritten. Operator requires detached start (the default).
 
 ## Operator
 
@@ -182,6 +191,8 @@ TOKEN=$(curl -s http://localhost:5556/dex/token \
   -d username=staff@example.com -d password=password | jq -r .access_token)
 curl -s http://localhost:5004/organizations -H "Authorization: Bearer $TOKEN"
 ```
+
+The CLI doesn't publish the operator's health port (8004). To check operator health, run `plat5 status` (probes the Operator URL) or `docker compose ps` for the operator project (`plat5-<project_id>-operator`), whose healthcheck hits `/health/ready` inside the container.
 
 For a browser console, run [operator-console](https://github.com/plat5dev/operator-console) with `VITE_GATEWAY_URL=http://localhost:5004`, `VITE_AUTH_ISSUER=http://localhost:5556/dex`, `VITE_AUTH_CLIENT_ID=operator-console`.
 
