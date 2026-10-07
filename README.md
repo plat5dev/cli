@@ -32,7 +32,8 @@ plat5 start
 plat5 status
 
 # Get a dev token (local auth only; use the auth URL from `plat5 status`, default :5000)
-curl -s -X POST http://localhost:5000/dev/token | jq -r .access_token
+curl -s -X POST http://localhost:5000/dev/token \
+  -H 'Content-Type: application/json' -d '{"email":"dev@example.com"}' | jq -r .access_token
 
 plat5 stop
 ```
