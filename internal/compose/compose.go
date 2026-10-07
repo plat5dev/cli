@@ -152,6 +152,16 @@ func (r Runner) Running() (bool, error) {
 	return len(strings.TrimSpace(string(out))) > 0, nil
 }
 
+// ProjectRunning reports whether compose project name has a running container.
+// It needs no compose files: docker compose finds the project by its labels.
+func ProjectRunning(name string) bool {
+	if name == "" {
+		return false
+	}
+	out, err := exec.Command("docker", "compose", "-p", name, "ps", "-q", "--status", "running").Output()
+	return err == nil && len(strings.TrimSpace(string(out))) > 0
+}
+
 func run(c *exec.Cmd) error {
 	if err := c.Run(); err != nil {
 		return fmt.Errorf("docker %s: %w", strings.Join(c.Args[1:], " "), err)
