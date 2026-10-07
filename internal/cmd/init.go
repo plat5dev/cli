@@ -477,8 +477,8 @@ func renderPlat5YML(projectID, plat5Path, auth string, authEnabled bool, obs str
 		fmt.Fprintf(&b, "# otel:\n#   endpoint: http://host.docker.internal:4318\n\n")
 	}
 	fmt.Fprintf(&b, "# Where your services listen. Keys match services.* in routes.yml.\n")
-	fmt.Fprintf(&b, "# Bare port → host process (CLI expands to host.docker.internal for Docker Plat5).\n")
-	fmt.Fprintf(&b, "# Or host:port / full URL for localhost or remote origins.\n")
+	fmt.Fprintf(&b, "# Bare port → host process (CLI expands to http://host.docker.internal:<port>).\n")
+	fmt.Fprintf(&b, "# Otherwise http://host:port only: no https (TLS upstreams aren't supported yet), no path or query.\n")
 	fmt.Fprintf(&b, "upstreams:\n")
 	if len(upstreams) == 0 {
 		fmt.Fprintf(&b, "  api: 3000\n")
