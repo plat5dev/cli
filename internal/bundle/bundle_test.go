@@ -51,6 +51,9 @@ func TestMaterializeAuth(t *testing.T) {
 	if strings.Contains(string(data), "${AUTH_VERSION:-v0.1.8}") {
 		t.Fatal("stale AUTH_VERSION default v0.1.8")
 	}
+	if !strings.Contains(string(data), `AUTH_DEV_TOKEN: "true"`) {
+		t.Fatalf("local auth compose must enable AUTH_DEV_TOKEN:\n%s", data)
+	}
 }
 
 func TestDefaultAuthVersion(t *testing.T) {
