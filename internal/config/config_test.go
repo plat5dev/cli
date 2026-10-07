@@ -108,7 +108,7 @@ routes:
 	if cfg.Plat5Compose != "" {
 		t.Fatalf("expected empty plat5_compose, got %q", cfg.Plat5Compose)
 	}
-	if cfg.Plat5Version != "v0.3.2" {
+	if cfg.Plat5Version != "v0.4.0" {
 		t.Fatalf("version %q", cfg.Plat5Version)
 	}
 	if cfg.AuthVersion != bundle.DefaultAuthVersion {
@@ -138,7 +138,7 @@ auth:
 	if cfg.AuthVersion != "v9.9.9" {
 		t.Fatalf("auth version %q", cfg.AuthVersion)
 	}
-	if cfg.Plat5Version != "v0.3.2" {
+	if cfg.Plat5Version != "v0.4.0" {
 		t.Fatalf("plat5 version should stay default, got %q", cfg.Plat5Version)
 	}
 }
@@ -529,7 +529,7 @@ operator:
 	if got != "https://console.example.com,http://localhost:3000" {
 		t.Fatalf("allowed origins %q", got)
 	}
-	if cfg.OperatorVersion != "v0.3.0" {
+	if cfg.OperatorVersion != "v0.4.0" {
 		t.Fatalf("default version %q", cfg.OperatorVersion)
 	}
 	if cfg.OperatorIssuerURL != "http://localhost:5556/dex" {
