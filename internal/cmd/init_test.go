@@ -34,7 +34,7 @@ func TestRenderPlat5YMLAuthDefaults(t *testing.T) {
 		"https://oauth.pstmn.io/v1/callback",
 		"http://localhost:5173",
 		"version: " + bundle.DefaultAuthVersion,
-		"plat5_version: v0.3.2",
+		"plat5_version: v0.4.0",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("missing %q in:\n%s", want, body)
@@ -68,7 +68,7 @@ func TestRenderPlat5YMLOperator(t *testing.T) {
 	for _, want := range []string{
 		"operator_compose: /tmp/operator/compose",
 		"operator:\n  enabled: true",
-		"version: v0.3.0",
+		"version: v0.4.0",
 		"allowed_origins:\n    - http://localhost:5173",
 		"#   operator: 5004",
 		"#   operator_idp: 5556",
