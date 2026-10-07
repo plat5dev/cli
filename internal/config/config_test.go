@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"github.com/plat5dev/cli/internal/bundle"
 	"net"
 	"os"
 	"path/filepath"
@@ -109,7 +110,7 @@ routes:
 	if cfg.Plat5Version != "v0.3.1" {
 		t.Fatalf("version %q", cfg.Plat5Version)
 	}
-	if cfg.AuthVersion != "v0.1.9" {
+	if cfg.AuthVersion != bundle.DefaultAuthVersion {
 		t.Fatalf("auth version %q", cfg.AuthVersion)
 	}
 }

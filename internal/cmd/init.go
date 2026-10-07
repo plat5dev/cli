@@ -75,7 +75,7 @@ func init() {
 	initCmd.Flags().StringVar(&initTemplate, "template", "", "Starter: official name, owner/repo, or https://…/archive/….tar.gz")
 	initCmd.Flags().StringVar(&initTemplatesDir, "templates-dir", "", "Local templates root (skip remote fetch)")
 	initCmd.Flags().StringVar(&initPlat5Version, "plat5-version", "", "Runtime GHCR pin written to plat5.yml (default v0.3.1)")
-	initCmd.Flags().StringVar(&initAuthVersion, "auth-version", "", "Auth GHCR pin written to auth.version (default v0.1.9)")
+	initCmd.Flags().StringVar(&initAuthVersion, "auth-version", "", "Auth GHCR pin written to auth.version (default "+bundle.DefaultAuthVersion+")")
 	initCmd.Flags().StringVar(&initOperatorVersion, "operator-version", "", "Operator GHCR pin written to operator.version (default "+bundle.DefaultOperatorVersion+")")
 	initCmd.Flags().StringVar(&initTemplateRef, "template-ref", "", "Git ref for remote templates (default master; or PLAT5_TEMPLATE_REF)")
 	initCmd.Flags().BoolVar(&initListTemplates, "list-templates", false, "List first-party templates and exit")
@@ -334,7 +334,7 @@ func initVersion() string {
 	if v := os.Getenv("PLAT5_VERSION"); v != "" {
 		return v
 	}
-	return "v0.3.1"
+	return bundle.DefaultVersion
 }
 
 func initAuthVer() string {
@@ -344,7 +344,7 @@ func initAuthVer() string {
 	if v := os.Getenv("AUTH_VERSION"); v != "" {
 		return v
 	}
-	return "v0.1.9"
+	return bundle.DefaultAuthVersion
 }
 
 func initOperatorVer() string {
