@@ -510,11 +510,6 @@ func trimNonEmpty(in []string) []string {
 
 var unknownFieldRE = regexp.MustCompile(`^line (\d+): field (\S+) not found in type `)
 
-// removedKeys maps dropped plat5.yml keys to a hint shown when one is left behind.
-var removedKeys = map[string]string{
-	"bootstrap": "bootstrap was removed in v0.3.3; delete it from plat5.yml",
-}
-
 // parseFile decodes plat5.yml strictly: an unknown key is an error naming the key.
 func parseFile(data []byte) (*File, error) {
 	var f File
@@ -532,11 +527,7 @@ func parseFile(data []byte) (*File, error) {
 				msgs = append(msgs, e)
 				continue
 			}
-			msg := fmt.Sprintf("line %s: unknown key %q", m[1], m[2])
-			if hint, ok := removedKeys[m[2]]; ok {
-				msg += " (" + hint + ")"
-			}
-			msgs = append(msgs, msg)
+			msgs = append(msgs, fmt.Sprintf("line %s: unknown key %q", m[1], m[2]))
 		}
 		return nil, errors.New(strings.Join(msgs, "; "))
 	}
