@@ -133,7 +133,7 @@ routes:
   - ./routes.yml
   # - ./routes.dev.yml                   # optional extras (e.g. debug routes)
 
-# Roles: each grants labels; routes require them. Required.
+# Roles: each grants labels; routes require them. Omit to turn roles off.
 roles: ./roles.yml
 ```
 
@@ -182,7 +182,7 @@ creator_role: owner
 default_role: member
 ```
 
-`plat5 start` mounts the file into identity (`ROLES_FILE`). Identity reads it at boot, so when the file changes, `plat5 start` restarts identity. The gateway caches credentials for up to `APIKEY_CACHE_TTL_SECS` (300s), so a role change reaches existing sessions and keys within that window. `roles:` is required: identity does not boot without a roles file, and every member holds one of its roles.
+`plat5 start` mounts the file into identity (`ROLES_FILE`). Identity reads it at boot, so when the file changes, `plat5 start` restarts identity. The gateway caches credentials for up to `APIKEY_CACHE_TTL_SECS` (300s), so a role change reaches existing sessions and keys within that window. Remove `roles:` from `plat5.yml` to turn roles off: no member has a role, every member holds every label, and authorization is left to something else.
 
 ## Ports and multi-project
 

@@ -70,7 +70,7 @@ type File struct {
 	Routes               []string           `yaml:"routes"`
 	Upstreams            map[string]any     `yaml:"upstreams"`
 	// Roles is the project's roles file (relative to plat5.yml or absolute).
-	// Required by start: identity does not boot without one.
+	// Unset = roles off: every member holds every label.
 	Roles string `yaml:"roles"`
 }
 
@@ -168,7 +168,7 @@ type Resolved struct {
 	APIKeyBrand string
 	RouteFiles  []string
 	Upstreams   map[string]string // service name → raw value (port or URL); expanded at apply
-	// RolesFile is the absolute host path of the roles file mounted into identity.
+	// RolesFile is the absolute host path of the roles file mounted into identity. Empty = roles off.
 	RolesFile                string
 	ComposeProject           string
 	AuthComposeName          string
@@ -664,11 +664,11 @@ func CheckAuthThemeFile(path string) error {
 	return nil
 }
 
-// CheckRolesFile fails if the roles file is unset, missing, or not a regular file.
-// Identity validates the contents at boot.
+// CheckRolesFile fails if a configured roles file is missing or not a regular file.
+// Empty path is roles off. Identity validates the contents at boot.
 func CheckRolesFile(path string) error {
 	if path == "" {
-		return fmt.Errorf("roles: set roles in plat5.yml to your roles file (plat5 init writes roles.yml)")
+		return nil
 	}
 	st, err := os.Stat(path)
 	if err != nil {
