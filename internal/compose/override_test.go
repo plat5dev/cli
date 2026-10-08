@@ -12,7 +12,7 @@ import (
 func TestWritePlat5Override(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "compose.override.yml")
-	if err := WritePlat5Override(p, 5011, 5012, OverrideOpts{}); err != nil {
+	if err := WritePlat5Override(p, 5011, 5012, OverrideOpts{RolesFile: "/proj/roles.yml"}); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(p)
@@ -34,11 +34,12 @@ func TestWritePlat5Override(t *testing.T) {
 	if strings.Contains(s, "extra_hosts") {
 		t.Fatalf("unexpected extra_hosts without HostGateway:\n%s", s)
 	}
-	if !strings.Contains(s, "ROLES_FILE: \"\"") {
-		t.Fatalf("no roles file must clear ROLES_FILE (a path-mode compose may default it):\n%s", s)
-	}
-	if strings.Contains(s, RolesContainerPath) {
-		t.Fatalf("unexpected roles mount without a roles file:\n%s", s)
+}
+
+func TestWritePlat5OverrideRequiresRolesFile(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "compose.override.yml")
+	if err := WritePlat5Override(p, 5011, 5012, OverrideOpts{}); err == nil {
+		t.Fatal("expected an error without a roles file")
 	}
 }
 
@@ -77,7 +78,7 @@ func TestWritePlat5OverrideRolesFile(t *testing.T) {
 func TestWritePlat5OverrideHostGateway(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "compose.override.yml")
-	if err := WritePlat5Override(p, 5001, 5002, OverrideOpts{HostGateway: true}); err != nil {
+	if err := WritePlat5Override(p, 5001, 5002, OverrideOpts{HostGateway: true, RolesFile: "/proj/roles.yml"}); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(p)

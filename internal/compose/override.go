@@ -25,13 +25,16 @@ type OverrideOpts struct {
 	// into the Auth issuer at AuthThemeContainerPath. Empty = no mount.
 	AuthThemeFile string
 	// RolesFile is the host path of the project's roles file, bind-mounted into
-	// identity at RolesContainerPath. Empty = no roles (ROLES_FILE is cleared).
+	// identity at RolesContainerPath. Required by WritePlat5Override.
 	RolesFile string
 }
 
 // WritePlat5Override writes a compose override that remaps gateway and registry host ports.
 // Uses Compose !override so base ports are replaced, not appended.
 func WritePlat5Override(path string, gatewayPort, registryPort int, opts OverrideOpts) error {
+	if opts.RolesFile == "" {
+		return fmt.Errorf("plat5 override: empty roles file path")
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -52,14 +55,10 @@ services:
 	if opts.HostGateway {
 		fmt.Fprintf(&b, "    extra_hosts:\n      - %q\n", hostGatewayExtraHost)
 	}
-	// plat5.yml decides roles in both modes: a path-mode compose may have its own default.
+	// plat5.yml decides the roles file in both modes: a path-mode compose may have its own default.
 	b.WriteString("  identity:\n")
-	if opts.RolesFile != "" {
-		fmt.Fprintf(&b, "    environment:\n      ROLES_FILE: %q\n", RolesContainerPath)
-		fmt.Fprintf(&b, "    volumes:\n      - %q\n", opts.RolesFile+":"+RolesContainerPath+":ro")
-	} else {
-		b.WriteString("    environment:\n      ROLES_FILE: \"\"\n")
-	}
+	fmt.Fprintf(&b, "    environment:\n      ROLES_FILE: %q\n", RolesContainerPath)
+	fmt.Fprintf(&b, "    volumes:\n      - %q\n", opts.RolesFile+":"+RolesContainerPath+":ro")
 	if opts.HostGateway {
 		fmt.Fprintf(&b, "    extra_hosts:\n      - %q\n", hostGatewayExtraHost)
 	}

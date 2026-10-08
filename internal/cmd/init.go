@@ -510,9 +510,8 @@ func renderPlat5YML(projectID, plat5Path, auth string, authEnabled bool, obs str
 			fmt.Fprintf(&b, "  - %s\n", yamlString(r))
 		}
 	}
-	fmt.Fprintf(&b, "\n# Roles: each grants labels; routes require them (required_scopes).\n")
+	fmt.Fprintf(&b, "\n# Roles: each grants labels; routes require them (required_labels).\n")
 	fmt.Fprintf(&b, "# Identity reads this file; plat5 start restarts identity when it changes.\n")
-	fmt.Fprintf(&b, "# Remove the line to run without roles (every member unrestricted).\n")
 	fmt.Fprintf(&b, "roles: ./roles.yml\n")
 	return b.String()
 }
@@ -606,7 +605,7 @@ const identityRoutesCatalog = `# Catalog of identity public routes. Apply via ro
 # GET /organizations is served by identity and omitted here.
 #
 # Writes that manage the org carry labels. A member's role grants labels
-# (docs/roles.md); a key or session can narrow them. Reads stay unlabeled,
+# (docs/roles.md); its keys and sessions carry them. Reads stay unlabeled,
 # except the invite list, which returns live tokens. Labels are opaque: edit
 # them here, not in identity.
 services:
@@ -639,9 +638,9 @@ services:
           methods:
             GET:
             PATCH:
-              required_scopes: [org:write]
+              required_labels: [org:write]
             DELETE:
-              required_scopes: [org:delete]
+              required_labels: [org:delete]
         - path: /org/roles
           upstream: /organizations/{subject.organization_id}/roles
           methods: [GET]
@@ -650,47 +649,47 @@ services:
           methods:
             GET:
             POST:
-              required_scopes: [org:members:write]
+              required_labels: [org:members:write]
         - path: /org/members/{member_id}
           upstream: /organizations/{subject.organization_id}/members/{path.member_id}
           methods:
             GET:
             PATCH:
-              required_scopes: [org:members:write]
+              required_labels: [org:members:write]
             DELETE:
-              required_scopes: [org:members:write]
+              required_labels: [org:members:write]
         - path: /org/invites
           upstream: /organizations/{subject.organization_id}/invites
           methods: [GET, POST]
-          required_scopes: [org:members:write]
+          required_labels: [org:members:write]
         - path: /org/invites/{invite_id}
           upstream: /organizations/{subject.organization_id}/invites/{path.invite_id}
           methods: [DELETE]
-          required_scopes: [org:members:write]
+          required_labels: [org:members:write]
         - path: /org/service-accounts
           upstream: /organizations/{subject.organization_id}/service-accounts
           methods:
             GET:
             POST:
-              required_scopes: [org:service-accounts:write]
+              required_labels: [org:service-accounts:write]
         - path: /org/service-accounts/{service_account_id}
           upstream: /organizations/{subject.organization_id}/service-accounts/{path.service_account_id}
           methods:
             GET:
             PATCH:
-              required_scopes: [org:service-accounts:write]
+              required_labels: [org:service-accounts:write]
             DELETE:
-              required_scopes: [org:service-accounts:write]
+              required_labels: [org:service-accounts:write]
         - path: /org/service-accounts/{service_account_id}/api-keys
           upstream: /organizations/{subject.organization_id}/service-accounts/{path.service_account_id}/api-keys
           methods:
             GET:
             POST:
-              required_scopes: [org:service-accounts:write]
+              required_labels: [org:service-accounts:write]
         - path: /org/service-accounts/{service_account_id}/api-keys/{key_id}
           upstream: /organizations/{subject.organization_id}/service-accounts/{path.service_account_id}/api-keys/{path.key_id}
           methods: [DELETE]
-          required_scopes: [org:service-accounts:write]
+          required_labels: [org:service-accounts:write]
     member:
       routes:
         - path: /member
@@ -705,7 +704,7 @@ services:
 `
 
 // starterRoles is a starting point, not Plat5's: Plat5 names no roles (docs/roles.md).
-const starterRoles = `# Your roles. Each grants labels; routes require them (required_scopes).
+const starterRoles = `# Your roles. Each grants labels; routes require them (required_labels).
 # ["*"] grants every label. The org:* labels match routes.identity.yml.
 # Add your own services' labels here. Plat5 restarts identity on plat5 start
 # when this file changes.
