@@ -11,7 +11,7 @@ Self-host (server) uses published images + compose — see [plat5dev/plat5 self-
 
 ## Install
 
-**Binary:** [GitHub Releases](https://github.com/plat5dev/cli/releases) — download `plat5_<version>_<os>_<arch>.tar.gz`, extract, put `plat5` on your `PATH`. `plat5 version` prints the release version without the leading `v` (tag `v0.4.4` → `0.4.4`).
+**Binary:** [GitHub Releases](https://github.com/plat5dev/cli/releases) — download `plat5_<version>_<os>_<arch>.tar.gz`, extract, put `plat5` on your `PATH`. `plat5 version` prints the release version without the leading `v` (tag `v0.5.0` → `0.5.0`).
 
 **Go:**
 
@@ -67,7 +67,7 @@ Walks up from cwd. **Required** for all project commands.
 ```yaml
 project_id: my-app          # default: directory name; local compose isolation slug
 
-plat5_version: v0.4.4                  # written by plat5 init; latest plat5dev/plat5 tag
+plat5_version: v0.5.0                  # written by plat5 init; latest plat5dev/plat5 tag
 
 auth:
   enabled: false
@@ -130,6 +130,7 @@ upstreams:
 # Route contract files (paths, scopes). Prefer upstreams for urls.
 routes:
   - ./routes.identity.yml            # identity public surface (edit or omit)
+  - ./routes.audit.yml               # GET /org/audit-events (omit with AUDIT_ENABLED=false)
   - ./routes.yml
   # - ./routes.dev.yml                   # optional extras (e.g. debug routes)
 
@@ -169,14 +170,20 @@ plat5 routes apply ./other.yml
 
 `plat5 start` applies the configured route files after the registry is ready.
 
+### Audit
+
+The gateway records each audited `organization` and `member` request in the org's audit log through the `audit` service: writes by default, and reads a route marks `audit: true` ([plat5 `docs/audit.md`](https://github.com/plat5dev/plat5/blob/master/docs/audit.md)). It is on by default. While audit is down, audited requests are `503`. `routes.audit.yml` publishes `GET /org/audit-events` (label `org:audit:read`). `AUDIT_ENABLED=false` in the environment turns audit off for the deployment; then drop `routes.audit.yml` from `routes:`.
+
+Projects made by an older `plat5 init` have no `routes.audit.yml`. Copy it from a fresh `plat5 init` (or [plat5 `services/audit/routes.yml`](https://github.com/plat5dev/plat5/blob/master/services/audit/routes.yml)) to read the log. Recording works without it.
+
 ## Roles
 
-`roles.yml` is your deployment's roles: each role grants labels, and routes require labels with `required_labels`. Plat5 names no roles; `plat5 init` writes a starter (`owner` / `admin` / `member`) whose `org:*` labels match `routes.identity.yml`. A template may ship its own. Contract: [plat5 `docs/roles.md`](https://github.com/plat5dev/plat5/blob/master/docs/roles.md).
+`roles.yml` is your deployment's roles: each role grants labels, and routes require labels with `required_labels`. Plat5 names no roles; `plat5 init` writes a starter (`owner` / `admin` / `member`) whose `org:*` labels match `routes.identity.yml` and `routes.audit.yml`. A template may ship its own. Contract: [plat5 `docs/roles.md`](https://github.com/plat5dev/plat5/blob/master/docs/roles.md).
 
 ```yaml
 roles:
   owner: ["*"]
-  admin: [org:write, org:members:write, org:service-accounts:write]
+  admin: [org:write, org:members:write, org:service-accounts:write, org:audit:read]
   member: []
 creator_role: owner
 default_role: member

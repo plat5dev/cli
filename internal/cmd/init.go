@@ -214,7 +214,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 
 	upstreams := map[string]string{"api": "http://host.docker.internal:3000"}
-	routes := []string{"./routes.identity.yml", "./routes.yml"}
+	routes := []string{"./routes.identity.yml", "./routes.audit.yml", "./routes.yml"}
 	if tpl != nil {
 		if len(tpl.Manifest.Upstreams) > 0 {
 			upstreams = tpl.Manifest.Upstreams
@@ -244,6 +244,9 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	if tpl == nil {
 		if err := writeIfAbsent(cwd, "routes.identity.yml", identityRoutesCatalog); err != nil {
+			return err
+		}
+		if err := writeIfAbsent(cwd, "routes.audit.yml", auditRoutesCatalog); err != nil {
 			return err
 		}
 		if err := writeIfAbsent(cwd, "routes.yml", sampleRoutes); err != nil {
@@ -625,6 +628,10 @@ const identityRoutesCatalog = `# Catalog of identity public routes. Apply via ro
 # (docs/roles.md); its keys and sessions carry them. Reads stay unlabeled,
 # except the invite list, which returns live tokens. Labels are opaque: edit
 # them here, not in identity.
+#
+# organization and member writes are in the org's audit log by default
+# (docs/audit.md). The invite list is a read worth recording: it returns live
+# tokens, so it sets audit: true.
 services:
   identity:
     url: http://identity:3000
@@ -679,6 +686,7 @@ services:
           upstream: /organizations/{subject.organization_id}/invites
           methods: [GET, POST]
           required_labels: [org:members:write]
+          audit: true
         - path: /org/invites/{invite_id}
           upstream: /organizations/{subject.organization_id}/invites/{path.invite_id}
           methods: [DELETE]
@@ -720,14 +728,31 @@ services:
           methods: [DELETE]
 `
 
+const auditRoutesCatalog = `# Catalog of audit public routes. Apply via route-registry.
+# Not auto-published. Internal intent/outcome writes stay on INTERNAL_PORT.
+# Skip this file when audit is off (AUDIT_ENABLED=false on the gateway).
+#
+# The log carries IPs and user agents of every member, so reading it is
+# labeled. Labels are opaque: edit them here, not in audit.
+services:
+  audit:
+    url: http://audit:3002
+    organization:
+      routes:
+        - path: /org/audit-events
+          upstream: /organizations/{subject.organization_id}/audit-events
+          methods: [GET]
+          required_labels: [org:audit:read]
+`
+
 // starterRoles is a starting point, not Plat5's: Plat5 names no roles (docs/roles.md).
 const starterRoles = `# Your roles. Each grants labels; routes require them (required_labels).
-# ["*"] grants every label. The org:* labels match routes.identity.yml.
-# Add your own services' labels here. Plat5 restarts identity on plat5 start
-# when this file changes.
+# ["*"] grants every label. The org:* labels match routes.identity.yml and
+# routes.audit.yml. Add your own services' labels here. Plat5 restarts
+# identity on plat5 start when this file changes.
 roles:
   owner: ["*"]
-  admin: [org:write, org:members:write, org:service-accounts:write]
+  admin: [org:write, org:members:write, org:service-accounts:write, org:audit:read]
   member: []
 creator_role: owner
 default_role: member
