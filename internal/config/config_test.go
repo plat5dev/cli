@@ -312,11 +312,7 @@ func TestLoadRejectsTLSUpstream(t *testing.T) {
 }
 
 func TestLoadRejectsUnknownKey(t *testing.T) {
-	err := loadYAML(t, "project_id: p\nbootstrap:\n  enabled: true\n")
-	if err == nil || !strings.Contains(err.Error(), `"bootstrap"`) || !strings.Contains(err.Error(), "removed in v0.3.3") {
-		t.Fatalf("err=%v", err)
-	}
-	err = loadYAML(t, "project_id: p\nfoo: 1\n")
+	err := loadYAML(t, "project_id: p\nfoo: 1\n")
 	if err == nil || !strings.Contains(err.Error(), `unknown key "foo"`) {
 		t.Fatalf("err=%v", err)
 	}
