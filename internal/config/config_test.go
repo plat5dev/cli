@@ -792,13 +792,13 @@ func TestLoadRolesFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	if cfg.RolesFile != "" {
-		t.Fatalf("omitted roles is no roles, got %q", cfg.RolesFile)
+		t.Fatalf("omitted roles loads empty (start refuses it), got %q", cfg.RolesFile)
 	}
 }
 
 func TestCheckRolesFile(t *testing.T) {
-	if err := CheckRolesFile(""); err != nil {
-		t.Fatalf("empty should be ok: %v", err)
+	if err := CheckRolesFile(""); err == nil || !strings.Contains(err.Error(), "roles: set roles in plat5.yml") {
+		t.Fatalf("empty is required: %v", err)
 	}
 	dir := t.TempDir()
 	if err := CheckRolesFile(filepath.Join(dir, "nope.yml")); err == nil || !strings.Contains(err.Error(), "roles: file not found:") {

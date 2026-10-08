@@ -146,10 +146,10 @@ func TestIdentityRoutesCatalogLabelsOrgWrites(t *testing.T) {
 		"/org/members/{member_id}",
 		"/organizations/{subject.organization_id}/members/{path.member_id}",
 		"/org/roles",
-		"required_scopes: [org:write]",
-		"required_scopes: [org:delete]",
-		"required_scopes: [org:members:write]",
-		"required_scopes: [org:service-accounts:write]",
+		"required_labels: [org:write]",
+		"required_labels: [org:delete]",
+		"required_labels: [org:members:write]",
+		"required_labels: [org:service-accounts:write]",
 	} {
 		if !strings.Contains(identityRoutesCatalog, want) {
 			t.Fatalf("identity catalog missing %q", want)
