@@ -7,10 +7,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/plat5dev/cli/internal/bundle"
 	"github.com/plat5dev/cli/internal/compose"
 	"github.com/plat5dev/cli/internal/config"
 	"github.com/plat5dev/cli/internal/prompt"
+	"github.com/plat5dev/cli/internal/release"
 	"github.com/plat5dev/cli/internal/template"
 	"github.com/spf13/cobra"
 )
@@ -74,9 +74,9 @@ func init() {
 	initCmd.Flags().BoolVarP(&initYes, "yes", "y", false, "Non-interactive; do not prompt")
 	initCmd.Flags().StringVar(&initTemplate, "template", "", "Starter: official name, owner/repo, or https://…/archive/….tar.gz")
 	initCmd.Flags().StringVar(&initTemplatesDir, "templates-dir", "", "Local templates root (skip remote fetch)")
-	initCmd.Flags().StringVar(&initPlat5Version, "plat5-version", "", "Runtime GHCR pin written to plat5.yml (default v0.4.3)")
-	initCmd.Flags().StringVar(&initAuthVersion, "auth-version", "", "Auth GHCR pin written to auth.version (default "+bundle.DefaultAuthVersion+")")
-	initCmd.Flags().StringVar(&initOperatorVersion, "operator-version", "", "Operator GHCR pin written to operator.version (default "+bundle.DefaultOperatorVersion+")")
+	initCmd.Flags().StringVar(&initPlat5Version, "plat5-version", "", "Runtime GHCR pin written to plat5.yml (default: latest plat5dev/plat5 tag)")
+	initCmd.Flags().StringVar(&initAuthVersion, "auth-version", "", "Auth GHCR pin written to auth.version (default: latest plat5dev/auth tag)")
+	initCmd.Flags().StringVar(&initOperatorVersion, "operator-version", "", "Operator GHCR pin written to operator.version (default: latest plat5dev/operator tag)")
 	initCmd.Flags().StringVar(&initTemplateRef, "template-ref", "", "Git ref for remote templates (default master; or PLAT5_TEMPLATE_REF)")
 	initCmd.Flags().BoolVar(&initListTemplates, "list-templates", false, "List first-party templates and exit")
 }
@@ -224,7 +224,11 @@ func runInit(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	body := renderPlat5YML(projectID, plat5Compose, authCompose, authEnabled, obsCompose, obsEnabled, operatorCompose, operatorEnabled, upstreams, routes)
+	pins, err := resolveInitPins(authEnabled, operatorEnabled)
+	if err != nil {
+		return err
+	}
+	body := renderPlat5YML(projectID, plat5Compose, authCompose, authEnabled, obsCompose, obsEnabled, operatorCompose, operatorEnabled, upstreams, routes, pins)
 	if err := os.WriteFile(ymlPath, []byte(body), 0o644); err != nil {
 		return err
 	}
@@ -336,34 +340,46 @@ func runListTemplates(cmd *cobra.Command) error {
 	return nil
 }
 
-func initVersion() string {
-	if initPlat5Version != "" {
-		return initPlat5Version
-	}
-	if v := os.Getenv("PLAT5_VERSION"); v != "" {
-		return v
-	}
-	return bundle.DefaultVersion
+type initPins struct {
+	plat5, auth, operator string
 }
 
-func initAuthVer() string {
-	if initAuthVersion != "" {
-		return initAuthVersion
+// resolveInitPins writes the latest vX.Y.Z tag unless a flag or env overrides it.
+// Auth and operator are looked up only when that stack is enabled.
+func resolveInitPins(authEnabled, operatorEnabled bool) (initPins, error) {
+	var p initPins
+	var err error
+	p.plat5, err = resolvePin(initPlat5Version, "PLAT5_VERSION", release.RepoPlat5)
+	if err != nil {
+		return p, err
 	}
-	if v := os.Getenv("AUTH_VERSION"); v != "" {
-		return v
+	if authEnabled {
+		p.auth, err = resolvePin(initAuthVersion, "AUTH_VERSION", release.RepoAuth)
+		if err != nil {
+			return p, err
+		}
 	}
-	return bundle.DefaultAuthVersion
+	if operatorEnabled {
+		p.operator, err = resolvePin(initOperatorVersion, "OPERATOR_VERSION", release.RepoOperator)
+		if err != nil {
+			return p, err
+		}
+	}
+	return p, nil
 }
 
-func initOperatorVer() string {
-	if initOperatorVersion != "" {
-		return initOperatorVersion
+func resolvePin(explicit, envKey, repo string) (string, error) {
+	if v := strings.TrimSpace(explicit); v != "" {
+		return v, nil
 	}
-	if v := os.Getenv("OPERATOR_VERSION"); v != "" {
-		return v
+	if v := strings.TrimSpace(os.Getenv(envKey)); v != "" {
+		return v, nil
 	}
-	return bundle.DefaultOperatorVersion
+	tag, err := release.Latest(repo)
+	if err != nil {
+		return "", err
+	}
+	return tag, nil
 }
 
 // templateResolveOpts prefers explicit local dirs; otherwise remote GitHub archives.
@@ -422,11 +438,11 @@ func resolveOperatorFlag(p string) (string, error) {
 	return compose.ResolveDir(prompt.ExpandPath(p))
 }
 
-func renderPlat5YML(projectID, plat5Path, auth string, authEnabled bool, obs string, obsEnabled bool, operator string, operatorEnabled bool, upstreams map[string]string, routes []string) string {
+func renderPlat5YML(projectID, plat5Path, auth string, authEnabled bool, obs string, obsEnabled bool, operator string, operatorEnabled bool, upstreams map[string]string, routes []string, pins initPins) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "project_id: %s\n\n", yamlString(projectID))
-	fmt.Fprintf(&b, "# Runtime GHCR tag (gateway, registry, identity).\n")
-	fmt.Fprintf(&b, "plat5_version: %s\n\n", yamlString(initVersion()))
+	fmt.Fprintf(&b, "# Runtime GHCR tag (gateway, registry, identity). plat5 init writes the latest tag.\n")
+	fmt.Fprintf(&b, "plat5_version: %s\n\n", yamlString(pins.plat5))
 	if plat5Path != "" {
 		fmt.Fprintf(&b, "plat5_compose: %s\n", yamlString(plat5Path))
 	}
@@ -444,7 +460,7 @@ func renderPlat5YML(projectID, plat5Path, auth string, authEnabled bool, obs str
 	}
 	fmt.Fprintf(&b, "auth:\n  enabled: %t\n", authEnabled)
 	if authEnabled {
-		fmt.Fprintf(&b, "  version: %s  # ghcr.io/plat5dev/auth (independent of plat5_version)\n", yamlString(initAuthVer()))
+		fmt.Fprintf(&b, "  version: %s  # ghcr.io/plat5dev/auth (independent of plat5_version)\n", yamlString(pins.auth))
 		// Defaults match web-demo (Vite :5173) + Postman OAuth callback.
 		fmt.Fprintf(&b, "  allowed_clients: [plat5]\n")
 		fmt.Fprintf(&b, "  allowed_redirect_uris:\n")
@@ -457,7 +473,7 @@ func renderPlat5YML(projectID, plat5Path, auth string, authEnabled bool, obs str
 	fmt.Fprintf(&b, "observability:\n  enabled: %t\n\n", obsEnabled)
 	fmt.Fprintf(&b, "operator:\n  enabled: %t\n", operatorEnabled)
 	if operatorEnabled {
-		fmt.Fprintf(&b, "  version: %s  # ghcr.io/plat5dev/operator\n", yamlString(initOperatorVer()))
+		fmt.Fprintf(&b, "  version: %s  # ghcr.io/plat5dev/operator\n", yamlString(pins.operator))
 		fmt.Fprintf(&b, "  # Browser consoles: gateway CORS and staff IdP redirect <origin>/callback.\n")
 		fmt.Fprintf(&b, "  allowed_origins:\n")
 		fmt.Fprintf(&b, "    - %s\n", config.DefaultOperatorAllowedOrigin)

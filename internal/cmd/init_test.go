@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"github.com/plat5dev/cli/internal/bundle"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,14 +26,14 @@ func TestIdentityRoutesCatalogIncludesInvites(t *testing.T) {
 }
 
 func TestRenderPlat5YMLAuthDefaults(t *testing.T) {
-	body := renderPlat5YML("demo", "", "", true, "", false, "", false, nil, nil)
+	body := renderPlat5YML("demo", "", "", true, "", false, "", false, nil, nil, initPins{plat5: "v1.2.3", auth: "v9"})
 	for _, want := range []string{
 		"allowed_clients: [plat5]",
 		"http://localhost:5173/callback",
 		"https://oauth.pstmn.io/v1/callback",
 		"http://localhost:5173",
-		"version: " + bundle.DefaultAuthVersion,
-		"plat5_version: v0.4.3",
+		"version: v9",
+		"plat5_version: v1.2.3",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("missing %q in:\n%s", want, body)
@@ -64,11 +63,11 @@ func TestRenderPlat5YMLAuthDefaults(t *testing.T) {
 }
 
 func TestRenderPlat5YMLOperator(t *testing.T) {
-	body := renderPlat5YML("demo", "", "", false, "", false, "/tmp/operator/compose", true, nil, nil)
+	body := renderPlat5YML("demo", "", "", false, "", false, "/tmp/operator/compose", true, nil, nil, initPins{plat5: "v1.2.3", operator: "v8"})
 	for _, want := range []string{
 		"operator_compose: /tmp/operator/compose",
 		"operator:\n  enabled: true",
-		"version: v0.4.0",
+		"version: v8",
 		"allowed_origins:\n    - http://localhost:5173",
 		"#   operator: 5004",
 		"#   operator_idp: 5556",
@@ -83,7 +82,7 @@ func TestRenderPlat5YMLOperator(t *testing.T) {
 }
 
 func TestRenderPlat5YMLOtelWhenObservability(t *testing.T) {
-	body := renderPlat5YML("demo", "", "", false, "", true, "", false, nil, nil)
+	body := renderPlat5YML("demo", "", "", false, "", true, "", false, nil, nil, initPins{plat5: "v1.2.3"})
 	if !strings.Contains(body, "otel:\n  endpoint: http://host.docker.internal:4318") {
 		t.Fatalf("expected active otel block:\n%s", body)
 	}
@@ -158,7 +157,7 @@ func TestIdentityRoutesCatalogLabelsOrgWrites(t *testing.T) {
 }
 
 func TestRenderPlat5YMLRoles(t *testing.T) {
-	body := renderPlat5YML("demo", "", "", false, "", false, "", false, nil, nil)
+	body := renderPlat5YML("demo", "", "", false, "", false, "", false, nil, nil, initPins{plat5: "v1.2.3"})
 	if !strings.Contains(body, "\nroles: ./roles.yml\n") {
 		t.Fatalf("plat5.yml should point at roles.yml:\n%s", body)
 	}

@@ -8,7 +8,7 @@ name: operator
 
 services:
   operator:
-    image: ghcr.io/plat5dev/operator:${OPERATOR_VERSION:-v0.4.0}
+    image: ghcr.io/plat5dev/operator:${OPERATOR_VERSION:?set OPERATOR_VERSION}
     labels:
       service.name: operator
       service.namespace: operator

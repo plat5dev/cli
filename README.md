@@ -4,14 +4,14 @@ Local development CLI for **consumer projects** using Plat5.
 
 Requires a project `plat5.yml` (`plat5 init`). Starts Plat5 (and optionally Auth / observability / Operator) via Docker Compose and applies gateway routes through the route-registry admin API.
 
-`plat5 start` pulls runtime images via `plat5_version` and Auth via `auth.version` (independent pins) using compose embedded in the CLI.  
+`plat5 start` pulls runtime images via `plat5_version` and Auth via `auth.version` (independent pins) using compose embedded in the CLI. `plat5 init` writes those pins from the latest GitHub tag.  
 Advanced (local development): set `plat5_compose` / `auth_compose` / `observability_compose` / `operator_compose` to local compose trees.
 
 Self-host (server) uses published images + compose — see [plat5dev/plat5 self-hosting](https://github.com/plat5dev/plat5/blob/master/docs/self-hosting.md).
 
 ## Install
 
-**Binary:** [GitHub Releases](https://github.com/plat5dev/cli/releases) — download `plat5_<version>_<os>_<arch>.tar.gz`, extract, put `plat5` on your `PATH`. `plat5 version` prints the release version without the leading `v` (tag `v0.4.3` → `0.4.3`).
+**Binary:** [GitHub Releases](https://github.com/plat5dev/cli/releases) — download `plat5_<version>_<os>_<arch>.tar.gz`, extract, put `plat5` on your `PATH`. `plat5 version` prints the release version without the leading `v` (tag `v0.4.4` → `0.4.4`).
 
 **Go:**
 
@@ -40,7 +40,7 @@ plat5 stop
 
 The local stack always runs Auth with `AUTH_DEV_MODE=true`: `POST /dev/token` is open and login codes are written to the Auth logs (`plat5 logs --auth`) instead of being emailed. This can't be turned off locally. To test production behavior, run Auth's prod compose instead (point `auth_compose` at it).
 
-`plat5_version` (default `v0.4.3`) pins runtime GHCR tags. With Auth enabled, `auth.version` / `AUTH_VERSION` (default `v0.1.11`) pins `ghcr.io/plat5dev/auth` independently. With Operator enabled, `operator.version` / `OPERATOR_VERSION` (default `v0.4.0`) pins `ghcr.io/plat5dev/operator` independently.
+`plat5_version` pins runtime GHCR tags. `plat5 init` sets it to the latest `plat5dev/plat5` tag. With Auth enabled, `auth.version` pins `ghcr.io/plat5dev/auth`. With Operator enabled, `operator.version` pins `ghcr.io/plat5dev/operator`. Each is the latest tag of that repo unless you set it.
 
 Templates: first-party short names (`plat5 init --list-templates`) fetch public GitHub repos under `plat5dev/template-*` (branch `master`, override with `--template-ref` / `PLAT5_TEMPLATE_REF`). Also accepts `owner/repo` or an archive URL. Cached under `~/.cache/plat5/templates/`. Local: `--templates-dir` / `PLAT5_TEMPLATES` (directory of template folders).
 
@@ -67,11 +67,11 @@ Walks up from cwd. **Required** for all project commands.
 ```yaml
 project_id: my-app          # default: directory name; local compose isolation slug
 
-plat5_version: v0.4.3                  # runtime GHCR tag
+plat5_version: v0.4.4                  # written by plat5 init; latest plat5dev/plat5 tag
 
 auth:
   enabled: false
-  # version: v0.1.11                   # Auth image pin when enabled (AUTH_VERSION)
+  # version: v0.1.11                   # written by plat5 init --auth; latest plat5dev/auth tag
   # Project OAuth surface → issuer env on start (plat5 init --auth defaults = web-demo :5173).
   # allowed_clients: [plat5]
   # allowed_redirect_uris:
@@ -87,7 +87,7 @@ observability:
 
 operator:
   enabled: false
-  # version: v0.4.0                 # Operator image pin when enabled (OPERATOR_VERSION)
+  # version: v0.4.0                 # written by plat5 init --operator; latest plat5dev/operator tag
   # allowed_origins:                # browser consoles: gateway CORS + IdP redirect <origin>/callback
   #   - http://localhost:5173
 

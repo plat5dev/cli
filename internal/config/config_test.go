@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"github.com/plat5dev/cli/internal/bundle"
 	"github.com/plat5dev/cli/internal/ports"
 	"net"
 	"os"
@@ -38,9 +37,11 @@ func TestLoadResolvesRelativePaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	yml := `project_id: demo
+plat5_version: v9
 plat5_compose: ./plat5-compose
 auth:
   enabled: true
+  version: v8
 auth_compose: ./auth-compose
 routes:
   - ./routes.yml
@@ -87,7 +88,7 @@ admin_token: secret
 	}
 }
 
-func TestLoadImageModeDefaults(t *testing.T) {
+func TestLoadImageModeRequiresVersion(t *testing.T) {
 	root := t.TempDir()
 	yml := `project_id: app
 routes:
@@ -101,24 +102,16 @@ routes:
 	if err := os.Chdir(root); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := Load(Flags{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Plat5Compose != "" {
-		t.Fatalf("expected empty plat5_compose, got %q", cfg.Plat5Compose)
-	}
-	if cfg.Plat5Version != "v0.4.3" {
-		t.Fatalf("version %q", cfg.Plat5Version)
-	}
-	if cfg.AuthVersion != bundle.DefaultAuthVersion {
-		t.Fatalf("auth version %q", cfg.AuthVersion)
+	_, err := Load(Flags{})
+	if err == nil || !strings.Contains(err.Error(), "plat5_version is required") {
+		t.Fatalf("err=%v", err)
 	}
 }
 
 func TestLoadAuthVersion(t *testing.T) {
 	root := t.TempDir()
 	yml := `project_id: p
+plat5_version: v1
 auth:
   enabled: true
   version: v9.9.9
@@ -138,16 +131,18 @@ auth:
 	if cfg.AuthVersion != "v9.9.9" {
 		t.Fatalf("auth version %q", cfg.AuthVersion)
 	}
-	if cfg.Plat5Version != "v0.4.3" {
-		t.Fatalf("plat5 version should stay default, got %q", cfg.Plat5Version)
+	if cfg.Plat5Version != "v1" {
+		t.Fatalf("plat5 version %q", cfg.Plat5Version)
 	}
 }
 
 func TestLoadAuthOAuthSurface(t *testing.T) {
 	root := t.TempDir()
 	yml := `project_id: p
+plat5_version: v9
 auth:
   enabled: true
+  version: v8
   allowed_clients:
     - my-app
     - " other "
@@ -195,8 +190,10 @@ ports:
 func TestLoadAuthPublicIssuerDerived(t *testing.T) {
 	root := t.TempDir()
 	yml := `project_id: p
+plat5_version: v9
 auth:
   enabled: true
+  version: v8
 ports:
   auth: 5100
 `
@@ -223,6 +220,7 @@ ports:
 func TestLoadPortPins(t *testing.T) {
 	root := t.TempDir()
 	yml := `project_id: p
+plat5_version: v9
 plat5_compose: ./e
 ports:
   gateway: 6001
@@ -260,6 +258,7 @@ func TestSanitizeProjectID(t *testing.T) {
 func TestLoadUpstreams(t *testing.T) {
 	root := t.TempDir()
 	yml := `project_id: p
+plat5_version: v9
 plat5_compose: ./e
 upstreams:
   api: 3000
@@ -316,7 +315,7 @@ func TestLoadRejectsUnknownKey(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), `unknown key "foo"`) {
 		t.Fatalf("err=%v", err)
 	}
-	if err := loadYAML(t, ""); err != nil {
+	if err := loadYAML(t, ""); err == nil || !strings.Contains(err.Error(), "plat5_version is required") {
 		t.Fatalf("empty file: %v", err)
 	}
 }
@@ -324,6 +323,7 @@ func TestLoadRejectsUnknownKey(t *testing.T) {
 func TestLoadUpstreamsInvalid(t *testing.T) {
 	root := t.TempDir()
 	yml := `project_id: p
+plat5_version: v9
 upstreams:
   api: 0
 `
@@ -343,6 +343,7 @@ upstreams:
 func TestLoadOtelEndpoint(t *testing.T) {
 	root := t.TempDir()
 	yml := `project_id: p
+plat5_version: v9
 plat5_compose: ./e
 otel:
   endpoint: http://host.docker.internal:4318
@@ -371,6 +372,7 @@ func TestLoadObservabilityAndOtelAutowire(t *testing.T) {
 		t.Fatal(err)
 	}
 	yml := `project_id: p
+plat5_version: v9
 plat5_compose: ./e
 observability_compose: ./obs-compose
 observability:
@@ -414,6 +416,7 @@ ports:
 func TestOtelExplicitWinsOverObservability(t *testing.T) {
 	root := t.TempDir()
 	yml := `project_id: p
+plat5_version: v9
 plat5_compose: ./e
 observability:
   enabled: true
@@ -447,6 +450,7 @@ func TestLoadOperator(t *testing.T) {
 		t.Fatal(err)
 	}
 	yml := `project_id: p
+plat5_version: v1
 operator_compose: ./operator-compose
 operator:
   enabled: true
@@ -505,8 +509,10 @@ ports:
 func TestLoadOperatorAllowedOrigins(t *testing.T) {
 	root := t.TempDir()
 	yml := `project_id: p
+plat5_version: v1
 operator:
   enabled: true
+  version: v8
   allowed_origins: [" https://console.example.com/ ", "http://localhost:3000"]
 `
 	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte(yml), 0o644); err != nil {
@@ -525,8 +531,8 @@ operator:
 	if got != "https://console.example.com,http://localhost:3000" {
 		t.Fatalf("allowed origins %q", got)
 	}
-	if cfg.OperatorVersion != "v0.4.0" {
-		t.Fatalf("default version %q", cfg.OperatorVersion)
+	if cfg.OperatorVersion != "v8" {
+		t.Fatalf("operator version %q", cfg.OperatorVersion)
 	}
 	if cfg.OperatorIssuerURL != "http://localhost:5556/dex" {
 		t.Fatalf("default issuer %q", cfg.OperatorIssuerURL)
@@ -538,6 +544,7 @@ func TestLoadAPIKeyBrand(t *testing.T) {
 
 	root := t.TempDir()
 	yml := `project_id: p
+plat5_version: v9
 routes:
   - ./routes.yml
 `
@@ -558,7 +565,7 @@ routes:
 		t.Fatalf("default brand %q", cfg.APIKeyBrand)
 	}
 
-	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte("project_id: p\napikey_brand: acme\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte("project_id: p\nplat5_version: v9\napikey_brand: acme\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err = Load(Flags{})
@@ -643,8 +650,10 @@ func TestLoadAuthThemeFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	yml := `project_id: p
+plat5_version: v9
 auth:
   enabled: true
+  version: v8
   theme_file: ./theme.json
 `
 	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte(yml), 0o644); err != nil {
@@ -668,7 +677,7 @@ auth:
 	if err := os.WriteFile(abs, []byte("{}"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	yml = "project_id: p\nauth:\n  enabled: true\n  theme_file: " + abs + "\n"
+	yml = "project_id: p\nplat5_version: v9\nauth:\n  enabled: true\n  version: v8\n  theme_file: " + abs + "\n"
 	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte(yml), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -684,8 +693,10 @@ auth:
 func TestLoadAuthThemeFileOmitted(t *testing.T) {
 	root := t.TempDir()
 	yml := `project_id: p
+plat5_version: v9
 auth:
   enabled: true
+  version: v8
 `
 	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte(yml), 0o644); err != nil {
 		t.Fatal(err)
@@ -764,7 +775,7 @@ func TestLoadRolesFile(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "roles.yml"), []byte("roles: {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte("project_id: p\nroles: ./roles.yml\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte("project_id: p\nplat5_version: v9\nroles: ./roles.yml\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cwd, _ := os.Getwd()
@@ -780,7 +791,7 @@ func TestLoadRolesFile(t *testing.T) {
 		t.Fatalf("roles %q want %q", cfg.RolesFile, want)
 	}
 
-	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte("project_id: p\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte("project_id: p\nplat5_version: v9\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err = Load(Flags{})
