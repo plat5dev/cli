@@ -512,6 +512,7 @@ func renderPlat5YML(projectID, plat5Path, auth string, authEnabled bool, obs str
 	}
 	fmt.Fprintf(&b, "\n# Roles: each grants labels; routes require them (required_labels).\n")
 	fmt.Fprintf(&b, "# Identity reads this file; plat5 start restarts identity when it changes.\n")
+	fmt.Fprintf(&b, "# Remove the line to turn roles off (every member holds every label).\n")
 	fmt.Fprintf(&b, "roles: ./roles.yml\n")
 	return b.String()
 }
