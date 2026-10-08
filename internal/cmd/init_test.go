@@ -156,6 +156,32 @@ func TestIdentityRoutesCatalogLabelsOrgWrites(t *testing.T) {
 	}
 }
 
+func TestAuditCatalogs(t *testing.T) {
+	for _, want := range []string{
+		"url: http://audit:3002",
+		"- path: /org/audit-events",
+		"upstream: /organizations/{subject.organization_id}/audit-events",
+		"required_labels: [org:audit:read]",
+	} {
+		if !strings.Contains(auditRoutesCatalog, want) {
+			t.Fatalf("audit catalog missing %q", want)
+		}
+	}
+	// The invite list returns live tokens: a read worth recording.
+	if !strings.Contains(identityRoutesCatalog, "required_labels: [org:members:write]\n          audit: true\n        - path: /org/invites/{invite_id}") {
+		t.Fatal("identity catalog: GET /org/invites should set audit: true")
+	}
+	var doc struct {
+		Roles map[string][]string `yaml:"roles"`
+	}
+	if err := yaml.Unmarshal([]byte(starterRoles), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(doc.Roles["admin"], " "), "org:audit:read") {
+		t.Fatalf("admin should read the audit log: %v", doc.Roles["admin"])
+	}
+}
+
 func TestRenderPlat5YMLRoles(t *testing.T) {
 	body := renderPlat5YML("demo", "", "", false, "", false, "", false, nil, nil, initPins{plat5: "v1.2.3"})
 	if !strings.Contains(body, "\nroles: ./roles.yml\n") {
