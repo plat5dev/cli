@@ -35,8 +35,8 @@ var startCmd = &cobra.Command{
 
 Pulls runtime images via plat5_version / PLAT5_VERSION, Auth via
 auth.version / AUTH_VERSION, and Operator via operator.version /
-OPERATOR_VERSION (independent pins; defaults v0.4.3 / v0.1.11 / v0.4.0) using
-compose files embedded in the CLI.
+OPERATOR_VERSION. plat5 init writes those from the latest GitHub tag.
+A project without plat5_version cannot start.
 
 Advanced: set plat5_compose / auth_compose / observability_compose /
 operator_compose to local compose trees; --build rebuilds from those trees.

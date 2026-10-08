@@ -27,11 +27,8 @@ func TestMaterializePlat5(t *testing.T) {
 	if len(data) < 100 {
 		t.Fatalf("compose too small: %d", len(data))
 	}
-	if !strings.Contains(string(data), "${PLAT5_VERSION:-v0.4.3}") {
-		t.Fatalf("plat5 compose default pin missing:\n%s", data)
-	}
-	if strings.Contains(string(data), "${PLAT5_VERSION:-v0.2.0}") {
-		t.Fatal("stale PLAT5_VERSION default v0.2.0")
+	if !strings.Contains(string(data), "${PLAT5_VERSION:?set PLAT5_VERSION}") {
+		t.Fatalf("plat5 compose must require PLAT5_VERSION:\n%s", data)
 	}
 }
 
@@ -45,26 +42,11 @@ func TestMaterializeAuth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "${AUTH_VERSION:-"+DefaultAuthVersion+"}") {
-		t.Fatalf("auth compose default pin missing:\n%s", data)
-	}
-	if strings.Contains(string(data), "${AUTH_VERSION:-v0.1.8}") {
-		t.Fatal("stale AUTH_VERSION default v0.1.8")
+	if !strings.Contains(string(data), "${AUTH_VERSION:?set AUTH_VERSION}") {
+		t.Fatalf("auth compose must require AUTH_VERSION:\n%s", data)
 	}
 	if !strings.Contains(string(data), `AUTH_DEV_MODE: "true"`) {
 		t.Fatalf("local auth compose must enable AUTH_DEV_MODE:\n%s", data)
-	}
-}
-
-func TestDefaultAuthVersion(t *testing.T) {
-	if DefaultAuthVersion != "v0.1.11" {
-		t.Fatalf("DefaultAuthVersion %q", DefaultAuthVersion)
-	}
-	if DefaultVersion != "v0.4.3" {
-		t.Fatalf("DefaultVersion should be v0.4.3, got %q", DefaultVersion)
-	}
-	if DefaultOperatorVersion != "v0.4.0" {
-		t.Fatalf("DefaultOperatorVersion %q", DefaultOperatorVersion)
 	}
 }
 
@@ -78,8 +60,8 @@ func TestMaterializeOperator(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(data)
-	if !strings.Contains(s, "${OPERATOR_VERSION:-"+DefaultOperatorVersion+"}") {
-		t.Fatalf("operator compose default pin missing:\n%s", s)
+	if !strings.Contains(s, "${OPERATOR_VERSION:?set OPERATOR_VERSION}") {
+		t.Fatalf("operator compose must require OPERATOR_VERSION:\n%s", s)
 	}
 	for _, want := range []string{"ghcr.io/dexidp/dex:", "ROUTES_FILE: /routes.yml", "localhost:8004/health/ready"} {
 		if !strings.Contains(s, want) {

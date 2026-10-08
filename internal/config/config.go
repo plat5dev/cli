@@ -11,7 +11,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/plat5dev/cli/internal/bundle"
 	"github.com/plat5dev/cli/internal/ports"
 	"github.com/plat5dev/cli/internal/upstreams"
 	"gopkg.in/yaml.v3"
@@ -255,15 +254,15 @@ func Load(flags Flags) (Resolved, error) {
 
 	r.Plat5Version = firstNonEmpty(flags.Plat5Version, os.Getenv("PLAT5_VERSION"), file.Plat5Version)
 	if r.Plat5Version == "" {
-		r.Plat5Version = bundle.DefaultVersion
+		return Resolved{}, fmt.Errorf("plat5_version is required (plat5 init writes the latest tag)")
 	}
 	r.AuthVersion = firstNonEmpty(flags.AuthVersion, os.Getenv("AUTH_VERSION"), file.Auth.Version)
-	if r.AuthVersion == "" {
-		r.AuthVersion = bundle.DefaultAuthVersion
+	if r.AuthEnabled && r.AuthVersion == "" {
+		return Resolved{}, fmt.Errorf("auth.version is required when auth is enabled")
 	}
 	r.OperatorVersion = firstNonEmpty(flags.OperatorVersion, os.Getenv("OPERATOR_VERSION"), file.Operator.Version)
-	if r.OperatorVersion == "" {
-		r.OperatorVersion = bundle.DefaultOperatorVersion
+	if r.OperatorEnabled && r.OperatorVersion == "" {
+		return Resolved{}, fmt.Errorf("operator.version is required when operator is enabled")
 	}
 	for i, o := range r.OperatorAllowedOrigins {
 		// An origin has no path. The gateway and the browser compare it exactly.
