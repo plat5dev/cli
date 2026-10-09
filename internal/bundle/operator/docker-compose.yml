@@ -2,7 +2,7 @@
 # Operator with a local staff IdP (Dex). start writes an override that:
 #   - mounts the CLI-generated Dex config (clients, dev login, CORS)
 #   - sets the gateway's issuer, audiences, and allowed origins
-#   - attaches operator to the Plat5 network so its route list can dial http://identity:3000
+#   - attaches operator to the Plat5 network so its route list can dial http://identity:3000 and http://audit:3002
 # Identity is not published.
 name: operator
 
@@ -15,7 +15,8 @@ services:
     ports:
       - "5004:5004"
     environment:
-      # The image's route list: identity's public paths at http://identity:3000.
+      # The image's route list: identity's public paths at http://identity:3000,
+      # and the org audit log read at http://audit:3002.
       ROUTES_FILE: /routes.yml
       AUTH_JWKS_URI: http://dex:5556/dex/keys
     depends_on:

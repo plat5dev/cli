@@ -197,11 +197,11 @@ Each project gets compose project names `plat5-<project_id>`, `plat5-<project_id
 
 Host port mappings are written to override files under XDG state so two projects do not share containers. Defaults: gateway 5001, registry 5002, auth 5000, operator 5004, operator_idp 5556, grafana 3002, OTLP 4317/4318, alloy 12345. Unpinned busy ports are reallocated; **pinned** ports never auto-move. `plat5 start` is safe to re-run: a stack of this project that is already running keeps the ports it has (the CLI prints `Plat5 is already running for this project; keeping its ports.`), and `docker compose up` leaves unchanged containers alone. Run `plat5 stop` first to pick ports again.
 
-Start order: observability → auth → plat5 → operator. Stop runs operator first, then plat5, auth, observability. Operator joins the Plat5 compose network (`plat5-<project_id>_plat5`) after Plat5 is up so the image route list can dial `http://identity:3000`. Identity is not published. Routes are not rewritten. Operator requires detached start (the default).
+Start order: observability → auth → plat5 → operator. Stop runs operator first, then plat5, auth, observability. Operator joins the Plat5 compose network (`plat5-<project_id>_plat5`) after Plat5 is up so the image route list can dial `http://identity:3000` and `http://audit:3002`. Identity is not published. Routes are not rewritten. Operator requires detached start (the default).
 
 ## Operator
 
-[Operator](https://github.com/plat5dev/operator) is a headless gateway for staff: staff JWT in, identity path out, attribution logged. It has no accounts. Staff sign in at a local Dex the CLI configures (`staff@example.com` / `password`, issuer `http://localhost:<operator_idp>/dex`).
+[Operator](https://github.com/plat5dev/operator) is a headless gateway for staff: staff JWT in, path out, attribution logged. The image route list is identity's public paths and the org audit log read. It has no accounts. Staff sign in at a local Dex the CLI configures (`staff@example.com` / `password`, issuer `http://localhost:<operator_idp>/dex`).
 
 | Dex client | For |
 |------------|-----|
