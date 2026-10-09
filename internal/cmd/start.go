@@ -42,8 +42,8 @@ Advanced: set plat5_compose / auth_compose / observability_compose /
 operator_compose to local compose trees; --build rebuilds from those trees.
 
 Operator starts after Plat5 with a local staff IdP (Dex) and joins the Plat5
-network so http://identity:3000 resolves. Identity is not published. Routes are not
-rewritten. Staff sign in at the IdP; consoles in operator.allowed_origins can
+network so http://identity:3000 and http://audit:3002 resolve. Identity is not published.
+Routes are not rewritten. Staff sign in at the IdP; consoles in operator.allowed_origins can
 use its public operator-console client.
 
 Applies routes listed in plat5.yml after the registry is ready.`,
