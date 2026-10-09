@@ -11,7 +11,7 @@ Self-host (server) uses published images + compose — see [plat5dev/plat5 self-
 
 ## Install
 
-**Binary:** [GitHub Releases](https://github.com/plat5dev/cli/releases) — download `plat5_<version>_<os>_<arch>.tar.gz`, extract, put `plat5` on your `PATH`. `plat5 version` prints the release version without the leading `v` (tag `v0.5.1` → `0.5.1`).
+**Binary:** [GitHub Releases](https://github.com/plat5dev/cli/releases) — download `plat5_<version>_<os>_<arch>.tar.gz`, extract, put `plat5` on your `PATH`. `plat5 version` prints the release version without the leading `v` (tag `v0.5.2` → `0.5.2`).
 
 **Go:**
 
@@ -204,7 +204,7 @@ Start order: observability → auth → plat5 → operator. Stop runs operator f
 
 ## Operator
 
-[Operator](https://github.com/plat5dev/operator) is a headless gateway for staff: staff JWT in, path out, attribution logged. The image route list is identity's public paths and the org audit log read. It has no accounts. Staff sign in at a local Dex the CLI configures (`staff@example.com` / `password`, issuer `http://localhost:<operator_idp>/dex`).
+[Operator](https://github.com/plat5dev/operator) is a headless gateway for staff: staff JWT in, path out, attribution logged. The image route list is identity's public paths, the org audit log read, and the staff audit log read. It has no accounts. Staff sign in at a local Dex the CLI configures (`staff@example.com` / `password`, issuer `http://localhost:<operator_idp>/dex`).
 
 | Dex client | For |
 |------------|-----|
@@ -219,6 +219,12 @@ TOKEN=$(curl -s http://localhost:5556/dex/token \
   -d grant_type=password -d scope="openid email" \
   -d username=staff@example.com -d password=password | jq -r .access_token)
 curl -s http://localhost:5004/organizations -H "Authorization: Bearer $TOKEN"
+```
+
+The staff audit log is on. Every authenticated request is an event, written to operator-audit before the gateway forwards it, so while operator-audit is down every authenticated request gets a 503. The stack runs operator-audit with its own Postgres (`operator-postgres`). That Postgres isn't published, and its named volume survives `plat5 stop`. `operator.version` must be a release that publishes `ghcr.io/plat5dev/operator-audit` (v0.3.2 or later). Read the log through the gateway:
+
+```bash
+curl -s 'http://localhost:5004/operator-audit-events?limit=5' -H "Authorization: Bearer $TOKEN"
 ```
 
 The CLI doesn't publish the operator's health port (8004). To check operator health, run `plat5 status` (probes the Operator URL) or `docker compose ps` for the operator project (`plat5-<project_id>-operator`), whose healthcheck hits `/health/ready` inside the container.
