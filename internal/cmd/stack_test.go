@@ -30,6 +30,25 @@ func TestPlat5StackEnv(t *testing.T) {
 	}
 }
 
+func TestGatewayAudiences(t *testing.T) {
+	if got := gatewayAudiences(config.Resolved{}); got != defaultAuthAudience {
+		t.Fatalf("unset clients %q", got)
+	}
+	got := gatewayAudiences(config.Resolved{AuthAllowedClients: []string{"e10s", "cli"}})
+	if got != "e10s,cli" {
+		t.Fatalf("clients %q", got)
+	}
+}
+
+func TestPinEnvOmitsEmpty(t *testing.T) {
+	if pinEnv("AUTH_VERSION", "") != nil {
+		t.Fatal("empty pin must be omitted")
+	}
+	if got := pinEnv("AUTH_VERSION", "v1"); len(got) != 1 || got[0] != "AUTH_VERSION=v1" {
+		t.Fatalf("pin %v", got)
+	}
+}
+
 func TestAuthStackEnvMinimal(t *testing.T) {
 	env := authStackEnv(config.Resolved{AuthVersion: "v1.2.3"})
 	if !slices.Contains(env, "AUTH_VERSION=v1.2.3") {

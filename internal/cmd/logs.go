@@ -64,7 +64,7 @@ func runLogs(cmd *cobra.Command, args []string) error {
 		if dir == "" {
 			return fmt.Errorf("auth compose not configured")
 		}
-		r := composeRunner(dir, st.AuthComposeName, cfg.AuthComposeName, st.AuthOverride)
+		r := composeRunner(dir, st.AuthComposeName, cfg.AuthComposeName, st.AuthOverride, authVersionEnv(cfg))
 		if r == nil {
 			return fmt.Errorf("auth compose not configured")
 		}
@@ -79,7 +79,7 @@ func runLogs(cmd *cobra.Command, args []string) error {
 		if dir == "" {
 			return fmt.Errorf("observability compose not configured")
 		}
-		r := composeRunner(dir, st.ObservabilityComposeName, cfg.ObservabilityComposeName, st.ObservabilityOverride)
+		r := composeRunner(dir, st.ObservabilityComposeName, cfg.ObservabilityComposeName, st.ObservabilityOverride, nil)
 		if r == nil {
 			return fmt.Errorf("observability compose not configured")
 		}
@@ -94,7 +94,7 @@ func runLogs(cmd *cobra.Command, args []string) error {
 		if dir == "" {
 			return fmt.Errorf("operator compose not configured")
 		}
-		r := composeRunner(dir, st.OperatorComposeName, cfg.OperatorComposeName, st.OperatorOverride)
+		r := composeRunner(dir, st.OperatorComposeName, cfg.OperatorComposeName, st.OperatorOverride, operatorVersionEnv(cfg))
 		if r == nil {
 			return fmt.Errorf("operator compose not configured")
 		}
@@ -105,7 +105,7 @@ func runLogs(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	r := composeRunner(dir, st.ComposeProject, cfg.ComposeProject, st.Plat5Override)
+	r := composeRunner(dir, st.ComposeProject, cfg.ComposeProject, st.Plat5Override, plat5VersionEnv(cfg))
 	if r == nil {
 		return fmt.Errorf("plat5 compose not configured")
 	}

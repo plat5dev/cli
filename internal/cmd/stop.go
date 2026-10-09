@@ -75,6 +75,7 @@ func runStop(cmd *cobra.Command, args []string) error {
 				Dir:           opDir,
 				ProjectName:   opProject,
 				OverrideFiles: opOverrides,
+				Env:           operatorVersionEnv(cfg),
 			}).Down(); err != nil {
 				return err
 			}
@@ -86,6 +87,7 @@ func runStop(cmd *cobra.Command, args []string) error {
 		Dir:           plat5Dir,
 		ProjectName:   project,
 		OverrideFiles: plat5Overrides,
+		Env:           plat5VersionEnv(cfg),
 	}).Down(); err != nil {
 		return err
 	}
@@ -109,6 +111,7 @@ func runStop(cmd *cobra.Command, args []string) error {
 				Dir:           authDir,
 				ProjectName:   authProject,
 				OverrideFiles: authOverrides,
+				Env:           authVersionEnv(cfg),
 			}).Down(); err != nil {
 				return err
 			}

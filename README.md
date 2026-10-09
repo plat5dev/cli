@@ -11,7 +11,7 @@ Self-host (server) uses published images + compose — see [plat5dev/plat5 self-
 
 ## Install
 
-**Binary:** [GitHub Releases](https://github.com/plat5dev/cli/releases) — download `plat5_<version>_<os>_<arch>.tar.gz`, extract, put `plat5` on your `PATH`. `plat5 version` prints the release version without the leading `v` (tag `v0.5.0` → `0.5.0`).
+**Binary:** [GitHub Releases](https://github.com/plat5dev/cli/releases) — download `plat5_<version>_<os>_<arch>.tar.gz`, extract, put `plat5` on your `PATH`. `plat5 version` prints the release version without the leading `v` (tag `v0.5.1` → `0.5.1`).
 
 **Go:**
 
@@ -73,6 +73,7 @@ auth:
   enabled: false
   # version: v0.1.11                   # written by plat5 init --auth; latest plat5dev/auth tag
   # Project OAuth surface → issuer env on start (plat5 init --auth defaults = web-demo :5173).
+  # allowed_clients is also the gateway audience (token aud). Unset → plat5.
   # allowed_clients: [plat5]
   # allowed_redirect_uris:
   #   - http://localhost:5173/callback
@@ -137,6 +138,8 @@ routes:
 # Roles: each grants labels; routes require them. Omit to turn roles off.
 roles: ./roles.yml
 ```
+
+When `plat5 start` starts Auth, the gateway `AUTH_ALLOWED_AUDIENCES` is `auth.allowed_clients` (unset means `plat5`, the issuer default). Plat5 Auth puts that client id in the token `aud`. A shell `AUTH_ALLOWED_AUDIENCES` is not required, and does not override this.
 
 Relative paths resolve against the directory containing `plat5.yml`.
 
