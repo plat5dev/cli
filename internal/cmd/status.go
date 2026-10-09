@@ -39,10 +39,10 @@ func printStatus(cfg config.Resolved, st state.State) error {
 	obsDir, _ := resolveObservabilityStackForOps(cfg, st, stateDir)
 	opDir, _ := resolveOperatorStackForOps(cfg, st, stateDir)
 
-	edgeRunner := composeRunner(plat5Dir, st.ComposeProject, cfg.ComposeProject, st.Plat5Override)
-	authRunner := composeRunner(authDir, st.AuthComposeName, cfg.AuthComposeName, st.AuthOverride)
-	obsRunner := composeRunner(obsDir, st.ObservabilityComposeName, cfg.ObservabilityComposeName, st.ObservabilityOverride)
-	opRunner := composeRunner(opDir, st.OperatorComposeName, cfg.OperatorComposeName, st.OperatorOverride)
+	edgeRunner := composeRunner(plat5Dir, st.ComposeProject, cfg.ComposeProject, st.Plat5Override, plat5VersionEnv(cfg))
+	authRunner := composeRunner(authDir, st.AuthComposeName, cfg.AuthComposeName, st.AuthOverride, authVersionEnv(cfg))
+	obsRunner := composeRunner(obsDir, st.ObservabilityComposeName, cfg.ObservabilityComposeName, st.ObservabilityOverride, nil)
+	opRunner := composeRunner(opDir, st.OperatorComposeName, cfg.OperatorComposeName, st.OperatorOverride, operatorVersionEnv(cfg))
 
 	edgeRunning := false
 	if edgeRunner != nil {
@@ -176,7 +176,7 @@ func printStatus(cfg config.Resolved, st state.State) error {
 	return nil
 }
 
-func composeRunner(dir, stProject, cfgProject, override string) *compose.Runner {
+func composeRunner(dir, stProject, cfgProject, override string, env []string) *compose.Runner {
 	if dir == "" || compose.ValidateComposeDir(dir) != nil {
 		return nil
 	}
@@ -188,5 +188,5 @@ func composeRunner(dir, stProject, cfgProject, override string) *compose.Runner 
 	if override != "" {
 		overrides = []string{override}
 	}
-	return &compose.Runner{Dir: dir, ProjectName: project, OverrideFiles: overrides}
+	return &compose.Runner{Dir: dir, ProjectName: project, OverrideFiles: overrides, Env: env}
 }

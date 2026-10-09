@@ -55,6 +55,11 @@ type Runner struct {
 	Dir           string
 	ProjectName   string
 	OverrideFiles []string // absolute paths
+	// Env is applied to every docker compose invocation. Keys here override the
+	// process environment. Compose interpolates the file on restart, down, logs,
+	// and ps — not only up — so required pins (PLAT5_VERSION, AUTH_VERSION,
+	// OPERATOR_VERSION) belong here.
+	Env []string
 	// Wait adds --wait to detached up: return once services are running and healthy.
 	Wait bool
 }
@@ -82,11 +87,45 @@ func (r Runner) cmd(args ...string) *exec.Cmd {
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
 	c.Stdin = os.Stdin
+	if len(r.Env) > 0 {
+		c.Env = overlayEnv(os.Environ(), r.Env)
+	}
 	return c
 }
 
+// overlayEnv returns base with overlay keys replaced. Overlay wins, including
+// over a stale shell value of the same name. Duplicate overlay keys keep the last.
+func overlayEnv(base, overlay []string) []string {
+	over := make(map[string]string, len(overlay))
+	order := make([]string, 0, len(overlay))
+	for _, e := range overlay {
+		k, v, ok := strings.Cut(e, "=")
+		if !ok || k == "" {
+			continue
+		}
+		if _, seen := over[k]; !seen {
+			order = append(order, k)
+		}
+		over[k] = v
+	}
+	out := make([]string, 0, len(base)+len(order))
+	for _, e := range base {
+		k, _, ok := strings.Cut(e, "=")
+		if ok {
+			if _, drop := over[k]; drop {
+				continue
+			}
+		}
+		out = append(out, e)
+	}
+	for _, k := range order {
+		out = append(out, k+"="+over[k])
+	}
+	return out
+}
+
 // Up runs docker compose up.
-func (r Runner) Up(detach, build bool, extraEnv []string) error {
+func (r Runner) Up(detach, build bool) error {
 	args := []string{"up"}
 	if detach {
 		args = append(args, "-d")
@@ -97,11 +136,7 @@ func (r Runner) Up(detach, build bool, extraEnv []string) error {
 	if build {
 		args = append(args, "--build")
 	}
-	c := r.cmd(args...)
-	if len(extraEnv) > 0 {
-		c.Env = append(os.Environ(), extraEnv...)
-	}
-	return run(c)
+	return run(r.cmd(args...))
 }
 
 // Restart runs docker compose restart for services.

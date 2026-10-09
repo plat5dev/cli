@@ -121,7 +121,16 @@ func resolveObservabilityStackForOps(cfg config.Resolved, st state.State, stateD
 }
 
 func plat5VersionEnv(cfg config.Resolved) []string {
-	return []string{fmt.Sprintf("PLAT5_VERSION=%s", cfg.Plat5Version)}
+	return pinEnv("PLAT5_VERSION", cfg.Plat5Version)
+}
+
+// pinEnv is a compose interpolation pin. Empty is omitted so a blank value
+// does not clobber a shell pin and fail ${VAR:?}.
+func pinEnv(key, value string) []string {
+	if value == "" {
+		return nil
+	}
+	return []string{key + "=" + value}
 }
 
 func plat5StackEnv(cfg config.Resolved) []string {
@@ -129,11 +138,24 @@ func plat5StackEnv(cfg config.Resolved) []string {
 }
 
 func authVersionEnv(cfg config.Resolved) []string {
-	return []string{fmt.Sprintf("AUTH_VERSION=%s", cfg.AuthVersion)}
+	return pinEnv("AUTH_VERSION", cfg.AuthVersion)
 }
 
 func operatorVersionEnv(cfg config.Resolved) []string {
-	return []string{fmt.Sprintf("OPERATOR_VERSION=%s", cfg.OperatorVersion)}
+	return pinEnv("OPERATOR_VERSION", cfg.OperatorVersion)
+}
+
+// defaultAuthAudience matches the Auth issuer and the embedded gateway compose
+// when allowed_clients is unset. Plat5 Auth puts the client id in token aud.
+const defaultAuthAudience = "plat5"
+
+// gatewayAudiences is the gateway allowlist for local Auth: the project's
+// client ids, or the issuer default when those are unset.
+func gatewayAudiences(cfg config.Resolved) string {
+	if len(cfg.AuthAllowedClients) == 0 {
+		return defaultAuthAudience
+	}
+	return strings.Join(cfg.AuthAllowedClients, ",")
 }
 
 // operatorStackEnv is compose env for Operator: the image pin. Everything else

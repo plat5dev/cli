@@ -465,6 +465,7 @@ func renderPlat5YML(projectID, plat5Path, auth string, authEnabled bool, obs str
 	if authEnabled {
 		fmt.Fprintf(&b, "  version: %s  # ghcr.io/plat5dev/auth (independent of plat5_version)\n", yamlString(pins.auth))
 		// Defaults match web-demo (Vite :5173) + Postman OAuth callback.
+		fmt.Fprintf(&b, "  # Also the gateway allowlist (token aud).\n")
 		fmt.Fprintf(&b, "  allowed_clients: [plat5]\n")
 		fmt.Fprintf(&b, "  allowed_redirect_uris:\n")
 		fmt.Fprintf(&b, "    - http://localhost:5173/callback\n")

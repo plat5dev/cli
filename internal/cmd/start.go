@@ -218,7 +218,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 			ProjectName:   cfg.ObservabilityComposeName,
 			OverrideFiles: []string{obsOverride},
 		}
-		if err := obs.Up(true, buildObs, nil); err != nil {
+		if err := obs.Up(true, buildObs); err != nil {
 			return err
 		}
 		if err := waitHTTP(cfg.AlloyURL, startWait); err != nil {
@@ -249,8 +249,9 @@ func runStart(cmd *cobra.Command, args []string) error {
 			Dir:           authDir,
 			ProjectName:   cfg.AuthComposeName,
 			OverrideFiles: []string{authOverride},
+			Env:           authEnv,
 		}
-		if err := auth.Up(true, buildAuth, authEnv); err != nil {
+		if err := auth.Up(true, buildAuth); err != nil {
 			return err
 		}
 		if err := waitHTTP(cfg.AuthURL, startWait); err != nil {
@@ -261,6 +262,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 		edgeEnv = append(edgeEnv,
 			fmt.Sprintf("AUTH_ISSUER=%s", cfg.AuthURL),
 			fmt.Sprintf("AUTH_JWKS_URI=http://host.docker.internal:%d/.well-known/jwks.json", cfg.Ports.Auth),
+			"AUTH_ALLOWED_AUDIENCES="+gatewayAudiences(cfg),
 		)
 	}
 
@@ -269,8 +271,9 @@ func runStart(cmd *cobra.Command, args []string) error {
 		Dir:           plat5Dir,
 		ProjectName:   cfg.ComposeProject,
 		OverrideFiles: []string{plat5Override},
+		Env:           edgeEnv,
 	}
-	if err := edge.Up(startDetach, buildPlat5, edgeEnv); err != nil {
+	if err := edge.Up(startDetach, buildPlat5); err != nil {
 		return err
 	}
 	// Identity reads roles at boot. Up leaves a running container alone when only
@@ -330,9 +333,10 @@ func runStart(cmd *cobra.Command, args []string) error {
 			Dir:           opDir,
 			ProjectName:   cfg.OperatorComposeName,
 			OverrideFiles: []string{opOverride},
+			Env:           operatorStackEnv(cfg),
 			Wait:          true,
 		}
-		if err := op.Up(true, buildOperator, operatorStackEnv(cfg)); err != nil {
+		if err := op.Up(true, buildOperator); err != nil {
 			return fmt.Errorf("operator not ready: %w", err)
 		}
 		fmt.Println("Operator is up:", cfg.OperatorURL)
