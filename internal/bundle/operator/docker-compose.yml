@@ -1,9 +1,12 @@
-# Embedded by plat5 CLI. Pulls ghcr.io/plat5dev/operator:${OPERATOR_VERSION}.
-# Operator with a local staff IdP (Dex). start writes an override that:
+# Embedded by plat5 CLI. Pulls ghcr.io/plat5dev/operator and ghcr.io/plat5dev/operator-audit
+# at ${OPERATOR_VERSION}.
+# Operator with a local staff IdP (Dex) and the staff audit log (operator-audit and its own Postgres).
+# start writes an override that:
 #   - mounts the CLI-generated Dex config (clients, dev login, CORS)
 #   - sets the gateway's issuer, audiences, and allowed origins
 #   - attaches operator to the Plat5 network so its route list can dial http://identity:3000 and http://audit:3002
-# Identity is not published.
+# operator-audit stays on this project's network, where the route list dials http://operator-audit:5005.
+# Identity is not published. Neither is the operator plane's Postgres.
 name: operator
 
 services:
@@ -16,9 +19,13 @@ services:
       - "5004:5004"
     environment:
       # The image's route list: identity's public paths at http://identity:3000,
-      # and the org audit log read at http://audit:3002.
+      # the org audit log read at http://audit:3002, and the staff audit log read at
+      # http://operator-audit:5005.
       ROUTES_FILE: /routes.yml
       AUTH_JWKS_URI: http://dex:5556/dex/keys
+      # Audit is on. Every authenticated request is 503 until operator-audit is up.
+      AUDIT_URL: http://operator-audit:8005
+      AUDIT_TOKEN: dev-audit-token
     depends_on:
       - dex
     healthcheck:
@@ -29,9 +36,64 @@ services:
       start_period: 5s
     restart: unless-stopped
 
+  operator-audit:
+    image: ghcr.io/plat5dev/operator-audit:${OPERATOR_VERSION:?set OPERATOR_VERSION}
+    labels:
+      service.name: operator-audit
+      service.namespace: operator
+    command: ["serve"]
+    environment:
+      # The writer role: it can add events and their outcomes, never change or delete one.
+      DATABASE_URL: postgres://audit_writer:audit_writer@operator-postgres:5432/operator?sslmode=disable
+      INTERNAL_TOKEN: dev-audit-token
+    depends_on:
+      operator-audit-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8005/health/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+    restart: unless-stopped
+
+  operator-audit-migrate:
+    image: ghcr.io/plat5dev/operator-audit:${OPERATOR_VERSION:?set OPERATOR_VERSION}
+    command: ["migrate"]
+    environment:
+      # The owner role: migrations and the writer's grants. Not used at runtime.
+      DATABASE_URL: postgres://audit_owner:audit_owner@operator-postgres:5432/operator?sslmode=disable
+      WRITER_ROLE: audit_writer
+    depends_on:
+      operator-postgres:
+        condition: service_healthy
+    restart: "no"
+
+  # The operator plane's Postgres. Never Plat5's. The roles come from postgres-init.sql.
+  operator-postgres:
+    image: postgres:17
+    labels:
+      service.name: operator-postgres
+      service.namespace: operator
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: operator
+    volumes:
+      - ./postgres-init.sql:/docker-entrypoint-initdb.d/10-audit-roles.sql:ro
+      - operator_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "operator"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
   dex:
     image: ghcr.io/dexidp/dex:v2.44.0
     command: ["dex", "serve", "/etc/dex/config.yaml"]
     ports:
       - "5556:5556"
     restart: unless-stopped
+
+volumes:
+  operator_pg_data:

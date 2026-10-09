@@ -127,6 +127,8 @@ type OperatorOverride struct {
 // WriteOperatorOverride wires the Operator stack: host ports, the gateway's IdP settings,
 // the generated Dex config, and the Plat5 network so the image route list can dial
 // http://identity:3000 and http://audit:3002. Identity is not published. Routes are not rewritten.
+// The staff audit log (operator-audit and its Postgres) is in the compose file, on the operator
+// project's own network, so it needs nothing here.
 // The same override fits the embedded bundle and operator/compose in path mode.
 func WriteOperatorOverride(path string, o OperatorOverride) error {
 	if o.Plat5Network == "" {

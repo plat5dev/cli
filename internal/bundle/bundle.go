@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 )
 
-//go:embed plat5/docker-compose.yml auth/docker-compose.yml operator/docker-compose.yml observability/docker-compose.yml observability/monitoring/* observability/dashboards/*
+//go:embed plat5/docker-compose.yml auth/docker-compose.yml operator/docker-compose.yml operator/postgres-init.sql observability/docker-compose.yml observability/monitoring/* observability/dashboards/*
 var content embed.FS
 
 // MaterializePlat5 writes the embedded Plat5 image-mode stack under destDir.

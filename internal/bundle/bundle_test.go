@@ -76,6 +76,39 @@ func TestMaterializeOperator(t *testing.T) {
 	if !strings.Contains(s, "ghcr.io/plat5dev/operator:") {
 		t.Fatalf("operator image missing:\n%s", s)
 	}
+	// Audit is on in the gateway image, which refuses to boot without AUDIT_URL and AUDIT_TOKEN.
+	for _, want := range []string{
+		"ghcr.io/plat5dev/operator-audit:${OPERATOR_VERSION:?set OPERATOR_VERSION}",
+		"AUDIT_URL: http://operator-audit:8005",
+		"AUDIT_TOKEN: dev-audit-token",
+		"INTERNAL_TOKEN: dev-audit-token",
+		`command: ["migrate"]`,
+		"WRITER_ROLE: audit_writer",
+		"./postgres-init.sql:/docker-entrypoint-initdb.d/",
+	} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("missing %q:\n%s", want, s)
+		}
+	}
+	sql, err := os.ReadFile(filepath.Join(dir, "postgres-init.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The roles the init creates are the ones the DATABASE_URLs log in as.
+	for role, url := range map[string]string{
+		"audit_owner":  "postgres://audit_owner:audit_owner@operator-postgres",
+		"audit_writer": "postgres://audit_writer:audit_writer@operator-postgres",
+	} {
+		if !strings.Contains(string(sql), "CREATE ROLE "+role+" LOGIN PASSWORD '"+role+"'") {
+			t.Fatalf("init must create %s:\n%s", role, sql)
+		}
+		if !strings.Contains(s, url) {
+			t.Fatalf("missing %q:\n%s", url, s)
+		}
+	}
+	if !strings.Contains(string(sql), "CREATE SCHEMA audit AUTHORIZATION audit_owner") {
+		t.Fatalf("init must create schema audit owned by audit_owner:\n%s", sql)
+	}
 }
 
 func TestMaterializeObservability(t *testing.T) {
