@@ -67,7 +67,7 @@ Walks up from cwd. **Required** for all project commands.
 ```yaml
 project_id: my-app          # default: directory name; local compose isolation slug
 
-plat5_version: v0.5.0                  # written by plat5 init; latest plat5dev/plat5 tag
+plat5_version: v0.6.0                  # written by plat5 init; latest plat5dev/plat5 tag
 
 auth:
   enabled: false
@@ -88,7 +88,7 @@ observability:
 
 operator:
   enabled: false
-  # version: v0.4.0                 # written by plat5 init --operator; latest plat5dev/operator tag
+  # version: v0.3.3                 # written by plat5 init --operator; latest plat5dev/operator tag
   # allowed_origins:                # browser consoles: gateway CORS + IdP redirect <origin>/callback
   #   - http://localhost:5173
 
@@ -107,8 +107,8 @@ ports:
 
 admin_token: dev-admin-token   # local only; do not put production tokens here
 
-# API key brand → identity + gateway APIKEY_BRAND. Unset → plat5.
-# [a-z][a-z0-9]*, max 32. Keys are {brand}-sk-1- / {brand}-mk-1-. Sessions are {brand}-ms-1-.
+# Credential brand → identity APIKEY_BRAND. Unset → plat5.
+# [a-z][a-z0-9]*, max 32. Keys are {brand}-k-2-, sessions {brand}-s-2-.
 # apikey_brand: plat5
 
 # Optional OTLP for Plat5/Auth containers (unset = no export).
@@ -131,7 +131,7 @@ upstreams:
 # Route contract files (paths, scopes). Prefer upstreams for urls.
 routes:
   - ./routes.identity.yml            # identity public surface (edit or omit)
-  - ./routes.audit.yml               # GET /org/audit-events (omit with AUDIT_ENABLED=false)
+  - ./routes.audit.yml               # GET /org/audit-events, /user/audit-events (omit with AUDIT_ENABLED=false)
   - ./routes.yml
   # - ./routes.dev.yml                   # optional extras (e.g. debug routes)
 
@@ -175,7 +175,7 @@ plat5 routes apply ./other.yml
 
 ### Audit
 
-The gateway records each audited `organization` and `member` request in the org's audit log through the `audit` service: writes by default, and reads a route marks `audit: true` ([plat5 `docs/audit.md`](https://github.com/plat5dev/plat5/blob/master/docs/audit.md)). It is on by default. While audit is down, audited requests are `503`. `routes.audit.yml` publishes `GET /org/audit-events` (label `org:audit:read`). `AUDIT_ENABLED=false` in the environment turns audit off for the deployment; then drop `routes.audit.yml` from `routes:`.
+The gateway records each audited request through the `audit` service: `organization` and `member` requests in the org's log, `user` requests in the person's own log. Writes are audited by default, and reads a route marks `audit: true` ([plat5 `docs/audit.md`](https://github.com/plat5dev/plat5/blob/master/docs/audit.md)). It is on by default. While audit is down, audited requests are `503`. `routes.audit.yml` publishes `GET /org/audit-events` (label `org:audit:read`) and `GET /user/audit-events`. `AUDIT_ENABLED=false` in the environment turns audit off for the deployment; then drop `routes.audit.yml` from `routes:`.
 
 Projects made by an older `plat5 init` have no `routes.audit.yml`. Copy it from a fresh `plat5 init` (or [plat5 `services/audit/routes.yml`](https://github.com/plat5dev/plat5/blob/master/services/audit/routes.yml)) to read the log. Recording works without it.
 

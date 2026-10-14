@@ -163,7 +163,7 @@ type Resolved struct {
 	AlloyURL          string
 	urlExplicit       urlExplicit
 	AdminToken        string
-	// APIKeyBrand is identity + gateway APIKEY_BRAND. Unset → plat5.
+	// APIKeyBrand is identity APIKEY_BRAND. Unset → plat5.
 	APIKeyBrand string
 	RouteFiles  []string
 	Upstreams   map[string]string // service name → raw value (port or URL); expanded at apply

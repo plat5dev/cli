@@ -489,8 +489,8 @@ func renderPlat5YML(projectID, plat5Path, auth string, authEnabled bool, obs str
 	fmt.Fprintf(&b, "#   operator: 5004\n#   operator_idp: 5556\n")
 	fmt.Fprintf(&b, "#   grafana: 3002\n#   otlp_grpc: 4317\n#   otlp_http: 4318\n#   alloy: 12345\n\n")
 	fmt.Fprintf(&b, "admin_token: %s\n\n", config.DefaultAdminToken)
-	fmt.Fprintf(&b, "# API key brand (identity + gateway). Keys {brand}-sk-1- / {brand}-mk-1-. Sessions {brand}-ms-1-.\n")
-	fmt.Fprintf(&b, "# [a-z][a-z0-9]*, max 32. Same value on both processes.\n")
+	fmt.Fprintf(&b, "# Credential brand (identity). Keys {brand}-k-2-, sessions {brand}-s-2-.\n")
+	fmt.Fprintf(&b, "# [a-z][a-z0-9]*, max 32.\n")
 	fmt.Fprintf(&b, "# apikey_brand: plat5\n\n")
 	if obsEnabled {
 		fmt.Fprintf(&b, "# OTLP for Plat5/Auth containers (matches default ports.otlp_http).\n")
@@ -623,21 +623,28 @@ func writeIfAbsent(dir, name, body string) error {
 
 const identityRoutesCatalog = `# Catalog of identity public routes. Apply via route-registry (or a subset).
 # Not auto-published. Internal validate stays on INTERNAL_PORT.
-# GET /organizations is served by identity and omitted here.
+# GET /organizations, GET /users, PATCH /users/{user_id}/status, and
+# GET /members/{member_id}/user are served by identity and omitted here: they
+# are for staff, through the operator gateway.
 #
 # Writes that manage the org carry labels. A member's role grants labels
 # (docs/roles.md); its keys and sessions carry them. Reads stay unlabeled,
 # except the invite list, which returns live tokens. Labels are opaque: edit
 # them here, not in identity.
 #
-# organization and member writes are in the org's audit log by default
-# (docs/audit.md). The invite list is a read worth recording: it returns live
-# tokens, so it sets audit: true.
+# Writes are audited by default (docs/audit.md): organization and member
+# writes in the org's log, user writes in the person's own log. Creating an
+# org, redeeming an invite, and minting a session are in that org's log too.
+# The invite list is a read worth recording: it returns live tokens, so it
+# sets audit: true.
 services:
   identity:
     url: http://identity:3000
     user:
       routes:
+        - path: /user
+          upstream: /users/{subject.user_id}
+          methods: [GET, PATCH, DELETE]
         - path: /user/memberships
           upstream: /users/{subject.user_id}/memberships
           methods: [GET]
@@ -733,11 +740,17 @@ const auditRoutesCatalog = `# Catalog of audit public routes. Apply via route-re
 # Not auto-published. Internal intent/outcome writes stay on INTERNAL_PORT.
 # Skip this file when audit is off (AUDIT_ENABLED=false on the gateway).
 #
-# The log carries IPs and user agents of every member, so reading it is
-# labeled. Labels are opaque: edit them here, not in audit.
+# An org's log carries IPs and user agents of every member, so reading it is
+# labeled. A person reads their own log. Labels are opaque: edit them here,
+# not in audit.
 services:
   audit:
     url: http://audit:3002
+    user:
+      routes:
+        - path: /user/audit-events
+          upstream: /users/{subject.user_id}/audit-events
+          methods: [GET]
     organization:
       routes:
         - path: /org/audit-events
