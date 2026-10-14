@@ -92,7 +92,9 @@ func printSummary(stk *stack.Stack, st state.State) {
 
 	if d := st.Dev; d != nil {
 		w.section(fmt.Sprintf("Dev keys (%s, owner of %q)", d.Email, config.DevOrgName))
-		w.row("User key", d.UserKey, "user routes")
+		if d.UserKey != "" {
+			w.row("User key", d.UserKey, "user routes")
+		}
 		w.row("Member key", d.MemberKey, "org and member routes")
 	}
 	w.print()

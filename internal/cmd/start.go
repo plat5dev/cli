@@ -122,7 +122,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 	if err := applyRolesFile(cp, cfg.RolesFile); err != nil {
 		return err
 	}
-	if err := applyFiles(cp, cfg.RouteFiles, cfg.Upstreams, true); err != nil {
+	if err := applyFiles(cp, cfg, cfg.RouteFiles, true); err != nil {
 		return err
 	}
 

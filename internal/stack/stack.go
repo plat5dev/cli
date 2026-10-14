@@ -4,6 +4,8 @@
 package stack
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -16,12 +18,14 @@ import (
 	"github.com/plat5dev/cli/internal/config"
 	"github.com/plat5dev/cli/internal/ports"
 	"github.com/plat5dev/cli/internal/state"
+	"github.com/plat5dev/cli/internal/upstreams"
 )
 
 // Container paths for files the override mounts.
 const (
-	rolesContainerPath = "/seed-roles/roles.yml"
-	themeContainerPath = "/config/theme.json"
+	rolesContainerPath          = "/seed-roles/roles.yml"
+	themeContainerPath          = "/config/theme.json"
+	operatorRoutesContainerPath = "/config/routes.yml"
 )
 
 // Stack is one project's local stack.
@@ -79,8 +83,39 @@ func (s *Stack) Prepare() error {
 		if err := writeTheme(filepath.Join(s.Dir, "staff-theme.json"), s.staffTitle(), staffBanner, "#b45309"); err != nil {
 			return err
 		}
+		if err := s.writeOperatorRoutes(); err != nil {
+			return err
+		}
 	}
 	return os.WriteFile(filepath.Join(s.Dir, "override.yml"), []byte(s.override()), 0o644)
+}
+
+// writeOperatorRoutes writes the project's operator route list with plat5.yml's
+// upstreams bound into it, as the customer routes are at apply.
+func (s *Stack) writeOperatorRoutes() error {
+	path := s.Config.OperatorRoutesFile
+	if err := config.CheckFile("operator.routes", path); err != nil || path == "" {
+		return err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	bound, _, err := upstreams.BindOperator(data, s.Config.Upstreams)
+	if err != nil {
+		return fmt.Errorf("operator.routes: %w", err)
+	}
+	return os.WriteFile(filepath.Join(s.Dir, "operator-routes.yml"), bound, 0o644)
+}
+
+// fileSHA256 is the hex digest of a file, or empty when it can't be read.
+func fileSHA256(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
 
 // Runner is docker compose for the stack.
@@ -294,6 +329,14 @@ func (s *Stack) override() string {
 	if s.Has(config.ModuleOperator) {
 		get("staff-auth").env["AUTH_THEME_FILE"] = themeContainerPath
 		mount("staff-auth", filepath.Join(s.Dir, "staff-theme.json"), themeContainerPath)
+		// The project's route list. Its upstreams may be on the host, like the gateway's.
+		if c.OperatorRoutesFile != "" {
+			get("operator").env["ROUTES_FILE"] = operatorRoutesContainerPath
+			// The gateway reads the file at boot. A changed hash recreates it.
+			get("operator").env["PLAT5_ROUTES_SHA256"] = fileSHA256(filepath.Join(s.Dir, "operator-routes.yml"))
+			mount("operator", filepath.Join(s.Dir, "operator-routes.yml"), operatorRoutesContainerPath)
+			get("operator").extraHosts = true
+		}
 	}
 	// A collector on the host: containers need host.docker.internal.
 	if config.NeedsHostGateway(c.OtelEndpoint) {

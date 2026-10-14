@@ -175,3 +175,56 @@ func TestComposeConfig(t *testing.T) {
 		}
 	}
 }
+
+func TestOperatorRoutesFile(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	cfg := resolved(t, allOn+"upstreams: {api: 3010}\noperator: {routes: ./operator-routes.yml}\n")
+	routes := `upstreams:
+  identity:
+    url: http://identity:3000
+    routes:
+      - path: /organizations
+        methods: [GET]
+  api:
+    routes:
+      - path: /organizations/{organization_id}/features
+        methods: [GET]
+`
+	if err := os.WriteFile(filepath.Join(cfg.ConfigDir, "operator-routes.yml"), []byte(routes), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Prepare(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(s.Dir, "operator-routes.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"url: http://host.docker.internal:3010", "url: http://identity:3000", "/organizations/{organization_id}/features"} {
+		if !strings.Contains(string(got), want) {
+			t.Errorf("operator routes missing %q:\n%s", want, got)
+		}
+	}
+	o := s.override()
+	for _, want := range []string{"ROUTES_FILE: \"/config/routes.yml\"", "operator-routes.yml:/config/routes.yml:ro", "PLAT5_ROUTES_SHA256: \"" + fileSHA256(filepath.Join(s.Dir, "operator-routes.yml")) + "\""} {
+		if !strings.Contains(o, want) {
+			t.Errorf("override missing %q:\n%s", want, o)
+		}
+	}
+	if !strings.Contains(o[strings.Index(o, "\n  operator:\n"):], "host.docker.internal:host-gateway") {
+		t.Errorf("operator needs the host gateway:\n%s", o)
+	}
+
+	// Without the operator module, nothing is written or mounted.
+	off, err := New(cfg, []string{"operator"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(off.override(), "ROUTES_FILE") {
+		t.Fatal("operator off: no routes override")
+	}
+}

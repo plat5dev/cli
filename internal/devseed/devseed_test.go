@@ -17,6 +17,10 @@ type fake struct {
 	created   int
 	requests  []string
 	sawBearer bool
+	// serviceAccountsOnly: the project publishes no /member or key routes of its
+	// own, only the org's service accounts (like a product that sells to machines).
+	serviceAccountsOnly bool
+	saBody              map[string]any
 }
 
 func (f *fake) handler(t *testing.T) http.Handler {
@@ -30,7 +34,29 @@ func (f *fake) handler(t *testing.T) http.Handler {
 		if strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
 			f.sawBearer = true
 		}
-		switch r.Method + " " + r.URL.Path {
+		route := r.Method + " " + r.URL.Path
+		if f.serviceAccountsOnly {
+			switch route {
+			case "GET /member", "POST /member/api-keys", "POST /user/api-keys":
+				write(404, map[string]string{})
+				return
+			}
+		}
+		switch route {
+		case "GET /org/service-accounts":
+			write(200, map[string]any{"service_accounts": []any{}})
+		case "GET /org/roles":
+			if k := r.Header.Get("X-API-Key"); k != "plat5-s-2-x" && !f.keys[k] {
+				write(401, map[string]string{})
+				return
+			}
+			write(200, map[string]any{"creator_role": "admin"})
+		case "POST /org/service-accounts":
+			_ = json.NewDecoder(r.Body).Decode(&f.saBody)
+			write(201, map[string]string{"id": "sa_1"})
+		case "POST /org/service-accounts/sa_1/api-keys":
+			f.keys["plat5-k-2-sa"] = true
+			write(201, map[string]string{"key": "plat5-k-2-sa"})
 		case "POST /dev/token":
 			var in map[string]string
 			_ = json.NewDecoder(r.Body).Decode(&in)
@@ -138,5 +164,34 @@ func TestEnsureReportsGatewayErrors(t *testing.T) {
 	_, err := Ensure(client(srv.URL), nil)
 	if err == nil || !strings.Contains(err.Error(), "GET /user: 404") {
 		t.Fatalf("want a 404 naming the route, got %v", err)
+	}
+}
+
+func TestEnsureFallsBackToAServiceAccount(t *testing.T) {
+	f := &fake{keys: map[string]bool{}, serviceAccountsOnly: true}
+	srv := httptest.NewServer(f.handler(t))
+	defer srv.Close()
+
+	d, err := Ensure(client(srv.URL), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.MemberKey != "plat5-k-2-sa" || d.UserKey != "" {
+		t.Fatalf("%+v", d)
+	}
+	if f.saBody["role"] != "admin" || f.saBody["name"] != "plat5 dev" {
+		t.Fatalf("service account body %v", f.saBody)
+	}
+
+	// The key still works, through a probe route the project publishes.
+	f.requests = nil
+	again, err := Ensure(client(srv.URL), d)
+	if err != nil || again != d {
+		t.Fatalf("%+v %v", again, err)
+	}
+	for _, r := range f.requests {
+		if strings.HasPrefix(r, "POST") {
+			t.Fatalf("reseeded: %v", f.requests)
+		}
 	}
 }
