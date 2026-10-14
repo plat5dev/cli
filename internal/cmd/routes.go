@@ -60,7 +60,7 @@ func printApplyResult(r controlplane.ApplyResult) {
 }
 
 func controlPlaneClient() (*controlplane.Client, error) {
-	cfg, _, err := loadConfigWithState()
+	cfg, err := loadConfig()
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +68,7 @@ func controlPlaneClient() (*controlplane.Client, error) {
 }
 
 func runRoutesApply(cmd *cobra.Command, args []string) error {
-	cfg, _, err := loadConfigWithState()
+	cfg, err := loadConfig()
 	if err != nil {
 		return err
 	}

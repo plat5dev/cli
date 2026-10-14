@@ -1,0 +1,69 @@
+# Embedded by plat5 CLI: the observability module.
+# grafana/otel-lgtm is Grafana, Loki, Tempo, and Prometheus in one container. Alloy is
+# the OTLP endpoint for Plat5 and your app, and reads every container's logs from the
+# Docker socket.
+services:
+  lgtm:
+    image: grafana/otel-lgtm:0.36.0
+    labels:
+      service.name: lgtm
+      service.namespace: observability
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:?}:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    volumes:
+      - lgtm_data:/data
+      - ./observability/dashboards.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/plat5.yaml:ro
+      - ./observability/dashboards:/otel-lgtm/plat5-dashboards:ro
+    networks:
+      - plat5
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:3000/api/health && curl -fsS http://127.0.0.1:3100/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 36
+      start_period: 20s
+    restart: unless-stopped
+
+  alloy:
+    image: grafana/alloy:v1.10.0
+    labels:
+      service.name: alloy
+      service.namespace: observability
+    ports:
+      - "127.0.0.1:${OTLP_GRPC_PORT:?}:4317"
+      - "127.0.0.1:${OTLP_HTTP_PORT:?}:4318"
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy
+      - /etc/alloy/config.alloy
+    environment:
+      ALLOY_DEPLOY_MODE: docker
+      LOKI_URL: http://lgtm:3100/loki/api/v1/push
+      LOKI_USER: ""
+      LOKI_TOKEN: ""
+      TEMPO_ENDPOINT: http://lgtm:4318
+      TEMPO_USER: ""
+      TEMPO_TOKEN: ""
+      TEMPO_TLS_INSECURE: "true"
+      MIMIR_PUSH_URL: http://lgtm:9090/api/v1/write
+      MIMIR_USER: ""
+      MIMIR_TOKEN: ""
+    volumes:
+      - ./observability/config.alloy:/etc/alloy/config.alloy:ro
+      - alloy_data:/var/lib/alloy
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - plat5
+    depends_on:
+      lgtm:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  lgtm_data:
+  alloy_data:

@@ -1,3 +1,6 @@
+// Package bundle holds the local stack's compose files, embedded in the CLI so
+// plat5 start needs no checkout. One file per module, all in one compose project:
+// core.yml (Plat5 and the shared Postgres), auth.yml, operator.yml, observability.yml.
 package bundle
 
 import (
@@ -8,43 +11,30 @@ import (
 	"path/filepath"
 )
 
-//go:embed plat5/docker-compose.yml auth/docker-compose.yml operator/docker-compose.yml operator/postgres-init.sql observability/docker-compose.yml observability/monitoring/* observability/dashboards/*
+//go:embed all:stack
 var content embed.FS
 
-// MaterializePlat5 writes the embedded Plat5 image-mode stack under destDir.
-func MaterializePlat5(destDir string) error {
-	return materialize(destDir, "plat5")
+// Files are the module compose files, by module name. "core" always runs.
+var Files = map[string]string{
+	"core":          "core.yml",
+	"auth":          "auth.yml",
+	"operator":      "operator.yml",
+	"observability": "observability.yml",
 }
 
-// MaterializeAuth writes the embedded Auth image-mode stack under destDir.
-func MaterializeAuth(destDir string) error {
-	return materialize(destDir, "auth")
-}
-
-// MaterializeObservability writes the embedded observability stack under destDir.
-func MaterializeObservability(destDir string) error {
-	return materialize(destDir, "observability")
-}
-
-// MaterializeOperator writes the embedded Operator image-mode stack under destDir.
-func MaterializeOperator(destDir string) error {
-	return materialize(destDir, "operator")
-}
-
-func materialize(destDir, root string) error {
+// Materialize writes the embedded stack under destDir, replacing what an older
+// CLI wrote there.
+func Materialize(destDir string) error {
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return err
 	}
-	return fs.WalkDir(content, root, func(path string, d fs.DirEntry, err error) error {
+	return fs.WalkDir(content, "stack", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		rel, err := filepath.Rel(root, path)
+		rel, err := filepath.Rel("stack", path)
 		if err != nil {
 			return err
-		}
-		if rel == "." {
-			return nil
 		}
 		target := filepath.Join(destDir, rel)
 		if d.IsDir() {
@@ -54,9 +44,10 @@ func materialize(destDir, root string) error {
 		if err != nil {
 			return fmt.Errorf("read embed %s: %w", path, err)
 		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return err
+		mode := os.FileMode(0o644)
+		if filepath.Ext(path) == ".sh" {
+			mode = 0o755
 		}
-		return os.WriteFile(target, data, 0o644)
+		return os.WriteFile(target, data, mode)
 	})
 }

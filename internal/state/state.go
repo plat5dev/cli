@@ -1,3 +1,6 @@
+// Package state is what the CLI remembers about one project's local stack, under
+// $XDG_STATE_HOME/plat5/projects/<project_id>: what the last start ran, and the dev
+// data it seeded. Local only, and written 0600: it holds the dev keys.
 package state
 
 import (
@@ -10,106 +13,79 @@ import (
 	"github.com/plat5dev/cli/internal/xdg"
 )
 
-// State records what the CLI started for one project.
+// State records what plat5 start did for one project.
 type State struct {
-	ProjectID                string `json:"project_id"`
-	ConfigPath               string `json:"config_path,omitempty"`
-	Plat5Compose             string `json:"plat5_compose,omitempty"`
-	AuthCompose              string `json:"auth_compose,omitempty"`
-	ObservabilityCompose     string `json:"observability_compose,omitempty"`
-	OperatorCompose          string `json:"operator_compose,omitempty"`
-	StartedAuth              bool   `json:"started_auth"`
-	StartedObservability     bool   `json:"started_observability"`
-	StartedOperator          bool   `json:"started_operator"`
-	ComposeProject           string `json:"compose_project,omitempty"`
-	AuthComposeName          string `json:"auth_compose_name,omitempty"`
-	ObservabilityComposeName string `json:"observability_compose_name,omitempty"`
-	OperatorComposeName      string `json:"operator_compose_name,omitempty"`
-	Plat5Override            string `json:"plat5_override,omitempty"`
-	AuthOverride             string `json:"auth_override,omitempty"`
-	ObservabilityOverride    string `json:"observability_override,omitempty"`
-	OperatorOverride         string `json:"operator_override,omitempty"`
-	GatewayPort              int    `json:"gateway_port,omitempty"`
-	ControlPlanePort         int    `json:"control_plane_port,omitempty"`
-	// LegacyRegistryPort is registry_port from state written before the control
-	// plane. Load moves it to ControlPlanePort.
-	LegacyRegistryPort int       `json:"registry_port,omitempty"`
-	AuthPort           int       `json:"auth_port,omitempty"`
-	OperatorPort       int       `json:"operator_port,omitempty"`
-	OperatorIdPPort    int       `json:"operator_idp_port,omitempty"`
-	GrafanaPort        int       `json:"grafana_port,omitempty"`
-	OTLPGRPCPort       int       `json:"otlp_grpc_port,omitempty"`
-	OTLPHTTPPort       int       `json:"otlp_http_port,omitempty"`
-	AlloyPort          int       `json:"alloy_port,omitempty"`
-	StartedAt          time.Time `json:"started_at"`
+	ProjectID  string `json:"project_id"`
+	ConfigPath string `json:"config_path,omitempty"`
+	// Modules is the modules the last start ran (core is implied).
+	Modules []string `json:"modules,omitempty"`
+	// AppCompose is the app compose file the last start ran. Empty: none.
+	AppCompose string    `json:"app_compose,omitempty"`
+	Dev        *Dev      `json:"dev,omitempty"`
+	StartedAt  time.Time `json:"started_at"`
 }
 
-func projectPath(projectID string) (string, error) {
-	dir, err := xdg.ProjectDir(projectID)
+// Dev is the seeded dev person, their org, and a key for each. Reused while
+// the keys still work.
+type Dev struct {
+	Email          string `json:"email"`
+	UserID         string `json:"user_id"`
+	OrganizationID string `json:"organization_id"`
+	MemberID       string `json:"member_id"`
+	UserKey        string `json:"user_key"`
+	MemberKey      string `json:"member_key"`
+}
+
+// Dir is the project's state directory.
+func Dir(projectID string) (string, error) {
+	return xdg.ProjectDir(projectID)
+}
+
+func path(projectID string) (string, error) {
+	dir, err := Dir(projectID)
 	if err != nil {
 		return "", err
 	}
 	return filepath.Join(dir, "state.json"), nil
 }
 
-// Load reads state for projectID; empty state if missing.
+// Load reads the project's state. None yet is an empty State.
 func Load(projectID string) (State, error) {
-	p, err := projectPath(projectID)
+	p, err := path(projectID)
 	if err != nil {
 		return State{}, err
 	}
 	data, err := os.ReadFile(p)
+	if os.IsNotExist(err) {
+		return State{ProjectID: projectID}, nil
+	}
 	if err != nil {
-		if os.IsNotExist(err) {
-			return State{}, nil
-		}
 		return State{}, err
 	}
 	var s State
 	if err := json.Unmarshal(data, &s); err != nil {
-		return State{}, fmt.Errorf("parse state: %w", err)
+		// Written by an older CLI, or damaged: start over rather than fail.
+		return State{ProjectID: projectID}, nil
 	}
-	if s.ControlPlanePort == 0 {
-		s.ControlPlanePort = s.LegacyRegistryPort
-	}
-	s.LegacyRegistryPort = 0
+	s.ProjectID = projectID
 	return s, nil
 }
 
-// Save writes state for the project.
+// Save writes the project's state.
 func Save(s State) error {
 	if s.ProjectID == "" {
 		return fmt.Errorf("state: empty project_id")
 	}
-	dir, err := xdg.ProjectDir(s.ProjectID)
+	p, err := path(s.ProjectID)
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 		return err
 	}
-	p := filepath.Join(dir, "state.json")
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(p, data, 0o600)
-}
-
-// Clear removes state file for projectID.
-func Clear(projectID string) error {
-	p, err := projectPath(projectID)
-	if err != nil {
-		return err
-	}
-	err = os.Remove(p)
-	if err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	return nil
-}
-
-// Dir returns the project state directory.
-func Dir(projectID string) (string, error) {
-	return xdg.ProjectDir(projectID)
 }

@@ -1,5 +1,7 @@
-// Local LGTM backends. Override exporters via env for Grafana Cloud
-// (set in compose/.env or the alloy service environment):
+// Embedded by plat5 CLI. Alloy takes OTLP from Plat5 and your app, and reads every
+// container's logs from the Docker socket. It sends them to grafana/otel-lgtm (Loki,
+// Tempo, Prometheus, Grafana in one container). Exporters are env, so the same
+// config can point at Grafana Cloud:
 //   LOKI_URL, TEMPO_ENDPOINT, MIMIR_PUSH_URL
 //   LOKI_USER / LOKI_TOKEN, TEMPO_USER / TEMPO_TOKEN, MIMIR_USER / MIMIR_TOKEN
 //   TEMPO_TLS_INSECURE=false for Cloud (default true for local)

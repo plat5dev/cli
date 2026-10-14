@@ -1,213 +1,72 @@
 package cmd
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
-	"gopkg.in/yaml.v3"
+	"github.com/plat5dev/cli/internal/config"
+	"github.com/plat5dev/cli/internal/template"
 )
 
-func TestIdentityRoutesCatalogIncludesInvites(t *testing.T) {
-	for _, want := range []string{
-		"/org/invites",
-		"/org/invites/{invite_id}",
-		"/user/invites/redeem",
-		"/user/organizations/{organization_id}/session",
-		"/org/service-accounts/{service_account_id}/api-keys",
-		"/org/service-accounts/{service_account_id}/api-keys/{key_id}",
-		"/organizations/{subject.organization_id}/service-accounts/{path.service_account_id}/api-keys",
+func allModules() map[string]bool {
+	return map[string]bool{config.ModuleAuth: true, config.ModuleOperator: true, config.ModuleObservability: true}
+}
+
+var pins = map[string]string{"plat5": "v0.7.0", "auth": "v0.2.0", "operator": "v0.4.0", "operator_console": "v0.1.0"}
+
+// What init writes is what start reads.
+func TestRenderedPlat5YMLResolves(t *testing.T) {
+	tpl := &template.Template{Manifest: template.Manifest{
+		Upstreams: map[string]string{"api": "3000"},
+		Routes:    []string{"./routes.identity.yml", "./routes.yml"},
+		App:       template.App{Compose: "docker-compose.yml", Web: "http://localhost:3001"},
+	}}
+	for name, tc := range map[string]struct {
+		ch  initChoices
+		tpl *template.Template
+	}{
+		"starter":   {initChoices{modules: allModules(), sources: map[string]string{}}, tpl},
+		"bare":      {initChoices{modules: allModules(), sources: map[string]string{}}, nil},
+		"from-src":  {initChoices{modules: allModules(), sources: map[string]string{"plat5": "/src/plat5"}}, tpl},
+		"fewer-mod": {initChoices{modules: map[string]bool{config.ModuleAuth: true}, sources: map[string]string{}}, tpl},
 	} {
-		if !strings.Contains(identityRoutesCatalog, want) {
-			t.Fatalf("identity catalog missing %q", want)
+		yml := renderPlat5YML("demo", tc.ch, pins, tc.tpl)
+		f, err := config.Parse([]byte(yml))
+		if err != nil {
+			t.Fatalf("%s: %v\n%s", name, err, yml)
+		}
+		r, err := config.Resolve(f, "/proj/plat5.yml", config.Overrides{})
+		if err != nil {
+			t.Fatalf("%s: %v\n%s", name, err, yml)
+		}
+		if r.ProjectID != "demo" || r.RolesFile == "" {
+			t.Fatalf("%s: %+v", name, r)
+		}
+		if tc.tpl != nil && (r.AppCompose != "/proj/docker-compose.yml" || r.AppWeb != "http://localhost:3001") {
+			t.Fatalf("%s: app %q %q", name, r.AppCompose, r.AppWeb)
+		}
+		if tc.ch.modules[config.ModuleOperator] != r.Modules[config.ModuleOperator] {
+			t.Fatalf("%s: modules %v", name, r.Modules)
 		}
 	}
 }
 
-func TestRenderPlat5YMLAuthDefaults(t *testing.T) {
-	body := renderPlat5YML("demo", "", "", true, "", false, "", false, nil, nil, initPins{plat5: "v1.2.3", auth: "v9"})
-	for _, want := range []string{
-		"allowed_clients: [plat5]",
-		"http://localhost:5173/callback",
-		"https://oauth.pstmn.io/v1/callback",
-		"http://localhost:5173",
-		"version: v9",
-		"plat5_version: v1.2.3",
-	} {
-		if !strings.Contains(body, want) {
-			t.Fatalf("missing %q in:\n%s", want, body)
-		}
-	}
-	if strings.Contains(body, "otel:\n  endpoint:") {
-		t.Fatalf("otel should stay commented when observability off:\n%s", body)
-	}
-	if !strings.Contains(body, "# apikey_brand: plat5") {
-		t.Fatalf("missing commented apikey_brand:\n%s", body)
-	}
-	if strings.Contains(body, "theme_file") {
-		t.Fatalf("init --auth must not invent a theme file:\n%s", body)
-	}
-	if strings.Contains(body, "bootstrap_") {
-		t.Fatalf("operator has no bootstrap login:\n%s", body)
-	}
-	if !strings.Contains(body, "operator:\n  enabled: false") {
-		t.Fatalf("operator block missing:\n%s", body)
-	}
-	if strings.Contains(body, "version: v0.1.8") {
-		t.Fatalf("stale auth.version v0.1.8:\n%s", body)
-	}
-	if strings.Contains(body, "plat5_version: v0.2.0") {
-		t.Fatalf("stale plat5_version v0.2.0:\n%s", body)
+func TestRenderedPlat5YMLWithoutAuthSaysWhy(t *testing.T) {
+	yml := renderPlat5YML("demo", initChoices{modules: map[string]bool{}, sources: map[string]string{}}, pins, nil)
+	if !strings.Contains(yml, "plat5 start needs idp:") {
+		t.Fatalf("no hint:\n%s", yml)
 	}
 }
 
-func TestRenderPlat5YMLOperator(t *testing.T) {
-	body := renderPlat5YML("demo", "", "", false, "", false, "/tmp/operator/compose", true, nil, nil, initPins{plat5: "v1.2.3", operator: "v8"})
-	for _, want := range []string{
-		"operator_compose: /tmp/operator/compose",
-		"operator:\n  enabled: true",
-		"version: v8",
-		"allowed_origins:\n    - http://localhost:5173",
-		"#   operator: 5004",
-		"#   operator_idp: 5556",
-	} {
-		if !strings.Contains(body, want) {
-			t.Fatalf("missing %q in:\n%s", want, body)
-		}
+func TestParsePairs(t *testing.T) {
+	out := map[string]string{}
+	if err := parsePairs("--source", []string{"plat5=../plat5"}, config.Sources, out); err != nil || out["plat5"] != "../plat5" {
+		t.Fatalf("%v %v", out, err)
 	}
-	if strings.Contains(body, "bootstrap_") {
-		t.Fatalf("operator has no bootstrap login:\n%s", body)
+	if err := parsePairs("--source", []string{"web=../web"}, config.Sources, out); err == nil {
+		t.Fatal("unknown key")
 	}
-}
-
-func TestRenderPlat5YMLOtelWhenObservability(t *testing.T) {
-	body := renderPlat5YML("demo", "", "", false, "", true, "", false, nil, nil, initPins{plat5: "v1.2.3"})
-	if !strings.Contains(body, "otel:\n  endpoint: http://host.docker.internal:4318") {
-		t.Fatalf("expected active otel block:\n%s", body)
-	}
-	if strings.Contains(body, "# otel:") {
-		t.Fatalf("otel should not be commented when observability on:\n%s", body)
-	}
-}
-
-func TestUncommentOTLPEndpoint(t *testing.T) {
-	src := `    environment:
-      PORT: 3000
-      # OTLP destination (traces + metrics default on when set):
-      # OTEL_EXPORTER_OTLP_ENDPOINT: http://host.docker.internal:4318
-`
-	out, n := uncommentOTLPEndpoint(src)
-	if n != 1 {
-		t.Fatalf("n=%d", n)
-	}
-	if !strings.Contains(out, "      OTEL_EXPORTER_OTLP_ENDPOINT: http://host.docker.internal:4318") {
-		t.Fatalf("out:\n%s", out)
-	}
-	if strings.Contains(out, "# OTEL_EXPORTER_OTLP_ENDPOINT") {
-		t.Fatal("still commented")
-	}
-	// comment-only description line stays
-	if !strings.Contains(out, "# OTLP destination") {
-		t.Fatal("description comment should remain")
-	}
-}
-
-func TestEnableTemplateOTLP(t *testing.T) {
-	root := t.TempDir()
-	compose := filepath.Join(root, "docker-compose.yml")
-	body := `services:
-  api:
-    environment:
-      # OTEL_EXPORTER_OTLP_ENDPOINT: http://host.docker.internal:4318
-`
-	if err := os.WriteFile(compose, []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	n, err := enableTemplateOTLP(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n != 1 {
-		t.Fatalf("changed %d", n)
-	}
-	got, err := os.ReadFile(compose)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(got), "      OTEL_EXPORTER_OTLP_ENDPOINT: http://host.docker.internal:4318") {
-		t.Fatalf("%s", got)
-	}
-}
-
-func TestIdentityRoutesCatalogLabelsOrgWrites(t *testing.T) {
-	for _, want := range []string{
-		"/org/members/{member_id}",
-		"/organizations/{subject.organization_id}/members/{path.member_id}",
-		"/org/roles",
-		"- path: /user\n          upstream: /users/{subject.user_id}\n          methods: [GET, PATCH, DELETE]",
-		"required_labels: [org:write]",
-		"required_labels: [org:delete]",
-		"required_labels: [org:members:write]",
-		"required_labels: [org:service-accounts:write]",
-	} {
-		if !strings.Contains(identityRoutesCatalog, want) {
-			t.Fatalf("identity catalog missing %q", want)
-		}
-	}
-}
-
-func TestAuditCatalogs(t *testing.T) {
-	for _, want := range []string{
-		"url: http://audit:3002",
-		"- path: /org/audit-events",
-		"upstream: /organizations/{subject.organization_id}/audit-events",
-		"required_labels: [org:audit:read]",
-		"- path: /user/audit-events",
-		"upstream: /users/{subject.user_id}/audit-events",
-	} {
-		if !strings.Contains(auditRoutesCatalog, want) {
-			t.Fatalf("audit catalog missing %q", want)
-		}
-	}
-	// The invite list returns live tokens: a read worth recording.
-	if !strings.Contains(identityRoutesCatalog, "required_labels: [org:members:write]\n          audit: true\n        - path: /org/invites/{invite_id}") {
-		t.Fatal("identity catalog: GET /org/invites should set audit: true")
-	}
-	var doc struct {
-		Roles map[string][]string `yaml:"roles"`
-	}
-	if err := yaml.Unmarshal([]byte(starterRoles), &doc); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(strings.Join(doc.Roles["admin"], " "), "org:audit:read") {
-		t.Fatalf("admin should read the audit log: %v", doc.Roles["admin"])
-	}
-}
-
-func TestRenderPlat5YMLRoles(t *testing.T) {
-	body := renderPlat5YML("demo", "", "", false, "", false, "", false, nil, nil, initPins{plat5: "v1.2.3"})
-	if !strings.Contains(body, "\nroles: ./roles.yml\n") {
-		t.Fatalf("plat5.yml should point at roles.yml:\n%s", body)
-	}
-}
-
-func TestStarterRolesShape(t *testing.T) {
-	var doc struct {
-		Roles       map[string][]string `yaml:"roles"`
-		CreatorRole string              `yaml:"creator_role"`
-		DefaultRole string              `yaml:"default_role"`
-	}
-	if err := yaml.Unmarshal([]byte(starterRoles), &doc); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := doc.Roles[doc.CreatorRole]; !ok {
-		t.Fatalf("creator_role %q is not a role", doc.CreatorRole)
-	}
-	if _, ok := doc.Roles[doc.DefaultRole]; !ok {
-		t.Fatalf("default_role %q is not a role", doc.DefaultRole)
-	}
-	if got := doc.Roles["owner"]; len(got) != 1 || got[0] != "*" {
-		t.Fatalf("owner: %v", got)
+	if err := parsePairs("--source", []string{"plat5"}, config.Sources, out); err == nil {
+		t.Fatal("missing value")
 	}
 }

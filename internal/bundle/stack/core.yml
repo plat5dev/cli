@@ -1,12 +1,18 @@
-# Embedded by plat5 CLI (image mode). Pulls ghcr.io/plat5dev/*:${PLAT5_VERSION}.
+# Embedded by plat5 CLI: Plat5 itself (gateway, control plane, identity, audit), and
+# the one Postgres the whole local stack shares. Pulls ghcr.io/plat5dev/*:${PLAT5_VERSION}.
+# plat5 start sets every ${…} below; see internal/stack.
 name: plat5
-
-volumes:
-  pg_data:
 
 networks:
   plat5:
     driver: bridge
+
+volumes:
+  pg_data:
+
+x-otel: &otel
+  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+  DEPLOYMENT_ENV: local
 
 services:
   postgres:
@@ -15,20 +21,34 @@ services:
       service.name: postgres
       service.namespace: infra
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-plat5}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-plat5}
-      POSTGRES_DB: ${POSTGRES_DB:-plat5}
+      POSTGRES_USER: plat5
+      POSTGRES_PASSWORD: plat5
+      POSTGRES_DB: plat5
     volumes:
       - pg_data:/var/lib/postgresql/data
     networks:
       - plat5
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
-      interval: 10s
+      test: ["CMD-SHELL", "pg_isready -U plat5 -d plat5"]
+      interval: 2s
       timeout: 5s
-      retries: 5
-      start_period: 10s
+      retries: 30
     restart: unless-stopped
+
+  # Creates the other planes' databases. Runs to completion on every start.
+  db-init:
+    image: postgres:17
+    entrypoint: ["/bin/sh", "/db-init.sh"]
+    environment:
+      PGPASSWORD: plat5
+    volumes:
+      - ./db-init.sh:/db-init.sh:ro
+    networks:
+      - plat5
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
 
   valkey:
     image: valkey/valkey:8-alpine
@@ -40,31 +60,30 @@ services:
       - plat5
     healthcheck:
       test: ["CMD", "valkey-cli", "ping"]
-      interval: 10s
+      interval: 2s
       timeout: 3s
-      retries: 5
+      retries: 30
     restart: unless-stopped
 
   control-plane:
-    image: ghcr.io/plat5dev/control-plane:${PLAT5_VERSION:?set PLAT5_VERSION}
+    image: ghcr.io/plat5dev/control-plane:${PLAT5_VERSION:?}
     labels:
       service.name: control-plane
       service.namespace: edge
       metrics.port: "5003"
     ports:
-      - "5002:5002"
+      - "${CONTROL_PLANE_PORT:?}:5002"
     environment:
+      <<: *otel
       PORT: 5002
       INTERNAL_PORT: 5003
-      ADMIN_TOKEN: ${ADMIN_TOKEN:-dev-admin-token}
-      INTERNAL_AUTH_TOKEN: ${INTERNAL_AUTH_TOKEN:-dev-internal-token}
-      DATABASE_URL: postgres://${POSTGRES_USER:-plat5}:${POSTGRES_PASSWORD:-plat5}@postgres:5432/${POSTGRES_DB:-plat5}?sslmode=disable
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?}
+      INTERNAL_AUTH_TOKEN: dev-internal-token
+      DATABASE_URL: postgres://plat5:plat5@postgres:5432/plat5?sslmode=disable
       # The CLI override mounts the project's roles file and sets SEED_ROLES_FILE.
       RUST_LOG: info
       OTEL_SERVICE_NAME: control-plane
       OTEL_SERVICE_NAMESPACE: edge
-      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
-      DEPLOYMENT_ENV: local
     networks:
       - plat5
     depends_on:
@@ -72,46 +91,47 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5003/health/ready"]
-      interval: 10s
+      interval: 2s
       timeout: 5s
-      retries: 5
-      start_period: 15s
+      retries: 60
     restart: unless-stopped
 
   gateway:
-    image: ghcr.io/plat5dev/gateway:${PLAT5_VERSION:?set PLAT5_VERSION}
+    image: ghcr.io/plat5dev/gateway:${PLAT5_VERSION:?}
     labels:
       service.name: gateway
       service.namespace: edge
       metrics.port: "8000"
     ports:
-      - "5001:5001"
+      - "${GATEWAY_PORT:?}:5001"
     environment:
+      <<: *otel
       PORT: 5001
       INTERNAL_PORT: 8000
-      AUTH_ISSUER: ${AUTH_ISSUER:-http://localhost:5000}
-      AUTH_JWKS_URI: ${AUTH_JWKS_URI:-http://host.docker.internal:5000/.well-known/jwks.json}
-      AUTH_ALLOWED_AUDIENCES: ${AUTH_ALLOWED_AUDIENCES:-plat5}
-      AUTH_USER_ID_CLAIM: ${AUTH_USER_ID_CLAIM:-properties.user_id}
+      # The customer IdP: local Auth, or the project's idp: block.
+      AUTH_ISSUER: ${IDP_ISSUER:?}
+      AUTH_JWKS_URI: ${IDP_JWKS_URI:?}
+      AUTH_ALLOWED_AUDIENCES: ${IDP_AUDIENCES:?}
+      AUTH_USER_ID_CLAIM: ${IDP_USER_ID_CLAIM:?}
       CREDENTIAL_VALIDATE_URL: http://identity:3001/internal/credentials/validate
-      # Audit is on unless AUDIT_ENABLED=false (then audit need not run).
-      AUDIT_ENABLED: ${AUDIT_ENABLED:-true}
+      AUDIT_ENABLED: "true"
       AUDIT_URL: http://audit:3003
-      INTERNAL_AUTH_TOKEN: ${INTERNAL_AUTH_TOKEN:-dev-internal-token}
+      INTERNAL_AUTH_TOKEN: dev-internal-token
       RUST_LOG: info
       APIKEY_CACHE_TTL_SECS: "300"
-      RATE_LIMIT_REQUESTS: ${RATE_LIMIT_REQUESTS:-60}
-      RATE_LIMIT_WINDOW_SECONDS: ${RATE_LIMIT_WINDOW_SECONDS:-60}
-      RATE_LIMIT_AUTH_FAILURE_REQUESTS: ${RATE_LIMIT_AUTH_FAILURE_REQUESTS:-60}
-      RATE_LIMIT_AUTH_FAILURE_WINDOW_SECONDS: ${RATE_LIMIT_AUTH_FAILURE_WINDOW_SECONDS:-60}
+      RATE_LIMIT_REQUESTS: "60"
+      RATE_LIMIT_WINDOW_SECONDS: "60"
+      RATE_LIMIT_AUTH_FAILURE_REQUESTS: "60"
+      RATE_LIMIT_AUTH_FAILURE_WINDOW_SECONDS: "60"
       VALKEY_URL: redis://valkey:6379
       CONTROL_PLANE_URL: http://control-plane:5003
       OTEL_SERVICE_NAME: gateway
       OTEL_SERVICE_NAMESPACE: edge
-      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
-      DEPLOYMENT_ENV: local
     networks:
       - plat5
+    # Upstreams on the host: http://host.docker.internal:<port>.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       valkey:
         condition: service_healthy
@@ -123,32 +143,28 @@ services:
         condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/ready"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
+      interval: 2s
+      timeout: 5s
+      retries: 60
     restart: unless-stopped
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
 
   identity:
-    image: ghcr.io/plat5dev/identity:${PLAT5_VERSION:?set PLAT5_VERSION}
+    image: ghcr.io/plat5dev/identity:${PLAT5_VERSION:?}
     labels:
       service.name: identity
       service.namespace: identity
       metrics.port: "3001"
     environment:
+      <<: *otel
       PORT: 3000
       INTERNAL_PORT: 3001
-      INTERNAL_AUTH_TOKEN: ${INTERNAL_AUTH_TOKEN:-dev-internal-token}
-      APIKEY_BRAND: ${APIKEY_BRAND:-plat5}
-      DATABASE_URL: postgres://${POSTGRES_USER:-plat5}:${POSTGRES_PASSWORD:-plat5}@postgres:5432/${POSTGRES_DB:-plat5}?sslmode=disable
-      # The CLI override sets ROLES_ENABLED from plat5.yml roles.
+      INTERNAL_AUTH_TOKEN: dev-internal-token
+      APIKEY_BRAND: ${APIKEY_BRAND:?}
+      DATABASE_URL: postgres://plat5:plat5@postgres:5432/plat5?sslmode=disable
+      ROLES_ENABLED: ${ROLES_ENABLED:?}
       CONTROL_PLANE_URL: http://control-plane:5003
       OTEL_SERVICE_NAME: identity
       OTEL_SERVICE_NAMESPACE: identity
-      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
-      DEPLOYMENT_ENV: local
     networks:
       - plat5
     depends_on:
@@ -158,27 +174,25 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3001/health/ready"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
+      interval: 2s
+      timeout: 5s
+      retries: 60
     restart: unless-stopped
 
   audit:
-    image: ghcr.io/plat5dev/audit:${PLAT5_VERSION:?set PLAT5_VERSION}
+    image: ghcr.io/plat5dev/audit:${PLAT5_VERSION:?}
     labels:
       service.name: audit
       service.namespace: audit
       metrics.port: "3003"
     environment:
+      <<: *otel
       PORT: 3002
       INTERNAL_PORT: 3003
-      INTERNAL_AUTH_TOKEN: ${INTERNAL_AUTH_TOKEN:-dev-internal-token}
-      DATABASE_URL: postgres://${POSTGRES_USER:-plat5}:${POSTGRES_PASSWORD:-plat5}@postgres:5432/${POSTGRES_DB:-plat5}?sslmode=disable
+      INTERNAL_AUTH_TOKEN: dev-internal-token
+      DATABASE_URL: postgres://plat5:plat5@postgres:5432/plat5?sslmode=disable
       OTEL_SERVICE_NAME: audit
       OTEL_SERVICE_NAMESPACE: audit
-      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
-      DEPLOYMENT_ENV: local
     networks:
       - plat5
     depends_on:
@@ -186,8 +200,7 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3003/health/ready"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
+      interval: 2s
+      timeout: 5s
+      retries: 60
     restart: unless-stopped

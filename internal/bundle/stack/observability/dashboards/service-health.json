@@ -56,7 +56,7 @@
         "sort": 1,
         "datasource": {
           "type": "prometheus",
-          "uid": "mimir"
+          "uid": "prometheus"
         },
         "current": {
           "text": "gateway",
@@ -81,7 +81,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "prometheus"
       },
       "targets": [
         {
@@ -89,7 +89,7 @@
           "hide": false,
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "prometheus"
           },
           "expr": "sum(rate(http_requests_total{service_name=\"$service\"}[5m]))",
           "legendFormat": "req/s",
@@ -154,7 +154,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "prometheus"
       },
       "targets": [
         {
@@ -162,7 +162,7 @@
           "hide": false,
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "prometheus"
           },
           "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{service_name=\"$service\"}[5m])) by (le))",
           "legendFormat": "p95",
@@ -231,7 +231,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "prometheus"
       },
       "targets": [
         {
@@ -239,7 +239,7 @@
           "hide": false,
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "prometheus"
           },
           "expr": "sum(rate(http_requests_total{service_name=\"$service\", status=~\"5..\"}[5m])) / sum(rate(http_requests_total{service_name=\"$service\"}[5m])) or vector(0)",
           "legendFormat": "error %",
@@ -308,7 +308,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "prometheus"
       },
       "targets": [
         {
@@ -316,7 +316,7 @@
           "hide": false,
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "prometheus"
           },
           "expr": "sum by (auth_type) (rate(auth_cache_hits_total{service_name=\"gateway\"}[5m])) \n/ \n(sum by (auth_type) (rate(auth_cache_hits_total{service_name=\"gateway\"}[5m])) + sum by (auth_type) (rate(auth_cache_misses_total{service_name=\"gateway\"}[5m])))",
           "legendFormat": "__auto",
@@ -380,7 +380,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "prometheus"
       },
       "targets": [
         {
@@ -388,7 +388,7 @@
           "hide": false,
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "prometheus"
           },
           "expr": "time() - process_start_time_seconds{service_name=\"$service\"}",
           "legendFormat": "uptime",
@@ -453,7 +453,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "prometheus"
       },
       "targets": [
         {
@@ -461,7 +461,7 @@
           "hide": false,
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "prometheus"
           },
           "expr": "go_goroutines{service_name=\"$service\"}",
           "legendFormat": "goroutines",
@@ -526,7 +526,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "prometheus"
       },
       "targets": [
         {
@@ -534,7 +534,7 @@
           "hide": false,
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "prometheus"
           },
           "expr": "sum by (route, method) (rate(http_requests_total{service_name=\"$service\"}[2m]))",
           "legendFormat": "{{method}} {{route}}",
@@ -628,7 +628,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "prometheus"
       },
       "targets": [
         {
@@ -636,7 +636,7 @@
           "hide": false,
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "prometheus"
           },
           "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket{service_name=\"$service\"}[5m])) by (le))",
           "legendFormat": "p50",
@@ -649,7 +649,7 @@
           "hide": false,
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "prometheus"
           },
           "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{service_name=\"$service\"}[5m])) by (le))",
           "legendFormat": "p95",
@@ -662,7 +662,7 @@
           "hide": false,
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "prometheus"
           },
           "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{service_name=\"$service\"}[5m])) by (le))",
           "legendFormat": "p99",
@@ -756,7 +756,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "prometheus"
       },
       "targets": [
         {
@@ -764,7 +764,7 @@
           "hide": false,
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "prometheus"
           },
           "expr": "rate(process_cpu_seconds_total{service_name=\"$service\"}[5m]) * 100",
           "legendFormat": "{{service_name}}",
@@ -859,7 +859,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "prometheus"
       },
       "targets": [
         {
@@ -867,7 +867,7 @@
           "hide": false,
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "prometheus"
           },
           "expr": "process_resident_memory_bytes{service_name=\"$service\"} / 1024 / 1024",
           "legendFormat": "{{service_name}}",

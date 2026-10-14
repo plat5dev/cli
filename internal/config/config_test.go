@@ -1,863 +1,169 @@
 package config
 
 import (
-	"fmt"
-	"github.com/plat5dev/cli/internal/ports"
-	"net"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/plat5dev/cli/internal/ports"
 )
 
-func TestLoadRequiresYAML(t *testing.T) {
-	dir := t.TempDir()
-	cwd, _ := os.Getwd()
-	t.Cleanup(func() { _ = os.Chdir(cwd) })
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
-	_, err := Load(Flags{})
-	if err == nil {
-		t.Fatal("expected ErrNoProject")
-	}
-	if _, ok := err.(ErrNoProject); !ok {
-		t.Fatalf("got %T %v", err, err)
-	}
-}
-
-func TestLoadResolvesRelativePaths(t *testing.T) {
-	root := t.TempDir()
-	edge := filepath.Join(root, "plat5-compose")
-	if err := os.MkdirAll(edge, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	authCompose := filepath.Join(root, "auth-compose")
-	if err := os.MkdirAll(authCompose, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	yml := `project_id: demo
-plat5_version: v9
-plat5_compose: ./plat5-compose
-auth:
-  enabled: true
-  version: v8
-auth_compose: ./auth-compose
-routes:
-  - ./routes.yml
-  - ./svc/routes.yml
-admin_token: secret
-`
-	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte(yml), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	nested := filepath.Join(root, "app")
-	if err := os.MkdirAll(nested, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	cwd, _ := os.Getwd()
-	t.Cleanup(func() { _ = os.Chdir(cwd) })
-	if err := os.Chdir(nested); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg, err := Load(Flags{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.ProjectID != "demo" {
-		t.Fatalf("project_id %q", cfg.ProjectID)
-	}
-	if !samePath(cfg.Plat5Compose, edge) {
-		t.Fatalf("plat5 %q want %q", cfg.Plat5Compose, edge)
-	}
-	if !cfg.AuthEnabled {
-		t.Fatal("auth.enabled")
-	}
-	if !samePath(cfg.AuthCompose, authCompose) {
-		t.Fatalf("auth %q want %q", cfg.AuthCompose, authCompose)
-	}
-	if cfg.AdminToken != "secret" {
-		t.Fatalf("token %q", cfg.AdminToken)
-	}
-	if len(cfg.RouteFiles) != 2 {
-		t.Fatalf("routes %v", cfg.RouteFiles)
-	}
-	if cfg.ComposeProject != "plat5-demo" {
-		t.Fatalf("compose project %q", cfg.ComposeProject)
-	}
-}
-
-func TestLoadImageModeRequiresVersion(t *testing.T) {
-	root := t.TempDir()
-	yml := `project_id: app
-routes:
-  - ./routes.yml
-`
-	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte(yml), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cwd, _ := os.Getwd()
-	t.Cleanup(func() { _ = os.Chdir(cwd) })
-	if err := os.Chdir(root); err != nil {
-		t.Fatal(err)
-	}
-	_, err := Load(Flags{})
-	if err == nil || !strings.Contains(err.Error(), "plat5_version is required") {
-		t.Fatalf("err=%v", err)
-	}
-}
-
-func TestLoadAuthVersion(t *testing.T) {
-	root := t.TempDir()
-	yml := `project_id: p
-plat5_version: v1
-auth:
-  enabled: true
-  version: v9.9.9
-`
-	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte(yml), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cwd, _ := os.Getwd()
-	t.Cleanup(func() { _ = os.Chdir(cwd) })
-	if err := os.Chdir(root); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := Load(Flags{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.AuthVersion != "v9.9.9" {
-		t.Fatalf("auth version %q", cfg.AuthVersion)
-	}
-	if cfg.Plat5Version != "v1" {
-		t.Fatalf("plat5 version %q", cfg.Plat5Version)
-	}
-}
-
-func TestLoadAuthOAuthSurface(t *testing.T) {
-	root := t.TempDir()
-	yml := `project_id: p
-plat5_version: v9
-auth:
-  enabled: true
-  version: v8
-  allowed_clients:
-    - my-app
-    - " other "
-  allowed_redirect_uris:
-    - http://localhost:3000/callback
-    - https://oauth.pstmn.io/v1/callback
-  allowed_origins:
-    - http://localhost:3000
-  public_issuer_url: https://auth.example.com
-ports:
-  auth: 5100
-`
-	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte(yml), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cwd, _ := os.Getwd()
-	t.Cleanup(func() { _ = os.Chdir(cwd) })
-	if err := os.Chdir(root); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := Load(Flags{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(cfg.AuthAllowedClients) != 2 || cfg.AuthAllowedClients[0] != "my-app" || cfg.AuthAllowedClients[1] != "other" {
-		t.Fatalf("clients %v", cfg.AuthAllowedClients)
-	}
-	if len(cfg.AuthAllowedRedirectURIs) != 2 {
-		t.Fatalf("redirects %v", cfg.AuthAllowedRedirectURIs)
-	}
-	if len(cfg.AuthAllowedOrigins) != 1 || cfg.AuthAllowedOrigins[0] != "http://localhost:3000" {
-		t.Fatalf("origins %v", cfg.AuthAllowedOrigins)
-	}
-	if cfg.AuthPublicIssuerURL != "https://auth.example.com" {
-		t.Fatalf("public issuer %q", cfg.AuthPublicIssuerURL)
-	}
-	if err := ResolvePorts(&cfg, ports.Set{}); err != nil {
-		t.Fatal(err)
-	}
-	if cfg.AuthPublicIssuerURL != "https://auth.example.com" {
-		t.Fatalf("explicit public issuer must survive ResolvePorts, got %q", cfg.AuthPublicIssuerURL)
-	}
-}
-
-func TestLoadAuthPublicIssuerDerived(t *testing.T) {
-	root := t.TempDir()
-	yml := `project_id: p
-plat5_version: v9
-auth:
-  enabled: true
-  version: v8
-ports:
-  auth: 5100
-`
-	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte(yml), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cwd, _ := os.Getwd()
-	t.Cleanup(func() { _ = os.Chdir(cwd) })
-	if err := os.Chdir(root); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := Load(Flags{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.AuthPublicIssuerURL != "http://localhost:5100" {
-		t.Fatalf("derived public issuer %q", cfg.AuthPublicIssuerURL)
-	}
-	if len(cfg.AuthAllowedClients) != 0 {
-		t.Fatalf("clients should be unset, got %v", cfg.AuthAllowedClients)
-	}
-}
-
-func TestLoadPortPins(t *testing.T) {
-	root := t.TempDir()
-	yml := `project_id: p
-plat5_version: v9
-plat5_compose: ./e
-ports:
-  gateway: 6001
-  control_plane: 6002
-`
-	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte(yml), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cwd, _ := os.Getwd()
-	t.Cleanup(func() { _ = os.Chdir(cwd) })
-	if err := os.Chdir(root); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := Load(Flags{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !cfg.PortsExplicit.Gateway || cfg.Ports.Gateway != 6001 {
-		t.Fatalf("gateway pin %+v", cfg.Ports)
-	}
-	if !cfg.PortsExplicit.ControlPlane || cfg.Ports.ControlPlane != 6002 {
-		t.Fatalf("control_plane pin %+v", cfg.Ports)
-	}
-	if cfg.PortsExplicit.Auth {
-		t.Fatal("auth should not be pinned")
-	}
-}
-
-// plat5.yml from before the route registry became the control plane still loads.
-func TestLoadLegacyRegistryKeys(t *testing.T) {
-	root := t.TempDir()
-	yml := `project_id: p
-plat5_version: v9
-plat5_compose: ./e
-registry_url: http://localhost:7002
-ports:
-  registry: 6002
-`
-	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte(yml), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cwd, _ := os.Getwd()
-	t.Cleanup(func() { _ = os.Chdir(cwd) })
-	if err := os.Chdir(root); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := Load(Flags{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !cfg.PortsExplicit.ControlPlane || cfg.Ports.ControlPlane != 6002 {
-		t.Fatalf("ports.registry: %+v", cfg.Ports)
-	}
-	if cfg.ControlPlaneURL != "http://localhost:7002" {
-		t.Fatalf("registry_url: %q", cfg.ControlPlaneURL)
-	}
-
-	t.Setenv("PLAT5_REGISTRY_URL", "http://localhost:7003")
-	if cfg, err = Load(Flags{}); err != nil || cfg.ControlPlaneURL != "http://localhost:7003" {
-		t.Fatalf("PLAT5_REGISTRY_URL: %q %v", cfg.ControlPlaneURL, err)
-	}
-	t.Setenv("PLAT5_CONTROL_PLANE_URL", "http://localhost:7004")
-	if cfg, err = Load(Flags{}); err != nil || cfg.ControlPlaneURL != "http://localhost:7004" {
-		t.Fatalf("PLAT5_CONTROL_PLANE_URL wins: %q %v", cfg.ControlPlaneURL, err)
-	}
-}
-
-func TestSanitizeProjectID(t *testing.T) {
-	if got := sanitizeProjectID("My App!"); got != "my-app" {
-		t.Fatalf("got %q", got)
-	}
-}
-
-func TestLoadUpstreams(t *testing.T) {
-	root := t.TempDir()
-	yml := `project_id: p
-plat5_version: v9
-plat5_compose: ./e
+const fullYML = `project_id: My App
+versions:
+  plat5: v0.7.0
+  auth: v0.2.0
+  operator: v0.4.0
+  operator_console: v0.1.0
+app:
+  compose: ./docker-compose.yml
+  web: http://localhost:3001/
 upstreams:
   api: 3000
-  other: localhost:4000
-  remote: http://api.example.com:8080
-`
-	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte(yml), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cwd, _ := os.Getwd()
-	t.Cleanup(func() { _ = os.Chdir(cwd) })
-	if err := os.Chdir(root); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := Load(Flags{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Upstreams["api"] != "3000" {
-		t.Fatalf("api %q", cfg.Upstreams["api"])
-	}
-	if cfg.Upstreams["other"] != "localhost:4000" {
-		t.Fatalf("other %q", cfg.Upstreams["other"])
-	}
-	if cfg.Upstreams["remote"] != "http://api.example.com:8080" {
-		t.Fatalf("remote %q", cfg.Upstreams["remote"])
-	}
-}
-
-func loadYAML(t *testing.T, yml string) error {
-	t.Helper()
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte(yml), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cwd, _ := os.Getwd()
-	t.Cleanup(func() { _ = os.Chdir(cwd) })
-	if err := os.Chdir(root); err != nil {
-		t.Fatal(err)
-	}
-	_, err := Load(Flags{})
-	return err
-}
-
-func TestLoadRejectsTLSUpstream(t *testing.T) {
-	err := loadYAML(t, "project_id: p\nupstreams:\n  api: https://api.example.com\n")
-	if err == nil || !strings.Contains(err.Error(), "TLS (https) upstreams aren't supported yet; use http://host:port") {
-		t.Fatalf("err=%v", err)
-	}
-}
-
-func TestLoadRejectsUnknownKey(t *testing.T) {
-	err := loadYAML(t, "project_id: p\nfoo: 1\n")
-	if err == nil || !strings.Contains(err.Error(), `unknown key "foo"`) {
-		t.Fatalf("err=%v", err)
-	}
-	if err := loadYAML(t, ""); err == nil || !strings.Contains(err.Error(), "plat5_version is required") {
-		t.Fatalf("empty file: %v", err)
-	}
-}
-
-func TestLoadUpstreamsInvalid(t *testing.T) {
-	root := t.TempDir()
-	yml := `project_id: p
-plat5_version: v9
-upstreams:
-  api: 0
-`
-	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte(yml), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cwd, _ := os.Getwd()
-	t.Cleanup(func() { _ = os.Chdir(cwd) })
-	if err := os.Chdir(root); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Load(Flags{}); err == nil {
-		t.Fatal("expected error")
-	}
-}
-
-func TestLoadOtelEndpoint(t *testing.T) {
-	root := t.TempDir()
-	yml := `project_id: p
-plat5_version: v9
-plat5_compose: ./e
-otel:
-  endpoint: http://host.docker.internal:4318
-`
-	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte(yml), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cwd, _ := os.Getwd()
-	t.Cleanup(func() { _ = os.Chdir(cwd) })
-	if err := os.Chdir(root); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := Load(Flags{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.OtelEndpoint != "http://host.docker.internal:4318" {
-		t.Fatalf("otel %q", cfg.OtelEndpoint)
-	}
-}
-
-func TestLoadObservabilityAndOtelAutowire(t *testing.T) {
-	root := t.TempDir()
-	obs := filepath.Join(root, "obs-compose")
-	if err := os.MkdirAll(obs, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	yml := `project_id: p
-plat5_version: v9
-plat5_compose: ./e
-observability_compose: ./obs-compose
-observability:
-  enabled: true
-ports:
-  otlp_http: 4418
-`
-	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte(yml), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cwd, _ := os.Getwd()
-	t.Cleanup(func() { _ = os.Chdir(cwd) })
-	if err := os.Chdir(root); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := Load(Flags{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !cfg.ObservabilityEnabled {
-		t.Fatal("observability.enabled")
-	}
-	if !samePath(cfg.ObservabilityCompose, obs) {
-		t.Fatalf("obs path %q want %q", cfg.ObservabilityCompose, obs)
-	}
-	if cfg.OtelEndpoint != "" {
-		t.Fatalf("otel should be empty before ResolvePorts, got %q", cfg.OtelEndpoint)
-	}
-	if err := ResolvePorts(&cfg, ports.Set{}); err != nil {
-		t.Fatal(err)
-	}
-	want := "http://host.docker.internal:4418"
-	if cfg.OtelEndpoint != want {
-		t.Fatalf("otel auto-wire got %q want %q", cfg.OtelEndpoint, want)
-	}
-	if cfg.ObservabilityComposeName != "plat5-p-observability" {
-		t.Fatalf("compose name %q", cfg.ObservabilityComposeName)
-	}
-}
-
-func TestOtelExplicitWinsOverObservability(t *testing.T) {
-	root := t.TempDir()
-	yml := `project_id: p
-plat5_version: v9
-plat5_compose: ./e
-observability:
-  enabled: true
-otel:
-  endpoint: http://remote.example:4318
-`
-	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte(yml), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cwd, _ := os.Getwd()
-	t.Cleanup(func() { _ = os.Chdir(cwd) })
-	if err := os.Chdir(root); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := Load(Flags{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := ResolvePorts(&cfg, ports.Set{}); err != nil {
-		t.Fatal(err)
-	}
-	if cfg.OtelEndpoint != "http://remote.example:4318" {
-		t.Fatalf("got %q", cfg.OtelEndpoint)
-	}
-}
-
-func TestLoadOperator(t *testing.T) {
-	root := t.TempDir()
-	op := filepath.Join(root, "operator-compose")
-	if err := os.MkdirAll(op, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	yml := `project_id: p
-plat5_version: v1
-operator_compose: ./operator-compose
-operator:
-  enabled: true
-  version: v0.3.0
-ports:
-  operator: %d
-  operator_idp: %d
-`
-	// Pinned ports must be free on this machine, so pick free ones.
-	opPort, idpPort := freeTestPort(t), freeTestPort(t)
-	yml = fmt.Sprintf(yml, opPort, idpPort)
-	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte(yml), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cwd, _ := os.Getwd()
-	t.Cleanup(func() { _ = os.Chdir(cwd) })
-	if err := os.Chdir(root); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := Load(Flags{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !cfg.OperatorEnabled {
-		t.Fatal("operator.enabled")
-	}
-	if cfg.OperatorVersion != "v0.3.0" {
-		t.Fatalf("version %q", cfg.OperatorVersion)
-	}
-	if !samePath(cfg.OperatorCompose, op) {
-		t.Fatalf("compose %q want %q", cfg.OperatorCompose, op)
-	}
-	if cfg.OperatorComposeName != "plat5-p-operator" {
-		t.Fatalf("compose name %q", cfg.OperatorComposeName)
-	}
-	if len(cfg.OperatorAllowedOrigins) != 1 || cfg.OperatorAllowedOrigins[0] != "http://localhost:5173" {
-		t.Fatalf("allowed origins %q", cfg.OperatorAllowedOrigins)
-	}
-	if !cfg.PortsExplicit.OperatorIdP || cfg.Ports.OperatorIdP != idpPort {
-		t.Fatalf("idp port pin %+v", cfg.Ports)
-	}
-	if !cfg.PortsExplicit.Operator || cfg.Ports.Operator != opPort {
-		t.Fatalf("port pin %+v", cfg.Ports)
-	}
-	if err := ResolvePorts(&cfg, ports.Set{}); err != nil {
-		t.Fatal(err)
-	}
-	if cfg.OperatorURL != fmt.Sprintf("http://localhost:%d", opPort) {
-		t.Fatalf("url %q", cfg.OperatorURL)
-	}
-	if cfg.OperatorIssuerURL != fmt.Sprintf("http://localhost:%d/dex", idpPort) {
-		t.Fatalf("issuer %q", cfg.OperatorIssuerURL)
-	}
-}
-
-func TestLoadOperatorAllowedOrigins(t *testing.T) {
-	root := t.TempDir()
-	yml := `project_id: p
-plat5_version: v1
-operator:
-  enabled: true
-  version: v8
-  allowed_origins: [" https://console.example.com/ ", "http://localhost:3000"]
-`
-	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte(yml), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cwd, _ := os.Getwd()
-	t.Cleanup(func() { _ = os.Chdir(cwd) })
-	if err := os.Chdir(root); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := Load(Flags{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := strings.Join(cfg.OperatorAllowedOrigins, ",")
-	if got != "https://console.example.com,http://localhost:3000" {
-		t.Fatalf("allowed origins %q", got)
-	}
-	if cfg.OperatorVersion != "v8" {
-		t.Fatalf("operator version %q", cfg.OperatorVersion)
-	}
-	if cfg.OperatorIssuerURL != "http://localhost:5556/dex" {
-		t.Fatalf("default issuer %q", cfg.OperatorIssuerURL)
-	}
-}
-
-func TestLoadAPIKeyBrand(t *testing.T) {
-	unsetAPIKeyBrand(t)
-
-	root := t.TempDir()
-	yml := `project_id: p
-plat5_version: v9
 routes:
   - ./routes.yml
+roles: ./roles.yml
 `
-	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte(yml), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cwd, _ := os.Getwd()
-	t.Cleanup(func() { _ = os.Chdir(cwd) })
-	if err := os.Chdir(root); err != nil {
-		t.Fatal(err)
-	}
 
-	cfg, err := Load(Flags{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.APIKeyBrand != DefaultAPIKeyBrand {
-		t.Fatalf("default brand %q", cfg.APIKeyBrand)
-	}
-
-	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte("project_id: p\nplat5_version: v9\napikey_brand: acme\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err = Load(Flags{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.APIKeyBrand != "acme" {
-		t.Fatalf("yml brand %q", cfg.APIKeyBrand)
-	}
-
-	t.Setenv("APIKEY_BRAND", "happ")
-	cfg, err = Load(Flags{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.APIKeyBrand != "happ" {
-		t.Fatalf("env brand %q", cfg.APIKeyBrand)
-	}
-
-	t.Setenv("APIKEY_BRAND", "Acme")
-	if _, err := Load(Flags{}); err == nil {
-		t.Fatal("expected reject uppercase")
-	}
-}
-
-func TestParseAPIKeyBrand(t *testing.T) {
-	ok := []string{"plat5", "acme", "a", "a1", "happ"}
-	for _, in := range ok {
-		got, err := parseAPIKeyBrand(in)
-		if err != nil {
-			t.Fatalf("%q: %v", in, err)
-		}
-		if got != in {
-			t.Fatalf("%q: got %q", in, got)
-		}
-	}
-	bad := []string{"", "   ", "Plat5", "acme-app", "1acme", "-x"}
-	for _, in := range bad {
-		if _, err := parseAPIKeyBrand(in); err == nil {
-			t.Fatalf("%q: expected error", in)
-		}
-	}
-}
-
-func unsetAPIKeyBrand(t *testing.T) {
+func resolve(t *testing.T, yml string) (Resolved, error) {
 	t.Helper()
-	orig, ok := os.LookupEnv("APIKEY_BRAND")
-	if err := os.Unsetenv("APIKEY_BRAND"); err != nil {
+	f, err := Parse([]byte(yml))
+	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		if ok {
-			_ = os.Setenv("APIKEY_BRAND", orig)
-		} else {
-			_ = os.Unsetenv("APIKEY_BRAND")
+	return Resolve(f, "/proj/plat5.yml", Overrides{})
+}
+
+func TestResolveDefaults(t *testing.T) {
+	r, err := resolve(t, fullYML)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.ProjectID != "my-app" || r.ComposeProject != "plat5-my-app" {
+		t.Fatalf("project: %q %q", r.ProjectID, r.ComposeProject)
+	}
+	for _, m := range Modules {
+		if !r.Modules[m] {
+			t.Fatalf("module %s should default on", m)
 		}
-	})
+	}
+	if r.Ports[ports.Gateway] != 5400 || r.GatewayURL() != "http://localhost:5400" {
+		t.Fatalf("gateway: %v", r.Ports)
+	}
+	if r.ControlPlaneURL != "http://localhost:5402" || r.AdminToken != DefaultAdminToken {
+		t.Fatalf("control plane: %s %s", r.ControlPlaneURL, r.AdminToken)
+	}
+	if r.AppCompose != filepath.Clean("/proj/docker-compose.yml") || r.AppWeb != "http://localhost:3001" {
+		t.Fatalf("app: %q %q", r.AppCompose, r.AppWeb)
+	}
+	if r.RolesFile != filepath.Clean("/proj/roles.yml") {
+		t.Fatalf("roles: %q", r.RolesFile)
+	}
+	if got := strings.Join(r.AuthRedirectURIs(), ","); got != "http://localhost:3001/callback" {
+		t.Fatalf("redirects: %s", got)
+	}
+	if got := strings.Join(r.AuthClients(), ","); got != "plat5" {
+		t.Fatalf("clients: %s", got)
+	}
+	if got := strings.Join(r.OperatorConsoleOrigins(), ","); got != "http://localhost:5412" {
+		t.Fatalf("console origins: %s", got)
+	}
+}
+
+func TestUnknownKeysAreErrors(t *testing.T) {
+	if _, err := Parse([]byte("plat5_version: v1\n")); err == nil || !strings.Contains(err.Error(), `unknown key "plat5_version"`) {
+		t.Fatalf("want unknown key error, got %v", err)
+	}
+	for yml, want := range map[string]string{
+		fullYML + "modules: {grafana: true}\n": "modules.grafana",
+		fullYML + "ports: {registry: 5000}\n":  "ports.registry",
+		fullYML + "source: {web: ../web}\n":    "source.web",
+		fullYML + "ports: {gateway: 5401}\n":   "both 5401",
+		"versions: {auth: v1}\n":               "versions.plat5 is required",
+		"versions: {plat5: v1, auth: v2, operator: v3, operator_console: v4}\napp: {web: localhost:3001}\n": "app.web",
+		fullYML + "idp: {issuer: https://x.test}\n":                                                         "turn modules.auth off",
+	} {
+		f, err := Parse([]byte(yml))
+		if err == nil {
+			_, err = Resolve(f, "/proj/plat5.yml", Overrides{})
+		}
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: want error containing %q, got %v", yml, want, err)
+		}
+	}
+}
+
+func TestModulesOffNeedFewerPins(t *testing.T) {
+	r, err := resolve(t, `versions: {plat5: v1, auth: v2}
+modules: {operator: false, observability: false}
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Modules[ModuleOperator] || !r.Modules[ModuleAuth] {
+		t.Fatalf("modules: %v", r.Modules)
+	}
+	if strings.Join(r.NeededVersions(), ",") != "plat5,auth" {
+		t.Fatalf("needed: %v", r.NeededVersions())
+	}
+}
+
+func TestAuthOffNeedsAnIdP(t *testing.T) {
+	_, err := resolve(t, "versions: {plat5: v1}\nmodules: {auth: false, operator: false}\n")
+	if err == nil || !strings.Contains(err.Error(), "idp.issuer") {
+		t.Fatalf("want idp error, got %v", err)
+	}
+	r, err := resolve(t, `versions: {plat5: v1}
+modules: {auth: false, operator: false}
+idp:
+  issuer: https://idp.test
+  jwks_uri: https://idp.test/jwks
+  audiences: [api]
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.IdP.Issuer != "https://idp.test" {
+		t.Fatalf("%+v", r.IdP)
+	}
+}
+
+func TestSourceReplacesAVersion(t *testing.T) {
+	r, err := resolve(t, `versions: {auth: v2, operator: v3, operator_console: v4}
+source: {plat5: ../plat5}
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Source[VersionPlat5] != filepath.Clean("/plat5") {
+		t.Fatalf("source: %v", r.Source)
+	}
+}
+
+func TestOverrides(t *testing.T) {
+	t.Setenv("PLAT5_ADMIN_TOKEN", "from-env")
+	f, _ := Parse([]byte(fullYML))
+	r, err := Resolve(f, "/proj/plat5.yml", Overrides{ControlPlaneURL: "https://cp.example.com/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.ControlPlaneURL != "https://cp.example.com" || r.AdminToken != "from-env" {
+		t.Fatalf("%s %s", r.ControlPlaneURL, r.AdminToken)
+	}
+}
+
+func TestAPIKeyBrand(t *testing.T) {
+	for _, bad := range []string{"Plat5", "9lives", "a-b"} {
+		if _, err := parseAPIKeyBrand(bad); err == nil {
+			t.Errorf("%q should be rejected", bad)
+		}
+	}
+	if b, err := parseAPIKeyBrand("acme2"); err != nil || b != "acme2" {
+		t.Fatalf("%q %v", b, err)
+	}
 }
 
 func TestNeedsHostGateway(t *testing.T) {
-	cases := []struct {
-		in   string
-		want bool
-	}{
-		{"", false},
-		{"http://host.docker.internal:4318", true},
-		{"http://HOST.DOCKER.INTERNAL:4318/v1/traces", true},
-		{"http://127.0.0.1:4318", false},
-		{"http://localhost:4318", false},
-		{"https://otlp.example.com:443", false},
-	}
-	for _, tc := range cases {
-		if got := NeedsHostGateway(tc.in); got != tc.want {
-			t.Fatalf("%q: got %v want %v", tc.in, got, tc.want)
-		}
-	}
-}
-
-func TestLoadAuthThemeFile(t *testing.T) {
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "theme.json"), []byte(`{"title":"Acme"}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	yml := `project_id: p
-plat5_version: v9
-auth:
-  enabled: true
-  version: v8
-  theme_file: ./theme.json
-`
-	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte(yml), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cwd, _ := os.Getwd()
-	t.Cleanup(func() { _ = os.Chdir(cwd) })
-	if err := os.Chdir(root); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := Load(Flags{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := filepath.Join(root, "theme.json")
-	if !samePath(cfg.AuthThemeFile, want) {
-		t.Fatalf("theme_file %q want %q", cfg.AuthThemeFile, want)
-	}
-
-	abs := filepath.Join(root, "other.json")
-	if err := os.WriteFile(abs, []byte("{}"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	yml = "project_id: p\nplat5_version: v9\nauth:\n  enabled: true\n  version: v8\n  theme_file: " + abs + "\n"
-	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte(yml), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err = Load(Flags{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !samePath(cfg.AuthThemeFile, abs) {
-		t.Fatalf("abs theme_file %q want %q", cfg.AuthThemeFile, abs)
-	}
-}
-
-func TestLoadAuthThemeFileOmitted(t *testing.T) {
-	root := t.TempDir()
-	yml := `project_id: p
-plat5_version: v9
-auth:
-  enabled: true
-  version: v8
-`
-	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte(yml), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cwd, _ := os.Getwd()
-	t.Cleanup(func() { _ = os.Chdir(cwd) })
-	if err := os.Chdir(root); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := Load(Flags{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.AuthThemeFile != "" {
-		t.Fatalf("expected empty theme_file, got %q", cfg.AuthThemeFile)
-	}
-}
-
-func TestCheckAuthThemeFile(t *testing.T) {
-	if err := CheckAuthThemeFile(""); err != nil {
-		t.Fatalf("empty should be ok: %v", err)
-	}
-	missing := filepath.Join(t.TempDir(), "nope.json")
-	err := CheckAuthThemeFile(missing)
-	if err == nil {
-		t.Fatal("expected missing-file error")
-	}
-	if !strings.Contains(err.Error(), "auth.theme_file: file not found:") {
-		t.Fatalf("error %q", err)
-	}
-	if !strings.Contains(err.Error(), missing) {
-		t.Fatalf("error should include path, got %q", err)
-	}
-	dir := t.TempDir()
-	err = CheckAuthThemeFile(dir)
-	if err == nil {
-		t.Fatal("expected directory error")
-	}
-	if !strings.Contains(err.Error(), "not a file") {
-		t.Fatalf("error %q", err)
-	}
-	f := filepath.Join(dir, "theme.json")
-	if err := os.WriteFile(f, []byte("{}"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := CheckAuthThemeFile(f); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func samePath(a, b string) bool {
-	a, _ = filepath.Abs(a)
-	b, _ = filepath.Abs(b)
-	if ae, err := filepath.EvalSymlinks(a); err == nil {
-		a = ae
-	}
-	if be, err := filepath.EvalSymlinks(b); err == nil {
-		b = be
-	}
-	return a == b
-}
-
-// freeTestPort returns a port nothing listens on right now.
-func freeTestPort(t *testing.T) int {
-	t.Helper()
-	ln, err := net.Listen("tcp4", "0.0.0.0:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ln.Close()
-	return ln.Addr().(*net.TCPAddr).Port
-}
-
-func TestLoadRolesFile(t *testing.T) {
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "roles.yml"), []byte("roles: {}\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte("project_id: p\nplat5_version: v9\nroles: ./roles.yml\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cwd, _ := os.Getwd()
-	t.Cleanup(func() { _ = os.Chdir(cwd) })
-	if err := os.Chdir(root); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := Load(Flags{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := filepath.Join(root, "roles.yml"); !samePath(cfg.RolesFile, want) {
-		t.Fatalf("roles %q want %q", cfg.RolesFile, want)
-	}
-
-	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte("project_id: p\nplat5_version: v9\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err = Load(Flags{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.RolesFile != "" {
-		t.Fatalf("omitted roles is no roles, got %q", cfg.RolesFile)
-	}
-}
-
-func TestCheckRolesFile(t *testing.T) {
-	if err := CheckRolesFile(""); err != nil {
-		t.Fatalf("empty should be ok: %v", err)
-	}
-	dir := t.TempDir()
-	if err := CheckRolesFile(filepath.Join(dir, "nope.yml")); err == nil || !strings.Contains(err.Error(), "roles: file not found:") {
-		t.Fatalf("missing file: %v", err)
-	}
-	if err := CheckRolesFile(dir); err == nil || !strings.Contains(err.Error(), "roles: not a file:") {
-		t.Fatalf("directory: %v", err)
-	}
-	f := filepath.Join(dir, "roles.yml")
-	if err := os.WriteFile(f, []byte("roles: {}\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := CheckRolesFile(f); err != nil {
-		t.Fatal(err)
+	if !NeedsHostGateway("http://host.docker.internal:4318") || NeedsHostGateway("http://alloy:4318") {
+		t.Fatal("host gateway detection")
 	}
 }

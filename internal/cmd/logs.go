@@ -1,113 +1,64 @@
 package cmd
 
 import (
-	"fmt"
-
 	"github.com/plat5dev/cli/internal/compose"
+	"github.com/plat5dev/cli/internal/stack"
 	"github.com/plat5dev/cli/internal/state"
 	"github.com/spf13/cobra"
 )
 
 var (
-	logsAuth          bool
-	logsObservability bool
-	logsOperator      bool
-	logsFollow        bool
+	logsApp    bool
+	logsFollow bool
 )
 
 var logsCmd = &cobra.Command{
 	Use:   "logs [service...]",
-	Short: "Tail Docker Compose logs (Plat5 by default)",
-	RunE:  runLogs,
+	Short: "Show container logs (gateway, identity, auth, …; --app for your app)",
+	Long: `Show the local stack's container logs. Name services to narrow it:
+
+  plat5 logs gateway identity
+  plat5 logs auth              login codes for new sign-ups are here
+  plat5 logs --app`,
+	RunE: runLogs,
 }
 
 func init() {
-	logsCmd.Flags().BoolVar(&logsAuth, "auth", false, "Show Plat5 Auth compose logs")
-	logsCmd.Flags().BoolVar(&logsObservability, "observability", false, "Show observability compose logs")
-	logsCmd.Flags().BoolVar(&logsOperator, "operator", false, "Show Operator compose logs")
-	logsCmd.Flags().BoolVarP(&logsFollow, "follow", "f", true, "Follow log output")
+	logsCmd.Flags().BoolVar(&logsApp, "app", false, "Your app's logs")
+	logsCmd.Flags().BoolVarP(&logsFollow, "follow", "f", true, "Follow (-f=false prints and exits)")
 }
 
 func runLogs(cmd *cobra.Command, args []string) error {
 	if err := compose.DockerAvailable(); err != nil {
 		return err
 	}
-	cfg, st, err := loadConfigWithState()
+	cfg, err := loadConfig()
 	if err != nil {
 		return err
 	}
-
-	selected := 0
-	if logsAuth {
-		selected++
-	}
-	if logsObservability {
-		selected++
-	}
-	if logsOperator {
-		selected++
-	}
-	if selected > 1 {
-		return fmt.Errorf("use only one of --auth, --observability, or --operator")
-	}
-
-	stateDir, err := state.Dir(cfg.ProjectID)
+	st, err := state.Load(cfg.ProjectID)
 	if err != nil {
 		return err
 	}
-
-	if logsAuth {
-		dir, err := resolveAuthStackForOps(cfg, st, stateDir)
-		if err != nil {
-			return err
+	var exclude []string
+	for m, on := range cfg.Modules {
+		if on && len(st.Modules) > 0 && !contains(st.Modules, m) {
+			exclude = append(exclude, m)
 		}
-		if dir == "" {
-			return fmt.Errorf("auth compose not configured")
-		}
-		r := composeRunner(dir, st.AuthComposeName, cfg.AuthComposeName, st.AuthOverride, authVersionEnv(cfg))
-		if r == nil {
-			return fmt.Errorf("auth compose not configured")
-		}
-		return r.Logs(logsFollow, args...)
 	}
-
-	if logsObservability {
-		dir, err := resolveObservabilityStackForOps(cfg, st, stateDir)
-		if err != nil {
-			return err
-		}
-		if dir == "" {
-			return fmt.Errorf("observability compose not configured")
-		}
-		r := composeRunner(dir, st.ObservabilityComposeName, cfg.ObservabilityComposeName, st.ObservabilityOverride, nil)
-		if r == nil {
-			return fmt.Errorf("observability compose not configured")
-		}
-		return r.Logs(logsFollow, args...)
-	}
-
-	if logsOperator {
-		dir, err := resolveOperatorStackForOps(cfg, st, stateDir)
-		if err != nil {
-			return err
-		}
-		if dir == "" {
-			return fmt.Errorf("operator compose not configured")
-		}
-		r := composeRunner(dir, st.OperatorComposeName, cfg.OperatorComposeName, st.OperatorOverride, operatorVersionEnv(cfg))
-		if r == nil {
-			return fmt.Errorf("operator compose not configured")
-		}
-		return r.Logs(logsFollow, args...)
-	}
-
-	dir, err := resolvePlat5StackForOps(cfg, st, stateDir)
+	stk, err := stack.New(cfg, exclude)
 	if err != nil {
 		return err
 	}
-	r := composeRunner(dir, st.ComposeProject, cfg.ComposeProject, st.Plat5Override, plat5VersionEnv(cfg))
-	if r == nil {
-		return fmt.Errorf("plat5 compose not configured")
+	if logsApp {
+		app := stk.AppRunner()
+		if app == nil {
+			return errNoApp
+		}
+		return app.Logs(logsFollow, args...)
 	}
-	return r.Logs(logsFollow, args...)
+	if err := stk.Prepare(); err != nil {
+		return err
+	}
+	return stk.Runner().Logs(logsFollow, args...)
 }

@@ -1,0 +1,37 @@
+# Embedded by plat5 CLI: the auth module. Plat5 Auth as the customer IdP, in dev mode:
+# POST /dev/token, login codes in its logs, and the seeded dev@example.com / password.
+# Pulls ghcr.io/plat5dev/auth:${AUTH_VERSION}.
+services:
+  auth:
+    image: ghcr.io/plat5dev/auth:${AUTH_VERSION:?}
+    labels:
+      service.name: auth
+      service.namespace: auth
+    ports:
+      - "${AUTH_PORT:?}:5000"
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      DEPLOYMENT_ENV: local
+      DATABASE_URL: postgres://plat5:plat5@postgres:5432/auth?sslmode=disable
+      INTERNAL_PORT: 5001
+      # Token iss: the origin the browser signs in at, which the gateway checks.
+      PUBLIC_ISSUER_URL: http://localhost:${AUTH_PORT:?}
+      AUTH_DISPLAY_NAME: ${AUTH_DISPLAY_NAME:?}
+      AUTH_ALLOWED_CLIENTS: ${AUTH_CLIENTS:?}
+      AUTH_ALLOWED_REDIRECT_URIS: ${AUTH_REDIRECT_URIS:-}
+      AUTH_ALLOWED_ORIGINS: ${AUTH_ORIGINS:-}
+      AUTH_DEV_MODE: "true"
+      AUTH_DEV_USERS: ${AUTH_DEV_USERS:?}
+      OTEL_SERVICE_NAME: auth
+      OTEL_SERVICE_NAMESPACE: auth
+    networks:
+      - plat5
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://localhost:5001/health/ready').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+    restart: unless-stopped

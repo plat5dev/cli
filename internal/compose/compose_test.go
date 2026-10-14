@@ -3,57 +3,50 @@ package compose
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
-func TestOverlayEnvRunnerWins(t *testing.T) {
-	base := []string{"PLAT5_VERSION=from-shell", "KEEP=1", "PATH=/bin"}
-	got := overlayEnv(base, []string{"PLAT5_VERSION=from-runner", "AUTH_ALLOWED_AUDIENCES=e10s"})
-	if v := envValue(got, "PLAT5_VERSION"); v != "from-runner" {
-		t.Fatalf("PLAT5_VERSION %q", v)
-	}
-	if v := envValue(got, "AUTH_ALLOWED_AUDIENCES"); v != "e10s" {
-		t.Fatalf("audience %q", v)
-	}
-	if v := envValue(got, "KEEP"); v != "1" {
-		t.Fatalf("KEEP %q", v)
-	}
-	if strings.Count(strings.Join(got, "\n"), "PLAT5_VERSION=") != 1 {
-		t.Fatalf("duplicate pin:\n%s", strings.Join(got, "\n"))
-	}
-}
-
-func TestCmdAppliesEnv(t *testing.T) {
-	t.Setenv("PLAT5_VERSION", "from-shell")
-	r := Runner{Dir: t.TempDir(), Env: []string{"PLAT5_VERSION=v0.5.0"}}
-	c := r.cmd("restart", "identity")
-	if v := envValue(c.Env, "PLAT5_VERSION"); v != "v0.5.0" {
-		t.Fatalf("restart env PLAT5_VERSION %q", v)
-	}
-	if !strings.Contains(strings.Join(c.Args, " "), "restart identity") {
-		t.Fatalf("args %v", c.Args)
-	}
-}
-
-func TestCmdWithoutEnvInherits(t *testing.T) {
-	r := Runner{Dir: t.TempDir()}
-	c := r.cmd("ps")
-	if c.Env != nil {
-		t.Fatal("empty Env must leave the process environment alone")
-	}
-}
-
 func envValue(env []string, key string) string {
-	var found string
-	var n int
-	prefix := key + "="
 	for _, e := range env {
-		if strings.HasPrefix(e, prefix) {
-			found = strings.TrimPrefix(e, prefix)
-			n++
+		if k, v, ok := strings.Cut(e, "="); ok && k == key {
+			return v
 		}
 	}
-	if n != 1 {
-		return ""
+	return ""
+}
+
+func TestOverlayEnvRunnerWins(t *testing.T) {
+	base := []string{"PLAT5_VERSION=from-shell", "KEEP=1"}
+	got := overlayEnv(base, []string{"PLAT5_VERSION=from-runner", "GATEWAY_PORT=5400"})
+	if envValue(got, "PLAT5_VERSION") != "from-runner" || envValue(got, "KEEP") != "1" || envValue(got, "GATEWAY_PORT") != "5400" {
+		t.Fatalf("%v", got)
 	}
-	return found
+	if strings.Count(strings.Join(got, "\n"), "PLAT5_VERSION=") != 1 {
+		t.Fatalf("duplicate key: %v", got)
+	}
+}
+
+func TestArgs(t *testing.T) {
+	r := Runner{Dir: "/state/stack", ProjectName: "plat5-demo", Files: []string{"core.yml", "auth.yml"}}
+	got := strings.Join(r.args("up", "-d"), " ")
+	want := "compose -p plat5-demo --project-directory /state/stack -f core.yml -f auth.yml up -d"
+	if got != want {
+		t.Fatalf("\n got %s\nwant %s", got, want)
+	}
+}
+
+func TestUpArgs(t *testing.T) {
+	r := Runner{Quiet: true}
+	c := r.cmd("up")
+	if c.Stdout != nil {
+		t.Fatal("quiet runner must not attach stdout")
+	}
+	_ = UpOptions{Wait: time.Minute}
+}
+
+func TestParsePublished(t *testing.T) {
+	got := parsePublished("0.0.0.0:5400->5001/tcp, [::]:5400->5001/tcp\n127.0.0.1:5403->3000/tcp\n5432/tcp\n127.0.0.1:4317-4318->4317-4318/tcp\n")
+	if !got[5400] || !got[5403] || !got[4317] || !got[4318] || got[5432] || len(got) != 4 {
+		t.Fatalf("%v", got)
+	}
 }
