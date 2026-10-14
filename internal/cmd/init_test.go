@@ -145,6 +145,7 @@ func TestIdentityRoutesCatalogLabelsOrgWrites(t *testing.T) {
 		"/org/members/{member_id}",
 		"/organizations/{subject.organization_id}/members/{path.member_id}",
 		"/org/roles",
+		"- path: /user\n          upstream: /users/{subject.user_id}\n          methods: [GET, PATCH, DELETE]",
 		"required_labels: [org:write]",
 		"required_labels: [org:delete]",
 		"required_labels: [org:members:write]",
@@ -162,6 +163,8 @@ func TestAuditCatalogs(t *testing.T) {
 		"- path: /org/audit-events",
 		"upstream: /organizations/{subject.organization_id}/audit-events",
 		"required_labels: [org:audit:read]",
+		"- path: /user/audit-events",
+		"upstream: /users/{subject.user_id}/audit-events",
 	} {
 		if !strings.Contains(auditRoutesCatalog, want) {
 			t.Fatalf("audit catalog missing %q", want)
