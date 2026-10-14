@@ -30,17 +30,18 @@ type State struct {
 	ObservabilityOverride    string `json:"observability_override,omitempty"`
 	OperatorOverride         string `json:"operator_override,omitempty"`
 	GatewayPort              int    `json:"gateway_port,omitempty"`
-	RegistryPort             int    `json:"registry_port,omitempty"`
-	AuthPort                 int    `json:"auth_port,omitempty"`
-	OperatorPort             int    `json:"operator_port,omitempty"`
-	OperatorIdPPort          int    `json:"operator_idp_port,omitempty"`
-	GrafanaPort              int    `json:"grafana_port,omitempty"`
-	OTLPGRPCPort             int    `json:"otlp_grpc_port,omitempty"`
-	OTLPHTTPPort             int    `json:"otlp_http_port,omitempty"`
-	AlloyPort                int    `json:"alloy_port,omitempty"`
-	// RolesHash is the sha256 of the roles file identity last started with ("" = none).
-	RolesHash string    `json:"roles_hash,omitempty"`
-	StartedAt time.Time `json:"started_at"`
+	ControlPlanePort         int    `json:"control_plane_port,omitempty"`
+	// LegacyRegistryPort is registry_port from state written before the control
+	// plane. Load moves it to ControlPlanePort.
+	LegacyRegistryPort int       `json:"registry_port,omitempty"`
+	AuthPort           int       `json:"auth_port,omitempty"`
+	OperatorPort       int       `json:"operator_port,omitempty"`
+	OperatorIdPPort    int       `json:"operator_idp_port,omitempty"`
+	GrafanaPort        int       `json:"grafana_port,omitempty"`
+	OTLPGRPCPort       int       `json:"otlp_grpc_port,omitempty"`
+	OTLPHTTPPort       int       `json:"otlp_http_port,omitempty"`
+	AlloyPort          int       `json:"alloy_port,omitempty"`
+	StartedAt          time.Time `json:"started_at"`
 }
 
 func projectPath(projectID string) (string, error) {
@@ -68,6 +69,10 @@ func Load(projectID string) (State, error) {
 	if err := json.Unmarshal(data, &s); err != nil {
 		return State{}, fmt.Errorf("parse state: %w", err)
 	}
+	if s.ControlPlanePort == 0 {
+		s.ControlPlanePort = s.LegacyRegistryPort
+	}
+	s.LegacyRegistryPort = 0
 	return s, nil
 }
 

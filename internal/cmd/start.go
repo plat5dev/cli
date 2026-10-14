@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"net/http"
 	"os"
@@ -11,8 +9,8 @@ import (
 
 	"github.com/plat5dev/cli/internal/compose"
 	"github.com/plat5dev/cli/internal/config"
+	"github.com/plat5dev/cli/internal/controlplane"
 	"github.com/plat5dev/cli/internal/ports"
-	"github.com/plat5dev/cli/internal/registry"
 	"github.com/plat5dev/cli/internal/state"
 	"github.com/plat5dev/cli/internal/upstreams"
 	"github.com/spf13/cobra"
@@ -46,7 +44,7 @@ network so http://identity:3000 and http://audit:3002 resolve. Identity is not p
 Routes are not rewritten. Staff sign in at the IdP; consoles in operator.allowed_origins can
 use its public operator-console client.
 
-Applies routes listed in plat5.yml after the registry is ready.`,
+Applies roles and the routes listed in plat5.yml after the control plane is ready.`,
 	RunE: runStart,
 }
 
@@ -154,14 +152,10 @@ func runStart(cmd *cobra.Command, args []string) error {
 	if err := config.CheckRolesFile(cfg.RolesFile); err != nil {
 		return err
 	}
-	rolesHash, err := fileHash(cfg.RolesFile)
-	if err != nil {
-		return err
-	}
 	plat5Opts := overrideOpts
 	plat5Opts.RolesFile = cfg.RolesFile
 	plat5Override := filepath.Join(stateDir, "compose.override.yml")
-	if err := compose.WritePlat5Override(plat5Override, cfg.Ports.Gateway, cfg.Ports.Registry, plat5Opts); err != nil {
+	if err := compose.WritePlat5Override(plat5Override, cfg.Ports.Gateway, cfg.Ports.ControlPlane, plat5Opts); err != nil {
 		return err
 	}
 
@@ -174,7 +168,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 		ObservabilityComposeName: cfg.ObservabilityComposeName,
 		Plat5Override:            plat5Override,
 		GatewayPort:              cfg.Ports.Gateway,
-		RegistryPort:             cfg.Ports.Registry,
+		ControlPlanePort:         cfg.Ports.ControlPlane,
 		AuthPort:                 cfg.Ports.Auth,
 		OperatorPort:             cfg.Ports.Operator,
 		OperatorIdPPort:          cfg.Ports.OperatorIdP,
@@ -182,7 +176,6 @@ func runStart(cmd *cobra.Command, args []string) error {
 		OTLPGRPCPort:             cfg.Ports.OTLPGRPC,
 		OTLPHTTPPort:             cfg.Ports.OTLPHTTP,
 		AlloyPort:                cfg.Ports.Alloy,
-		RolesHash:                rolesHash,
 		StartedAt:                time.Now().UTC(),
 	}
 
@@ -276,27 +269,24 @@ func runStart(cmd *cobra.Command, args []string) error {
 	if err := edge.Up(startDetach, buildPlat5); err != nil {
 		return err
 	}
-	// Identity reads roles at boot. Up leaves a running container alone when only
-	// the mounted file changed, so restart it.
-	if startDetach && owned != (ports.Set{}) && prev.RolesHash != rolesHash {
-		fmt.Println("Roles changed; restarting identity…")
-		if err := edge.Restart("identity"); err != nil {
-			return err
-		}
-	}
 
 	if !startDetach {
 		_ = state.Save(st)
 		return nil
 	}
 
-	reg := registry.New(cfg.RegistryURL, cfg.AdminToken)
-	fmt.Println("Waiting for route registry…")
-	if err := reg.WaitReady(startWait); err != nil {
+	cp := controlplane.New(cfg.ControlPlaneURL, cfg.AdminToken)
+	fmt.Println("Waiting for the control plane…")
+	if err := cp.WaitReady(startWait); err != nil {
 		return err
 	}
 
-	if err := applyRouteFiles(cfg, reg); err != nil {
+	// The file seeded the first roles document; applying it again brings in edits.
+	// Identity picks the change up without a restart.
+	if err := applyRolesFile(cp, cfg.RolesFile); err != nil {
+		return err
+	}
+	if err := applyRouteFiles(cfg, cp); err != nil {
 		return err
 	}
 
@@ -351,13 +341,13 @@ func runStart(cmd *cobra.Command, args []string) error {
 	return printStatus(cfg, st)
 }
 
-func applyRouteFiles(cfg config.Resolved, client *registry.Client) error {
+func applyRouteFiles(cfg config.Resolved, client *controlplane.Client) error {
 	return applyFiles(client, cfg.RouteFiles, cfg.Upstreams, true)
 }
 
 // applyFiles applies routes files in order, binding plat5.yml upstreams.
 // After all files, it warns (non-fatal) about upstreams keys that matched no service.
-func applyFiles(client *registry.Client, files []string, ups map[string]string, skipMissing bool) error {
+func applyFiles(client *controlplane.Client, files []string, ups map[string]string, skipMissing bool) error {
 	used := map[string]bool{}
 	for _, f := range files {
 		if skipMissing {
@@ -407,7 +397,7 @@ func runningPorts(cfg config.Resolved, prev state.State) ports.Set {
 	var owned ports.Set
 	if compose.ProjectRunning(cfg.ComposeProject) {
 		owned.Gateway = prev.GatewayPort
-		owned.Registry = prev.RegistryPort
+		owned.ControlPlane = prev.ControlPlanePort
 	}
 	if compose.ProjectRunning(cfg.AuthComposeName) {
 		owned.Auth = prev.AuthPort
@@ -425,15 +415,17 @@ func runningPorts(cfg config.Resolved, prev state.State) ports.Set {
 	return owned
 }
 
-// fileHash is the sha256 of path's contents, or "" when path is empty.
-func fileHash(path string) (string, error) {
+// applyRolesFile writes the project's roles file as the control plane's roles
+// document. No file is roles off: there is nothing to apply.
+func applyRolesFile(client *controlplane.Client, path string) error {
 	if path == "" {
-		return "", nil
+		return nil
 	}
-	data, err := os.ReadFile(path)
+	fmt.Printf("Applying roles %s…\n", path)
+	rev, err := client.PutDocument("roles", path)
 	if err != nil {
-		return "", err
+		return fmt.Errorf("roles %s: %w", path, err)
 	}
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:]), nil
+	fmt.Printf("  roles: revision %d\n", rev)
+	return nil
 }

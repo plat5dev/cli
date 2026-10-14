@@ -116,7 +116,7 @@ type routesFile struct {
 // Matching service names get url set (overwrites file url). Other fields unchanged.
 // It returns the upstream names it used, so callers can warn about unused ones.
 // A service left with no url is an error that points at plat5.yml (the
-// route-registry's own message doesn't know about plat5.yml).
+// the control plane's own message doesn't know about plat5.yml).
 // Returns the original bytes when nothing was bound.
 func Bind(data []byte, ups map[string]string) ([]byte, []string, error) {
 	var doc routesFile

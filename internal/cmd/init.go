@@ -444,7 +444,7 @@ func resolveOperatorFlag(p string) (string, error) {
 func renderPlat5YML(projectID, plat5Path, auth string, authEnabled bool, obs string, obsEnabled bool, operator string, operatorEnabled bool, upstreams map[string]string, routes []string, pins initPins) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "project_id: %s\n\n", yamlString(projectID))
-	fmt.Fprintf(&b, "# Runtime GHCR tag (gateway, registry, identity). plat5 init writes the latest tag.\n")
+	fmt.Fprintf(&b, "# Runtime GHCR tag (gateway, control-plane, identity, audit). plat5 init writes the latest tag.\n")
 	fmt.Fprintf(&b, "plat5_version: %s\n\n", yamlString(pins.plat5))
 	if plat5Path != "" {
 		fmt.Fprintf(&b, "plat5_compose: %s\n", yamlString(plat5Path))
@@ -485,7 +485,7 @@ func renderPlat5YML(projectID, plat5Path, auth string, authEnabled bool, obs str
 	fmt.Fprintf(&b, "\n")
 	fmt.Fprintf(&b, "# Optional host port pins. Omit a key to use defaults;\n")
 	fmt.Fprintf(&b, "# unpinned busy ports are auto-allocated. Pinned + busy → start fails.\n")
-	fmt.Fprintf(&b, "# ports:\n#   gateway: 5001\n#   registry: 5002\n#   auth: 5000\n")
+	fmt.Fprintf(&b, "# ports:\n#   gateway: 5001\n#   control_plane: 5002\n#   auth: 5000\n")
 	fmt.Fprintf(&b, "#   operator: 5004\n#   operator_idp: 5556\n")
 	fmt.Fprintf(&b, "#   grafana: 3002\n#   otlp_grpc: 4317\n#   otlp_http: 4318\n#   alloy: 12345\n\n")
 	fmt.Fprintf(&b, "admin_token: %s\n\n", config.DefaultAdminToken)
@@ -531,7 +531,8 @@ func renderPlat5YML(projectID, plat5Path, auth string, authEnabled bool, obs str
 		}
 	}
 	fmt.Fprintf(&b, "\n# Roles: each grants labels; routes require them (required_labels).\n")
-	fmt.Fprintf(&b, "# Identity reads this file; plat5 start restarts identity when it changes.\n")
+	fmt.Fprintf(&b, "# plat5 start applies this file to the control plane (or: plat5 roles apply).\n")
+	fmt.Fprintf(&b, "# Identity picks up changes without a restart.\n")
 	fmt.Fprintf(&b, "# Remove the line to turn roles off (every member holds every label).\n")
 	fmt.Fprintf(&b, "roles: ./roles.yml\n")
 	return b.String()
@@ -621,7 +622,7 @@ func writeIfAbsent(dir, name, body string) error {
 	return nil
 }
 
-const identityRoutesCatalog = `# Catalog of identity public routes. Apply via route-registry (or a subset).
+const identityRoutesCatalog = `# Catalog of identity public routes. Apply to the control plane (or a subset).
 # Not auto-published. Internal validate stays on INTERNAL_PORT.
 # GET /organizations, GET /users, PATCH /users/{user_id}/status, and
 # GET /members/{member_id}/user are served by identity and omitted here: they
@@ -736,7 +737,7 @@ services:
           methods: [DELETE]
 `
 
-const auditRoutesCatalog = `# Catalog of audit public routes. Apply via route-registry.
+const auditRoutesCatalog = `# Catalog of audit public routes. Apply to the control plane.
 # Not auto-published. Internal intent/outcome writes stay on INTERNAL_PORT.
 # Skip this file when audit is off (AUDIT_ENABLED=false on the gateway).
 #
@@ -762,8 +763,8 @@ services:
 // starterRoles is a starting point, not Plat5's: Plat5 names no roles (docs/roles.md).
 const starterRoles = `# Your roles. Each grants labels; routes require them (required_labels).
 # ["*"] grants every label. The org:* labels match routes.identity.yml and
-# routes.audit.yml. Add your own services' labels here. Plat5 restarts
-# identity on plat5 start when this file changes.
+# routes.audit.yml. Add your own services' labels here. plat5 start (or
+# plat5 roles apply) writes this file to the control plane; identity picks it up.
 roles:
   owner: ["*"]
   admin: [org:write, org:members:write, org:service-accounts:write, org:audit:read]

@@ -13,8 +13,10 @@ const hostGatewayExtraHost = "host.docker.internal:host-gateway"
 // Theme JSON. Matches plat5dev/auth (AUTH_THEME_FILE=/config/theme.json).
 const AuthThemeContainerPath = "/config/theme.json"
 
-// RolesContainerPath is where identity reads the project's roles file (ROLES_FILE).
-const RolesContainerPath = "/etc/plat5/roles.yml"
+// RolesContainerPath is where the control plane reads the project's roles file
+// to seed the first roles document (SEED_ROLES_FILE). plat5 start then applies
+// the file with PUT /roles, so later edits land too.
+const RolesContainerPath = "/seed-roles/roles.yml"
 
 // OverrideOpts controls optional bits written into CLI compose overrides.
 type OverrideOpts struct {
@@ -25,13 +27,13 @@ type OverrideOpts struct {
 	// into the Auth issuer at AuthThemeContainerPath. Empty = no mount.
 	AuthThemeFile string
 	// RolesFile is the host path of the project's roles file, bind-mounted into
-	// identity at RolesContainerPath. Empty = roles off (ROLES_FILE is cleared).
+	// the control plane at RolesContainerPath. Empty = roles off (ROLES_ENABLED=false).
 	RolesFile string
 }
 
-// WritePlat5Override writes a compose override that remaps gateway and registry host ports.
+// WritePlat5Override writes a compose override that remaps gateway and control-plane host ports.
 // Uses Compose !override so base ports are replaced, not appended.
-func WritePlat5Override(path string, gatewayPort, registryPort int, opts OverrideOpts) error {
+func WritePlat5Override(path string, gatewayPort, controlPlanePort int, opts OverrideOpts) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -45,20 +47,24 @@ services:
 	if opts.HostGateway {
 		fmt.Fprintf(&b, "    extra_hosts:\n      - %q\n", hostGatewayExtraHost)
 	}
-	fmt.Fprintf(&b, `  route-registry:
+	fmt.Fprintf(&b, `  control-plane:
     ports: !override
       - "%d:5002"
-`, registryPort)
+`, controlPlanePort)
 	if opts.HostGateway {
 		fmt.Fprintf(&b, "    extra_hosts:\n      - %q\n", hostGatewayExtraHost)
 	}
 	// plat5.yml decides roles in both modes: a path-mode compose may have its own default.
+	// The project's file seeds the first roles document, so identity can start.
+	if opts.RolesFile != "" {
+		fmt.Fprintf(&b, "    environment:\n      SEED_ROLES_FILE: %q\n", RolesContainerPath)
+		fmt.Fprintf(&b, "    volumes:\n      - %q\n", opts.RolesFile+":"+RolesContainerPath+":ro")
+	}
 	b.WriteString("  identity:\n")
 	if opts.RolesFile != "" {
-		fmt.Fprintf(&b, "    environment:\n      ROLES_FILE: %q\n", RolesContainerPath)
-		fmt.Fprintf(&b, "    volumes:\n      - %q\n", opts.RolesFile+":"+RolesContainerPath+":ro")
+		b.WriteString("    environment:\n      ROLES_ENABLED: \"true\"\n")
 	} else {
-		b.WriteString("    environment:\n      ROLES_FILE: \"\"\n")
+		b.WriteString("    environment:\n      ROLES_ENABLED: \"false\"\n")
 	}
 	if opts.HostGateway {
 		fmt.Fprintf(&b, "    extra_hosts:\n      - %q\n", hostGatewayExtraHost)
