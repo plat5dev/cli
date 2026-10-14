@@ -107,11 +107,6 @@ func scalarString(v any) (string, error) {
 	}
 }
 
-// routesFile is the routes.yml shape we patch (url only).
-type routesFile struct {
-	Services map[string]map[string]any `yaml:"services"`
-}
-
 // Bind injects expanded upstream addresses into a routes document.
 // Matching service names get url set (overwrites file url). Other fields unchanged.
 // It returns the upstream names it used, so callers can warn about unused ones.
@@ -119,12 +114,24 @@ type routesFile struct {
 // the control plane's own message doesn't know about plat5.yml).
 // Returns the original bytes when nothing was bound.
 func Bind(data []byte, ups map[string]string) ([]byte, []string, error) {
-	var doc routesFile
+	return bind(data, ups, "services", "service")
+}
+
+// BindOperator is Bind for an operator gateway route list, whose upstreams are
+// under upstreams: (operator docs/routes.md).
+func BindOperator(data []byte, ups map[string]string) ([]byte, []string, error) {
+	return bind(data, ups, "upstreams", "upstream")
+}
+
+// bind sets url on each entry under the top-level key that ups names.
+func bind(data []byte, ups map[string]string, key, noun string) ([]byte, []string, error) {
+	var doc map[string]map[string]map[string]any
 	if err := yaml.Unmarshal(data, &doc); err != nil {
 		return nil, nil, fmt.Errorf("parse routes: %w", err)
 	}
-	if doc.Services == nil {
-		return nil, nil, fmt.Errorf("parse routes: missing services")
+	entries := doc[key]
+	if entries == nil {
+		return nil, nil, fmt.Errorf("parse routes: missing %s", key)
 	}
 
 	expanded := make(map[string]string, len(ups))
@@ -137,32 +144,32 @@ func Bind(data []byte, ups map[string]string) ([]byte, []string, error) {
 	}
 
 	var used []string
-	names := make([]string, 0, len(doc.Services))
-	for name := range doc.Services {
+	names := make([]string, 0, len(entries))
+	for name := range entries {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		svc := doc.Services[name]
+		entry := entries[name]
 		u, ok := expanded[name]
 		if !ok {
-			if s, _ := svc["url"].(string); strings.TrimSpace(s) == "" {
-				return nil, nil, fmt.Errorf("service %q has no url: add it under upstreams: in plat5.yml, or set url in the routes file", name)
+			if s, _ := entry["url"].(string); strings.TrimSpace(s) == "" {
+				return nil, nil, fmt.Errorf("%s %q has no url: add it under upstreams: in plat5.yml, or set url in the routes file", noun, name)
 			}
 			continue
 		}
-		if svc == nil {
-			svc = map[string]any{}
-			doc.Services[name] = svc
+		if entry == nil {
+			entry = map[string]any{}
+			entries[name] = entry
 		}
-		svc["url"] = u
+		entry["url"] = u
 		used = append(used, name)
 	}
 	if len(used) == 0 {
 		return data, nil, nil
 	}
 
-	out, err := yaml.Marshal(&doc)
+	out, err := yaml.Marshal(map[string]any{key: entries})
 	if err != nil {
 		return nil, nil, err
 	}

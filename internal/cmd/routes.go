@@ -78,7 +78,7 @@ func runRoutesApply(cmd *cobra.Command, args []string) error {
 	}
 
 	client := controlplane.New(cfg.ControlPlaneURL, cfg.AdminToken)
-	return applyFiles(client, files, cfg.Upstreams, false)
+	return applyFiles(client, cfg, files, false)
 }
 
 func runRoutesList(cmd *cobra.Command, args []string) error {

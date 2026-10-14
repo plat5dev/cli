@@ -58,6 +58,9 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	for _, f := range cfg.RouteFiles {
 		check("routes "+relPath(cfg.ConfigDir, f), config.CheckFile("routes", f))
 	}
+	if cfg.OperatorRoutesFile != "" {
+		check("operator.routes", config.CheckFile("operator.routes", cfg.OperatorRoutesFile))
+	}
 
 	running := compose.Running(cfg.ComposeProject)
 	owned := compose.PublishedPorts(cfg.ComposeProject)

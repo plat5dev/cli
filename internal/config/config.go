@@ -105,9 +105,12 @@ type AuthBlock struct {
 	ThemeFile string `yaml:"theme_file"`
 }
 
-// OperatorBlock adds browser consoles beyond the local operator console.
+// OperatorBlock is the operator module, beyond its defaults.
 type OperatorBlock struct {
+	// Origins are browser consoles beyond the local operator console.
 	Origins []string `yaml:"origins"`
+	// Routes is the operator gateway's route list, in place of the image's.
+	Routes string `yaml:"routes"`
 }
 
 // IdPBlock is the customer IdP when the auth module is off.
@@ -158,8 +161,10 @@ type Resolved struct {
 
 	Auth            AuthBlock
 	OperatorOrigins []string
-	IdP             IdPBlock
-	OtelEndpoint    string
+	// OperatorRoutesFile is absolute. Empty = the operator image's own list.
+	OperatorRoutesFile string
+	IdP                IdPBlock
+	OtelEndpoint       string
 
 	// Source is checkouts to build images from, by version key. Absolute.
 	Source map[string]string
@@ -296,6 +301,7 @@ func Resolve(f *File, path string, o Overrides) (Resolved, error) {
 		ThemeFile:    resolveAgainst(dir, strings.TrimSpace(f.Auth.ThemeFile)),
 	}
 	r.OperatorOrigins = trimOrigins(f.Operator.Origins)
+	r.OperatorRoutesFile = resolveAgainst(dir, strings.TrimSpace(f.Operator.Routes))
 	r.IdP = IdPBlock{
 		Issuer:      strings.TrimSpace(f.IdP.Issuer),
 		JWKSURI:     strings.TrimSpace(f.IdP.JWKSURI),

@@ -42,7 +42,7 @@ All modules are on unless `plat5.yml` turns one off. `plat5 start -x operator,ob
 
 A busy port is an error naming it, never a silent move: stop what holds it, or pin another under `ports:`. Running `plat5 start` again updates the stack in place.
 
-After the stack is healthy, start applies `roles.yml` and the route files, then makes sure there is something to call with: the dev person (`dev@example.com`), an org they own named `Dev`, a user key, and a member key. It reuses them while the keys work. Then it prints every link, login, and key; `plat5 status` prints them again.
+After the stack is healthy, start applies `roles.yml` and the route files, then makes sure there is something to call with: the dev person (`dev@example.com`), an org they own named `Dev`, a user key, and a member key. It reuses them while the keys work. A project whose routes leave out `POST /member/api-keys` gets its member key from a `plat5 dev` service account with the `creator_role` instead (`/org/service-accounts`); one that leaves out `POST /user/api-keys` gets no user key. Then it prints every link, login, and key; `plat5 status` prints them again.
 
 ```
 Plat5
@@ -128,6 +128,7 @@ auth:                              # local Auth, beyond app.web
   theme_file: ./theme.json         # OpenAuth Theme JSON for the sign-in page
 operator:
   origins: []                      # more staff consoles (CORS and staff redirects)
+  routes: ./operator.routes.yml    # the operator gateway's route list, in place of the image's
 idp:                               # with modules.auth false: the gateway's IdP
   issuer: https://idp.example.com
   jwks_uri: https://idp.example.com/.well-known/jwks.json
@@ -155,6 +156,25 @@ Unknown keys in `plat5.yml` are also a config error naming the key.
 Keys must match service names in the routes file(s). `plat5 routes apply` and `plat5 start` bind upstreams before `POST /apply`. A key that matches no service in any applied file prints `warning: upstreams.<name> matches no service …` (the apply still succeeds). A service with no `url` and no `upstreams` entry fails before upload: `service "<name>" has no url: add it under upstreams: in plat5.yml, or set url in the routes file`.
 
 You can still set `url` directly in `routes.yml`; an `upstreams` entry for that service wins.
+
+`upstreams` binds the operator gateway's route list (`operator.routes`) the same way, by its `upstreams:` names, so a staff route can reach your app on the host.
+
+### Operator routes
+
+The operator gateway forwards a fixed list of paths: by default the image's own (identity, the org and person audit logs, the staff audit log). `operator.routes` replaces it with your file, in the operator's format ([operator `docs/routes.md`](https://github.com/plat5dev/operator/blob/master/docs/routes.md)). Copy the image's `routes.yml` and add your app's staff paths:
+
+```yaml
+upstreams:
+  identity:
+    url: http://identity:3000
+    routes: …                      # the image's list, unchanged
+  api:                             # url from plat5.yml upstreams.api
+    routes:
+      - path: /organizations/{organization_id}/projects
+        methods: [GET]
+```
+
+`plat5 start` writes it with upstreams bound and mounts it; the operator gateway reads it at boot, so `plat5 start` again picks up an edit.
 
 ## Routes
 
