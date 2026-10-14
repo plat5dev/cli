@@ -42,7 +42,7 @@ type Flags struct {
 	Plat5Version         string
 	AuthVersion          string
 	OperatorVersion      string
-	RegistryURL          string
+	ControlPlaneURL      string
 	GatewayURL           string
 	AuthURL              string
 	AdminToken           string
@@ -61,13 +61,16 @@ type File struct {
 	Operator             OperatorBlock      `yaml:"operator"`
 	Otel                 OtelBlock          `yaml:"otel"`
 	Ports                PortsBlock         `yaml:"ports"`
-	RegistryURL          string             `yaml:"registry_url"`
-	GatewayURL           string             `yaml:"gateway_url"`
-	AuthURL              string             `yaml:"auth_url"`
-	AdminToken           string             `yaml:"admin_token"`
-	APIKeyBrand          string             `yaml:"apikey_brand"`
-	Routes               []string           `yaml:"routes"`
-	Upstreams            map[string]any     `yaml:"upstreams"`
+	ControlPlaneURL      string             `yaml:"control_plane_url"`
+	// LegacyRegistryURL is registry_url, from before the route registry became
+	// the control plane. Read when control_plane_url is unset.
+	LegacyRegistryURL string         `yaml:"registry_url"`
+	GatewayURL        string         `yaml:"gateway_url"`
+	AuthURL           string         `yaml:"auth_url"`
+	AdminToken        string         `yaml:"admin_token"`
+	APIKeyBrand       string         `yaml:"apikey_brand"`
+	Routes            []string       `yaml:"routes"`
+	Upstreams         map[string]any `yaml:"upstreams"`
 	// Roles is the project's roles file (relative to plat5.yml or absolute).
 	// Unset = roles off: every member holds every label.
 	Roles string `yaml:"roles"`
@@ -112,15 +115,17 @@ type OtelBlock struct {
 
 // PortsBlock holds optional host port pins from yml.
 type PortsBlock struct {
-	Gateway     *int `yaml:"gateway"`
-	Registry    *int `yaml:"registry"`
-	Auth        *int `yaml:"auth"`
-	Operator    *int `yaml:"operator"`
-	OperatorIdP *int `yaml:"operator_idp"`
-	Grafana     *int `yaml:"grafana"`
-	OTLPGRPC    *int `yaml:"otlp_grpc"`
-	OTLPHTTP    *int `yaml:"otlp_http"`
-	Alloy       *int `yaml:"alloy"`
+	Gateway      *int `yaml:"gateway"`
+	ControlPlane *int `yaml:"control_plane"`
+	// LegacyRegistry is ports.registry, read when ports.control_plane is unset.
+	LegacyRegistry *int `yaml:"registry"`
+	Auth           *int `yaml:"auth"`
+	Operator       *int `yaml:"operator"`
+	OperatorIdP    *int `yaml:"operator_idp"`
+	Grafana        *int `yaml:"grafana"`
+	OTLPGRPC       *int `yaml:"otlp_grpc"`
+	OTLPHTTP       *int `yaml:"otlp_http"`
+	Alloy          *int `yaml:"alloy"`
 }
 
 // Resolved is effective project config after merge.
@@ -128,7 +133,7 @@ type Resolved struct {
 	ProjectID  string
 	ConfigPath string
 	ConfigDir  string
-	// Plat5Version pins runtime GHCR tags (gateway, registry, identity).
+	// Plat5Version pins runtime GHCR tags (gateway, control-plane, identity, audit).
 	Plat5Version string
 	// AuthVersion pins ghcr.io/plat5dev/auth (independent of Plat5Version).
 	AuthVersion string
@@ -156,7 +161,7 @@ type Resolved struct {
 	Ports             ports.Set
 	PortsExplicit     ports.Explicit
 	GatewayURL        string
-	RegistryURL       string
+	ControlPlaneURL   string
 	AuthURL           string
 	OperatorURL       string
 	GrafanaURL        string
@@ -176,9 +181,9 @@ type Resolved struct {
 }
 
 type urlExplicit struct {
-	Gateway  bool
-	Registry bool
-	Auth     bool
+	Gateway      bool
+	ControlPlane bool
+	Auth         bool
 }
 
 // ErrNoProject means no plat5.yml was found.
@@ -289,9 +294,9 @@ func Load(flags Flags) (Resolved, error) {
 		r.Ports.Gateway = *file.Ports.Gateway
 		r.PortsExplicit.Gateway = true
 	}
-	if file.Ports.Registry != nil {
-		r.Ports.Registry = *file.Ports.Registry
-		r.PortsExplicit.Registry = true
+	if cp := firstPort(file.Ports.ControlPlane, file.Ports.LegacyRegistry); cp != nil {
+		r.Ports.ControlPlane = *cp
+		r.PortsExplicit.ControlPlane = true
 	}
 	if file.Ports.Auth != nil {
 		r.Ports.Auth = *file.Ports.Auth
@@ -326,9 +331,9 @@ func Load(flags Flags) (Resolved, error) {
 		r.GatewayURL = file.GatewayURL
 		r.urlExplicit.Gateway = true
 	}
-	if file.RegistryURL != "" {
-		r.RegistryURL = file.RegistryURL
-		r.urlExplicit.Registry = true
+	if v := firstNonEmpty(file.ControlPlaneURL, file.LegacyRegistryURL); v != "" {
+		r.ControlPlaneURL = v
+		r.urlExplicit.ControlPlane = true
 	}
 	if file.AuthURL != "" {
 		r.AuthURL = file.AuthURL
@@ -339,9 +344,9 @@ func Load(flags Flags) (Resolved, error) {
 		r.GatewayURL = v
 		r.urlExplicit.Gateway = true
 	}
-	if v := os.Getenv("PLAT5_REGISTRY_URL"); v != "" {
-		r.RegistryURL = v
-		r.urlExplicit.Registry = true
+	if v := firstNonEmpty(os.Getenv("PLAT5_CONTROL_PLANE_URL"), os.Getenv("PLAT5_REGISTRY_URL")); v != "" {
+		r.ControlPlaneURL = v
+		r.urlExplicit.ControlPlane = true
 	}
 	if v := os.Getenv("PLAT5_AUTH_URL"); v != "" {
 		r.AuthURL = v
@@ -357,9 +362,9 @@ func Load(flags Flags) (Resolved, error) {
 		r.GatewayURL = flags.GatewayURL
 		r.urlExplicit.Gateway = true
 	}
-	if flags.RegistryURL != "" {
-		r.RegistryURL = flags.RegistryURL
-		r.urlExplicit.Registry = true
+	if flags.ControlPlaneURL != "" {
+		r.ControlPlaneURL = flags.ControlPlaneURL
+		r.urlExplicit.ControlPlane = true
 	}
 	if flags.AuthURL != "" {
 		r.AuthURL = flags.AuthURL
@@ -372,8 +377,8 @@ func Load(flags Flags) (Resolved, error) {
 	if r.Ports.Gateway == 0 {
 		r.Ports.Gateway = ports.DefaultGateway
 	}
-	if r.Ports.Registry == 0 {
-		r.Ports.Registry = ports.DefaultRegistry
+	if r.Ports.ControlPlane == 0 {
+		r.Ports.ControlPlane = ports.DefaultControlPlane
 	}
 	if r.Ports.Auth == 0 {
 		r.Ports.Auth = ports.DefaultAuth
@@ -421,8 +426,8 @@ func ApplySavedPorts(r *Resolved, st ports.Set) {
 	if st.Gateway > 0 {
 		r.Ports.Gateway = st.Gateway
 	}
-	if st.Registry > 0 {
-		r.Ports.Registry = st.Registry
+	if st.ControlPlane > 0 {
+		r.Ports.ControlPlane = st.ControlPlane
 	}
 	if st.Auth > 0 {
 		r.Ports.Auth = st.Auth
@@ -465,8 +470,8 @@ func deriveURLs(r *Resolved) {
 	if !r.urlExplicit.Gateway {
 		r.GatewayURL = fmt.Sprintf("http://localhost:%d", r.Ports.Gateway)
 	}
-	if !r.urlExplicit.Registry {
-		r.RegistryURL = fmt.Sprintf("http://localhost:%d", r.Ports.Registry)
+	if !r.urlExplicit.ControlPlane {
+		r.ControlPlaneURL = fmt.Sprintf("http://localhost:%d", r.Ports.ControlPlane)
 	}
 	if !r.urlExplicit.Auth {
 		r.AuthURL = fmt.Sprintf("http://localhost:%d", r.Ports.Auth)
@@ -655,7 +660,7 @@ func CheckAuthThemeFile(path string) error {
 }
 
 // CheckRolesFile fails if a configured roles file is missing or not a regular file.
-// Empty path is roles off. Identity validates the contents at boot.
+// Empty path is roles off. The control plane validates the contents on apply.
 func CheckRolesFile(path string) error {
 	if path == "" {
 		return nil
@@ -694,4 +699,14 @@ func NeedsHostGateway(endpoint string) bool {
 	}
 	host := u.Hostname()
 	return strings.EqualFold(host, "host.docker.internal")
+}
+
+// firstPort is the first pin that is set.
+func firstPort(pins ...*int) *int {
+	for _, p := range pins {
+		if p != nil {
+			return p
+		}
+	}
+	return nil
 }

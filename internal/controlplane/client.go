@@ -1,4 +1,4 @@
-package registry
+package controlplane
 
 import (
 	"bytes"
@@ -14,7 +14,7 @@ import (
 	"github.com/plat5dev/cli/internal/upstreams"
 )
 
-// Client talks to the route-registry admin API.
+// Client talks to the control plane's admin API: routes, roles, and CORS origins.
 type Client struct {
 	BaseURL    string
 	AdminToken string
@@ -190,6 +190,62 @@ func (c *Client) Delete(name string) error {
 	return nil
 }
 
+// PutDocument replaces a document (`roles`, `cors`) with the file at path,
+// sent as YAML or JSON by its extension. It returns the document's new revision.
+func (c *Client) PutDocument(kind, path string) (int64, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, err
+	}
+	ct := "application/json"
+	ext := strings.ToLower(filepath.Ext(path))
+	if ext == ".yml" || ext == ".yaml" {
+		ct = "application/yaml"
+	}
+	req, err := http.NewRequest(http.MethodPut, c.BaseURL+"/"+kind, bytes.NewReader(data))
+	if err != nil {
+		return 0, err
+	}
+	c.auth(req)
+	req.Header.Set("Content-Type", ct)
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return 0, parseErr(resp.StatusCode, body)
+	}
+	var out struct {
+		Revision int64 `json:"revision"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return 0, fmt.Errorf("decode %s response: %w", kind, err)
+	}
+	return out.Revision, nil
+}
+
+// GetDocument returns a document (`roles`, `cors`) as JSON, with its revision.
+// A document never written is an *APIError with StatusCode 404.
+func (c *Client) GetDocument(kind string) (json.RawMessage, error) {
+	req, err := http.NewRequest(http.MethodGet, c.BaseURL+"/"+kind, nil)
+	if err != nil {
+		return nil, err
+	}
+	c.auth(req)
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return nil, parseErr(resp.StatusCode, body)
+	}
+	return json.RawMessage(body), nil
+}
+
 // Ready returns true if list succeeds.
 func (c *Client) Ready() bool {
 	_, err := c.List()
@@ -216,11 +272,11 @@ func (c *Client) WaitReady(timeout time.Duration) error {
 		if c.Ready() {
 			return nil
 		}
-		last = fmt.Errorf("registry not ready")
+		last = fmt.Errorf("control plane not ready")
 		time.Sleep(2 * time.Second)
 	}
 	if last != nil {
-		return fmt.Errorf("timeout waiting for route-registry at %s", c.BaseURL)
+		return fmt.Errorf("timeout waiting for the control plane at %s", c.BaseURL)
 	}
 	return nil
 }

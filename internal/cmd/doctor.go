@@ -8,8 +8,8 @@ import (
 
 	"github.com/plat5dev/cli/internal/compose"
 	"github.com/plat5dev/cli/internal/config"
+	"github.com/plat5dev/cli/internal/controlplane"
 	"github.com/plat5dev/cli/internal/ports"
-	"github.com/plat5dev/cli/internal/registry"
 	"github.com/spf13/cobra"
 )
 
@@ -100,7 +100,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		pin  bool
 	}{
 		{"gateway port", cfg.Ports.Gateway, cfg.PortsExplicit.Gateway},
-		{"registry port", cfg.Ports.Registry, cfg.PortsExplicit.Registry},
+		{"control_plane port", cfg.Ports.ControlPlane, cfg.PortsExplicit.ControlPlane},
 		{"auth port", cfg.Ports.Auth, cfg.PortsExplicit.Auth},
 		{"operator port", cfg.Ports.Operator, cfg.PortsExplicit.Operator},
 		{"operator_idp port", cfg.Ports.OperatorIdP, cfg.PortsExplicit.OperatorIdP},
@@ -119,11 +119,11 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	reg := registry.New(cfg.RegistryURL, cfg.AdminToken)
-	if reg.Ready() {
-		fmt.Printf("✓ route registry reachable at %s\n", cfg.RegistryURL)
+	cp := controlplane.New(cfg.ControlPlaneURL, cfg.AdminToken)
+	if cp.Ready() {
+		fmt.Printf("✓ control plane reachable at %s\n", cfg.ControlPlaneURL)
 	} else {
-		fmt.Printf("· route registry not reachable at %s (start with plat5 start)\n", cfg.RegistryURL)
+		fmt.Printf("· control plane not reachable at %s (start with plat5 start)\n", cfg.ControlPlaneURL)
 	}
 
 	client := &http.Client{Timeout: 2 * time.Second}

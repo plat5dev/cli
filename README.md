@@ -2,7 +2,7 @@
 
 Local development CLI for **consumer projects** using Plat5.
 
-Requires a project `plat5.yml` (`plat5 init`). Starts Plat5 (and optionally Auth / observability / Operator) via Docker Compose and applies gateway routes through the route-registry admin API.
+Requires a project `plat5.yml` (`plat5 init`). Starts Plat5 (and optionally Auth / observability / Operator) via Docker Compose and applies roles and gateway routes through the control plane's admin API.
 
 `plat5 start` pulls runtime images via `plat5_version` and Auth via `auth.version` (independent pins) using compose embedded in the CLI. `plat5 init` writes those pins from the latest GitHub tag.  
 Advanced (local development): set `plat5_compose` / `auth_compose` / `observability_compose` / `operator_compose` to local compose trees.
@@ -49,7 +49,7 @@ Templates: first-party short names (`plat5 init --list-templates`) fetch public 
 | Command | Description |
 |---------|-------------|
 | `plat5 init` | Create project; `--template` copies a reference app + writes `plat5.yml` (`--auth` / `--operator`) |
-| `plat5 start [-d] [--auth] [--observability] [--operator] [--build]` | Start stacks, wait for registry, apply routes |
+| `plat5 start [-d] [--auth] [--observability] [--operator] [--build]` | Start stacks, wait for the control plane, apply roles and routes |
 | `plat5 stop [--auth] [--observability] [--operator]` | Stop Plat5; modules if started / enabled |
 | `plat5 status` | URLs, health, registered routes |
 | `plat5 doctor` | Docker, project config, ports |
@@ -58,6 +58,8 @@ Templates: first-party short names (`plat5 init --list-templates`) fetch public 
 | `plat5 routes list` | List services |
 | `plat5 routes get <name>` | Show service config |
 | `plat5 routes rm <name>` | Delete service |
+| `plat5 roles apply [file]` | `PUT /roles` (defaults to `roles:` in `plat5.yml`) |
+| `plat5 roles show` | Show the current roles document |
 | `plat5 version` | CLI version |
 
 ## Project config (`plat5.yml`)
@@ -96,7 +98,7 @@ operator:
 # if a default is busy, start auto-allocates. Pinned + busy → error.
 ports:
   gateway: 5001
-  registry: 5002
+  control_plane: 5002   # was registry; still read
   auth: 5000
   operator: 5004
   operator_idp: 5556
@@ -171,7 +173,7 @@ plat5 routes apply ./other.yml
 
 `routes.yml` holds the HTTP surface (paths, scopes). Keep deployment topology in `upstreams` so the same contract can point at different origins later.
 
-`plat5 start` applies the configured route files after the registry is ready.
+`plat5 start` applies the roles file and the configured route files after the control plane is ready.
 
 ### Audit
 
@@ -192,13 +194,13 @@ creator_role: owner
 default_role: member
 ```
 
-`plat5 start` mounts the file into identity (`ROLES_FILE`). Identity reads it at boot, so when the file changes, `plat5 start` restarts identity. The gateway caches credentials for up to `APIKEY_CACHE_TTL_SECS` (300s), so a role change reaches existing sessions and keys within that window. Remove `roles:` from `plat5.yml` to turn roles off: no member has a role, every member holds every label, and authorization is left to something else.
+Roles live in the control plane. `plat5 start` writes the file there (it also seeds the first roles document, so identity can start), and `plat5 roles apply` writes it without a restart. Identity picks up a change within a second or two. The gateway caches credentials for up to `APIKEY_CACHE_TTL_SECS` (300s), so a role change reaches existing sessions and keys within that window. Remove `roles:` from `plat5.yml` to turn roles off (`ROLES_ENABLED=false` on identity): no member has a role, every member holds every label, and authorization is left to something else. Turning roles on or off recreates identity.
 
 ## Ports and multi-project
 
 Each project gets compose project names `plat5-<project_id>`, `plat5-<project_id>-auth`, `plat5-<project_id>-observability`, `plat5-<project_id>-operator`.
 
-Host port mappings are written to override files under XDG state so two projects do not share containers. Defaults: gateway 5001, registry 5002, auth 5000, operator 5004, operator_idp 5556, grafana 3002, OTLP 4317/4318, alloy 12345. Unpinned busy ports are reallocated; **pinned** ports never auto-move. `plat5 start` is safe to re-run: a stack of this project that is already running keeps the ports it has (the CLI prints `Plat5 is already running for this project; keeping its ports.`), and `docker compose up` leaves unchanged containers alone. Run `plat5 stop` first to pick ports again.
+Host port mappings are written to override files under XDG state so two projects do not share containers. Defaults: gateway 5001, control plane 5002, auth 5000, operator 5004, operator_idp 5556, grafana 3002, OTLP 4317/4318, alloy 12345. Unpinned busy ports are reallocated; **pinned** ports never auto-move. `plat5 start` is safe to re-run: a stack of this project that is already running keeps the ports it has (the CLI prints `Plat5 is already running for this project; keeping its ports.`), and `docker compose up` leaves unchanged containers alone. Run `plat5 stop` first to pick ports again.
 
 Start order: observability → auth → plat5 → operator. Stop runs operator first, then plat5, auth, observability. Operator joins the Plat5 compose network (`plat5-<project_id>_plat5`) after Plat5 is up so the image route list can dial `http://identity:3000` and `http://audit:3002`. Identity is not published. Routes are not rewritten. Operator requires detached start (the default).
 

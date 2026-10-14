@@ -25,7 +25,7 @@ func TestWritePlat5Override(t *testing.T) {
 		`"5011:5001"`,
 		`"5012:5002"`,
 		`gateway:`,
-		`route-registry:`,
+		`control-plane:`,
 	} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("missing %q in:\n%s", want, s)
@@ -34,8 +34,8 @@ func TestWritePlat5Override(t *testing.T) {
 	if strings.Contains(s, "extra_hosts") {
 		t.Fatalf("unexpected extra_hosts without HostGateway:\n%s", s)
 	}
-	if !strings.Contains(s, "ROLES_FILE: \"\"") {
-		t.Fatalf("no roles file must clear ROLES_FILE (a path-mode compose may default it):\n%s", s)
+	if !strings.Contains(s, "ROLES_ENABLED: \"false\"") {
+		t.Fatalf("no roles file must turn roles off (a path-mode compose may default them on):\n%s", s)
 	}
 	if strings.Contains(s, RolesContainerPath) {
 		t.Fatalf("unexpected roles mount without a roles file:\n%s", s)
@@ -63,14 +63,21 @@ func TestWritePlat5OverrideRolesFile(t *testing.T) {
 		t.Fatalf("override is not valid YAML: %v\n%s", err, data)
 	}
 	id := doc.Services["identity"]
-	if id.Environment["ROLES_FILE"] != RolesContainerPath {
-		t.Fatalf("ROLES_FILE: %+v\n%s", id.Environment, data)
+	if id.Environment["ROLES_ENABLED"] != "true" {
+		t.Fatalf("ROLES_ENABLED: %+v\n%s", id.Environment, data)
 	}
-	if len(id.Volumes) != 1 || id.Volumes[0] != "/proj/roles.yml:"+RolesContainerPath+":ro" {
-		t.Fatalf("volumes: %+v", id.Volumes)
+	if len(id.Volumes) != 0 {
+		t.Fatalf("identity reads roles from the control plane, not a mount: %+v", id.Volumes)
 	}
-	if len(id.ExtraHosts) != 1 || len(doc.Services["route-registry"].ExtraHosts) != 1 {
-		t.Fatalf("host gateway kept on identity and registry:\n%s", data)
+	cp := doc.Services["control-plane"]
+	if cp.Environment["SEED_ROLES_FILE"] != RolesContainerPath {
+		t.Fatalf("SEED_ROLES_FILE: %+v\n%s", cp.Environment, data)
+	}
+	if len(cp.Volumes) != 1 || cp.Volumes[0] != "/proj/roles.yml:"+RolesContainerPath+":ro" {
+		t.Fatalf("volumes: %+v", cp.Volumes)
+	}
+	if len(id.ExtraHosts) != 1 || len(cp.ExtraHosts) != 1 {
+		t.Fatalf("host gateway kept on identity and the control plane:\n%s", data)
 	}
 }
 

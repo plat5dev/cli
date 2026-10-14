@@ -224,7 +224,7 @@ plat5_version: v9
 plat5_compose: ./e
 ports:
   gateway: 6001
-  registry: 6002
+  control_plane: 6002
 `
 	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte(yml), 0o644); err != nil {
 		t.Fatal(err)
@@ -241,11 +241,50 @@ ports:
 	if !cfg.PortsExplicit.Gateway || cfg.Ports.Gateway != 6001 {
 		t.Fatalf("gateway pin %+v", cfg.Ports)
 	}
-	if !cfg.PortsExplicit.Registry || cfg.Ports.Registry != 6002 {
-		t.Fatalf("registry pin %+v", cfg.Ports)
+	if !cfg.PortsExplicit.ControlPlane || cfg.Ports.ControlPlane != 6002 {
+		t.Fatalf("control_plane pin %+v", cfg.Ports)
 	}
 	if cfg.PortsExplicit.Auth {
 		t.Fatal("auth should not be pinned")
+	}
+}
+
+// plat5.yml from before the route registry became the control plane still loads.
+func TestLoadLegacyRegistryKeys(t *testing.T) {
+	root := t.TempDir()
+	yml := `project_id: p
+plat5_version: v9
+plat5_compose: ./e
+registry_url: http://localhost:7002
+ports:
+  registry: 6002
+`
+	if err := os.WriteFile(filepath.Join(root, "plat5.yml"), []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(Flags{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.PortsExplicit.ControlPlane || cfg.Ports.ControlPlane != 6002 {
+		t.Fatalf("ports.registry: %+v", cfg.Ports)
+	}
+	if cfg.ControlPlaneURL != "http://localhost:7002" {
+		t.Fatalf("registry_url: %q", cfg.ControlPlaneURL)
+	}
+
+	t.Setenv("PLAT5_REGISTRY_URL", "http://localhost:7003")
+	if cfg, err = Load(Flags{}); err != nil || cfg.ControlPlaneURL != "http://localhost:7003" {
+		t.Fatalf("PLAT5_REGISTRY_URL: %q %v", cfg.ControlPlaneURL, err)
+	}
+	t.Setenv("PLAT5_CONTROL_PLANE_URL", "http://localhost:7004")
+	if cfg, err = Load(Flags{}); err != nil || cfg.ControlPlaneURL != "http://localhost:7004" {
+		t.Fatalf("PLAT5_CONTROL_PLANE_URL wins: %q %v", cfg.ControlPlaneURL, err)
 	}
 }
 

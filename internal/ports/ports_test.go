@@ -12,10 +12,10 @@ func TestResolveDefaultsFree(t *testing.T) {
 	if err != nil {
 		t.Skipf("defaults busy on this machine: %v", err)
 	}
-	if got.Gateway == 0 || got.Registry == 0 || got.Auth == 0 {
+	if got.Gateway == 0 || got.ControlPlane == 0 || got.Auth == 0 {
 		t.Fatalf("zero port: %+v", got)
 	}
-	if got.Gateway == got.Registry || got.Gateway == got.Auth || got.Registry == got.Auth {
+	if got.Gateway == got.ControlPlane || got.Gateway == got.Auth || got.ControlPlane == got.Auth {
 		t.Fatalf("ports must be distinct: %+v", got)
 	}
 }
@@ -28,7 +28,7 @@ func TestResolvePinnedBusyFails(t *testing.T) {
 	defer ln.Close()
 	port := ln.Addr().(*net.TCPAddr).Port
 
-	_, err = Resolve(Set{Gateway: port, Registry: DefaultRegistry, Auth: DefaultAuth}, Explicit{Gateway: true}, Set{})
+	_, err = Resolve(Set{Gateway: port, ControlPlane: DefaultControlPlane, Auth: DefaultAuth}, Explicit{Gateway: true}, Set{})
 	if err == nil {
 		t.Fatal("expected pinned busy error")
 	}
@@ -109,11 +109,11 @@ func TestResolveDistinctWhenAllBusy(t *testing.T) {
 	hold(b)
 	hold(c)
 
-	got, err := Resolve(Set{Gateway: a, Registry: b, Auth: c}, Explicit{}, Set{})
+	got, err := Resolve(Set{Gateway: a, ControlPlane: b, Auth: c}, Explicit{}, Set{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	seen := map[int]bool{got.Gateway: true, got.Registry: true, got.Auth: true}
+	seen := map[int]bool{got.Gateway: true, got.ControlPlane: true, got.Auth: true}
 	if len(seen) != 3 {
 		t.Fatalf("expected 3 distinct ports, got %+v", got)
 	}

@@ -10,10 +10,10 @@ import (
 
 // Defaults for local Plat5 stacks.
 const (
-	DefaultGateway  = 5001
-	DefaultRegistry = 5002
-	DefaultAuth     = 5000
-	DefaultOperator = 5004
+	DefaultGateway      = 5001
+	DefaultControlPlane = 5002
+	DefaultAuth         = 5000
+	DefaultOperator     = 5004
 	// DefaultOperatorIdP is the local staff IdP (Dex) beside Operator.
 	DefaultOperatorIdP = 5556
 	DefaultGrafana     = 3002
@@ -24,28 +24,28 @@ const (
 
 // Set is host ports for published services.
 type Set struct {
-	Gateway     int
-	Registry    int
-	Auth        int
-	Operator    int
-	OperatorIdP int
-	Grafana     int
-	OTLPGRPC    int
-	OTLPHTTP    int
-	Alloy       int
+	Gateway      int
+	ControlPlane int
+	Auth         int
+	Operator     int
+	OperatorIdP  int
+	Grafana      int
+	OTLPGRPC     int
+	OTLPHTTP     int
+	Alloy        int
 }
 
 // Explicit tracks which ports were pinned in plat5.yml.
 type Explicit struct {
-	Gateway     bool
-	Registry    bool
-	Auth        bool
-	Operator    bool
-	OperatorIdP bool
-	Grafana     bool
-	OTLPGRPC    bool
-	OTLPHTTP    bool
-	Alloy       bool
+	Gateway      bool
+	ControlPlane bool
+	Auth         bool
+	Operator     bool
+	OperatorIdP  bool
+	Grafana      bool
+	OTLPGRPC     bool
+	OTLPHTTP     bool
+	Alloy        bool
 }
 
 // Resolve picks host ports.
@@ -64,7 +64,7 @@ func Resolve(want Set, exp Explicit, owned Set) (Set, error) {
 	if err != nil {
 		return Set{}, err
 	}
-	out.Registry, err = resolveOne("registry", want.Registry, DefaultRegistry, exp.Registry, owned.Registry, used)
+	out.ControlPlane, err = resolveOne("control_plane", want.ControlPlane, DefaultControlPlane, exp.ControlPlane, owned.ControlPlane, used)
 	if err != nil {
 		return Set{}, err
 	}

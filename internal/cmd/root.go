@@ -19,7 +19,7 @@ var (
 	flagPlat5Version         string
 	flagAuthVersion          string
 	flagOperatorVersion      string
-	flagRegistryURL          string
+	flagControlPlaneURL      string
 	flagGatewayURL           string
 	flagAuthURL              string
 	flagAdminToken           string
@@ -58,10 +58,13 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&flagPlat5Version, "plat5-version", "", "Runtime GHCR tag (or PLAT5_VERSION / plat5_version in yml)")
 	rootCmd.PersistentFlags().StringVar(&flagAuthVersion, "auth-version", "", "Auth GHCR tag (or AUTH_VERSION / auth.version in yml)")
 	rootCmd.PersistentFlags().StringVar(&flagOperatorVersion, "operator-version", "", "Operator GHCR tag (or OPERATOR_VERSION / operator.version in yml)")
-	rootCmd.PersistentFlags().StringVar(&flagRegistryURL, "registry-url", "", "Route registry URL")
+	rootCmd.PersistentFlags().StringVar(&flagControlPlaneURL, "control-plane-url", "", "Control plane admin URL (or PLAT5_CONTROL_PLANE_URL / control_plane_url in yml)")
+	// --registry-url is the name from before the route registry became the control plane.
+	rootCmd.PersistentFlags().StringVar(&flagControlPlaneURL, "registry-url", "", "Control plane admin URL")
+	_ = rootCmd.PersistentFlags().MarkDeprecated("registry-url", "use --control-plane-url")
 	rootCmd.PersistentFlags().StringVar(&flagGatewayURL, "gateway-url", "", "Gateway URL")
 	rootCmd.PersistentFlags().StringVar(&flagAuthURL, "auth-url", "", "Auth IdP URL")
-	rootCmd.PersistentFlags().StringVar(&flagAdminToken, "admin-token", "", "Route registry admin token")
+	rootCmd.PersistentFlags().StringVar(&flagAdminToken, "admin-token", "", "Control plane admin token")
 
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(startCmd)
@@ -70,6 +73,7 @@ func init() {
 	rootCmd.AddCommand(doctorCmd)
 	rootCmd.AddCommand(logsCmd)
 	rootCmd.AddCommand(routesCmd)
+	rootCmd.AddCommand(rolesCmd)
 	rootCmd.AddCommand(versionCmd)
 }
 
@@ -82,7 +86,7 @@ func loadConfig() (config.Resolved, error) {
 		Plat5Version:         flagPlat5Version,
 		AuthVersion:          flagAuthVersion,
 		OperatorVersion:      flagOperatorVersion,
-		RegistryURL:          flagRegistryURL,
+		ControlPlaneURL:      flagControlPlaneURL,
 		GatewayURL:           flagGatewayURL,
 		AuthURL:              flagAuthURL,
 		AdminToken:           flagAdminToken,
@@ -107,18 +111,18 @@ func loadConfigWithState() (config.Resolved, state.State, error) {
 	if err != nil {
 		return config.Resolved{}, state.State{}, err
 	}
-	if st.GatewayPort > 0 || st.RegistryPort > 0 || st.AuthPort > 0 || st.OperatorPort > 0 || st.OperatorIdPPort > 0 ||
+	if st.GatewayPort > 0 || st.ControlPlanePort > 0 || st.AuthPort > 0 || st.OperatorPort > 0 || st.OperatorIdPPort > 0 ||
 		st.GrafanaPort > 0 || st.OTLPGRPCPort > 0 || st.OTLPHTTPPort > 0 || st.AlloyPort > 0 {
 		config.ApplySavedPorts(&cfg, ports.Set{
-			Gateway:     st.GatewayPort,
-			Registry:    st.RegistryPort,
-			Auth:        st.AuthPort,
-			Operator:    st.OperatorPort,
-			OperatorIdP: st.OperatorIdPPort,
-			Grafana:     st.GrafanaPort,
-			OTLPGRPC:    st.OTLPGRPCPort,
-			OTLPHTTP:    st.OTLPHTTPPort,
-			Alloy:       st.AlloyPort,
+			Gateway:      st.GatewayPort,
+			ControlPlane: st.ControlPlanePort,
+			Auth:         st.AuthPort,
+			Operator:     st.OperatorPort,
+			OperatorIdP:  st.OperatorIdPPort,
+			Grafana:      st.GrafanaPort,
+			OTLPGRPC:     st.OTLPGRPCPort,
+			OTLPHTTP:     st.OTLPHTTPPort,
+			Alloy:        st.AlloyPort,
 		})
 	}
 	return cfg, st, nil

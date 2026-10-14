@@ -8,8 +8,8 @@ import (
 
 	"github.com/plat5dev/cli/internal/compose"
 	"github.com/plat5dev/cli/internal/config"
+	"github.com/plat5dev/cli/internal/controlplane"
 	"github.com/plat5dev/cli/internal/output"
-	"github.com/plat5dev/cli/internal/registry"
 	"github.com/plat5dev/cli/internal/state"
 	"github.com/spf13/cobra"
 )
@@ -62,11 +62,11 @@ func printStatus(cfg config.Resolved, st state.State) error {
 	}
 
 	gw := output.ProbeHTTP(cfg.GatewayURL, 2*time.Second)
-	regClient := registry.New(cfg.RegistryURL, cfg.AdminToken)
-	regStatus := "down"
+	cpClient := controlplane.New(cfg.ControlPlaneURL, cfg.AdminToken)
+	cpStatus := "down"
 	var routeNames []string
-	if services, err := regClient.List(); err == nil {
-		regStatus = "up"
+	if services, err := cpClient.List(); err == nil {
+		cpStatus = "up"
 		for name := range services {
 			routeNames = append(routeNames, name)
 		}
@@ -146,7 +146,7 @@ func printStatus(cfg config.Resolved, st state.State) error {
 	}
 	lines = append(lines, "")
 	lines = append(lines, fmt.Sprintf("Gateway:         %s  (%s)", cfg.GatewayURL, gw))
-	lines = append(lines, fmt.Sprintf("Route registry:  %s  (%s)", cfg.RegistryURL, regStatus))
+	lines = append(lines, fmt.Sprintf("Control plane:   %s  (%s)", cfg.ControlPlaneURL, cpStatus))
 	lines = append(lines, fmt.Sprintf("Auth (IdP):      %s  (%s)", cfg.AuthURL, authProbe))
 	lines = append(lines, fmt.Sprintf("Operator:        %s  (%s)", cfg.OperatorURL, opProbe))
 	if cfg.OperatorEnabled || st.StartedOperator || opRunning {
@@ -165,10 +165,10 @@ func printStatus(cfg config.Resolved, st state.State) error {
 	}
 	lines = append(lines, "")
 	lines = append(lines, fmt.Sprintf("Admin token:     %s (from %s)", cfg.AdminToken, output.TokenSource(cfg.AdminToken, config.DefaultAdminToken)))
-	if regStatus == "up" {
+	if cpStatus == "up" {
 		lines = append(lines, fmt.Sprintf("Routes:          %s", output.JoinNames(routeNames)))
 	} else {
-		lines = append(lines, "Routes:          (registry unavailable)")
+		lines = append(lines, "Routes:          (control plane unavailable)")
 	}
 	lines = append(lines, fmt.Sprintf("Config:          %s", cfg.ConfigPath))
 

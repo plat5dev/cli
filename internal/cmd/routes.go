@@ -6,18 +6,18 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/plat5dev/cli/internal/registry"
+	"github.com/plat5dev/cli/internal/controlplane"
 	"github.com/spf13/cobra"
 )
 
 var routesCmd = &cobra.Command{
 	Use:   "routes",
-	Short: "Manage gateway routes via route-registry",
+	Short: "Manage gateway routes on the control plane",
 }
 
 var routesApplyCmd = &cobra.Command{
 	Use:   "apply [file...]",
-	Short: "Apply routes.yml file(s) to the route registry",
+	Short: "Apply routes.yml file(s) to the control plane",
 	RunE:  runRoutesApply,
 }
 
@@ -36,7 +36,7 @@ var routesGetCmd = &cobra.Command{
 
 var routesRmCmd = &cobra.Command{
 	Use:   "rm <name>",
-	Short: "Delete a service from the route registry",
+	Short: "Delete a service from the control plane",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runRoutesRm,
 }
@@ -48,7 +48,7 @@ func init() {
 	routesCmd.AddCommand(routesRmCmd)
 }
 
-func printApplyResult(r registry.ApplyResult) {
+func printApplyResult(r controlplane.ApplyResult) {
 	switch {
 	case r.Error != "":
 		fmt.Printf("  %s: %s (%s)\n", r.Service, r.Status, r.Error)
@@ -59,12 +59,12 @@ func printApplyResult(r registry.ApplyResult) {
 	}
 }
 
-func registryClient() (*registry.Client, error) {
+func controlPlaneClient() (*controlplane.Client, error) {
 	cfg, _, err := loadConfigWithState()
 	if err != nil {
 		return nil, err
 	}
-	return registry.New(cfg.RegistryURL, cfg.AdminToken), nil
+	return controlplane.New(cfg.ControlPlaneURL, cfg.AdminToken), nil
 }
 
 func runRoutesApply(cmd *cobra.Command, args []string) error {
@@ -77,12 +77,12 @@ func runRoutesApply(cmd *cobra.Command, args []string) error {
 		files = cfg.RouteFiles
 	}
 
-	client := registry.New(cfg.RegistryURL, cfg.AdminToken)
+	client := controlplane.New(cfg.ControlPlaneURL, cfg.AdminToken)
 	return applyFiles(client, files, cfg.Upstreams, false)
 }
 
 func runRoutesList(cmd *cobra.Command, args []string) error {
-	client, err := registryClient()
+	client, err := controlPlaneClient()
 	if err != nil {
 		return err
 	}
@@ -106,7 +106,7 @@ func runRoutesList(cmd *cobra.Command, args []string) error {
 }
 
 func runRoutesGet(cmd *cobra.Command, args []string) error {
-	client, err := registryClient()
+	client, err := controlPlaneClient()
 	if err != nil {
 		return err
 	}
@@ -124,7 +124,7 @@ func runRoutesGet(cmd *cobra.Command, args []string) error {
 }
 
 func runRoutesRm(cmd *cobra.Command, args []string) error {
-	client, err := registryClient()
+	client, err := controlPlaneClient()
 	if err != nil {
 		return err
 	}
