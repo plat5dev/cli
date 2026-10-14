@@ -2,430 +2,159 @@ package cmd
 
 import (
 	"fmt"
-	"net/http"
-	"os"
-	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/plat5dev/cli/internal/compose"
 	"github.com/plat5dev/cli/internal/config"
 	"github.com/plat5dev/cli/internal/controlplane"
+	"github.com/plat5dev/cli/internal/devseed"
 	"github.com/plat5dev/cli/internal/ports"
+	"github.com/plat5dev/cli/internal/stack"
 	"github.com/plat5dev/cli/internal/state"
-	"github.com/plat5dev/cli/internal/upstreams"
 	"github.com/spf13/cobra"
 )
 
+// appModule is -x app: skip the app's compose file for this run.
+const appModule = "app"
+
 var (
-	startDetach        bool
-	startBuild         bool
-	startBuildSet      bool
-	startAuth          bool
-	startObservability bool
-	startOperator      bool
-	startWait          time.Duration
+	startExclude []string
+	startWait    time.Duration
 )
 
 var startCmd = &cobra.Command{
 	Use:   "start",
-	Short: "Start Plat5 (and Auth / Observability / Operator if enabled)",
-	Long: `Start local Plat5 stacks with Docker Compose.
+	Short: "Run Plat5, its modules, and your app in Docker",
+	Long: `Run the project's local stack in Docker, then print its links, logins, and keys.
 
-Pulls runtime images via plat5_version / PLAT5_VERSION, Auth via
-auth.version / AUTH_VERSION, and Operator via operator.version /
-OPERATOR_VERSION. plat5 init writes those from the latest GitHub tag.
-A project without plat5_version cannot start.
+Plat5 always runs. Beside it, the modules plat5.yml turns on (all by default):
+  auth           Plat5 Auth, the customer IdP, in dev mode
+  operator       the staff front door: operator gateway, console, staff sign-in
+  observability  Grafana with logs, traces, and metrics (grafana/otel-lgtm + Alloy)
+Then your app, from app.compose in plat5.yml.
 
-Advanced: set plat5_compose / auth_compose / observability_compose /
-operator_compose to local compose trees; --build rebuilds from those trees.
+start applies roles.yml and the routes files, and seeds a dev person, an org they
+own, and a key for each. Running it again updates the stack in place.
 
-Operator starts after Plat5 with a local staff IdP (Dex) and joins the Plat5
-network so http://identity:3000 and http://audit:3002 resolve. Identity is not published.
-Routes are not rewritten. Staff sign in at the IdP; consoles in operator.allowed_origins can
-use its public operator-console client.
-
-Applies roles and the routes listed in plat5.yml after the control plane is ready.`,
+  plat5 start -x operator         skip a module for this run
+  plat5 start -x app              run your app yourself`,
+	Args: cobra.NoArgs,
 	RunE: runStart,
 }
 
 func init() {
-	startCmd.Flags().BoolVarP(&startDetach, "detach", "d", true, "Run containers in the background")
-	startCmd.Flags().BoolVar(&startBuild, "build", false, "Build images before starting (local compose trees only)")
-	startCmd.Flags().BoolVar(&startAuth, "auth", false, "Also start Plat5 Auth (or set auth.enabled in plat5.yml)")
-	startCmd.Flags().BoolVar(&startObservability, "observability", false, "Also start observability stack (or set observability.enabled)")
-	startCmd.Flags().BoolVar(&startOperator, "operator", false, "Also start Operator (or set operator.enabled)")
-	startCmd.Flags().DurationVar(&startWait, "wait", 5*time.Minute, "Max time to wait for readiness")
+	startCmd.Flags().StringSliceVarP(&startExclude, "exclude", "x", nil, "Skip modules for this run: auth, operator, observability, app")
+	startCmd.Flags().DurationVar(&startWait, "wait", 10*time.Minute, "How long to wait for the stack to be healthy")
 }
 
 func runStart(cmd *cobra.Command, args []string) error {
-	startBuildSet = cmd.Flags().Changed("build")
-
 	if err := compose.DockerAvailable(); err != nil {
 		return err
 	}
-
 	cfg, err := loadConfig()
 	if err != nil {
 		return err
 	}
-
-	wantAuth := startAuth || cfg.AuthEnabled
-	wantObs := startObservability || cfg.ObservabilityEnabled
-	wantOperator := startOperator || cfg.OperatorEnabled
-	if wantObs {
-		cfg.ObservabilityEnabled = true
+	skipApp := false
+	var exclude []string
+	for _, x := range startExclude {
+		if x == appModule {
+			skipApp = true
+			continue
+		}
+		exclude = append(exclude, x)
 	}
-	if wantOperator && !startDetach {
-		return fmt.Errorf("operator requires detached start (it joins the Plat5 network after Plat5 is up)")
+	stk, err := stack.New(cfg, exclude)
+	if err != nil {
+		return err
+	}
+	app := stk.AppRunner()
+	if skipApp {
+		app = nil
+	}
+	if app != nil {
+		if err := config.CheckFile("app.compose", cfg.AppCompose); err != nil {
+			return err
+		}
 	}
 
 	prev, err := state.Load(cfg.ProjectID)
 	if err != nil {
 		return err
 	}
-	owned := runningPorts(cfg, prev)
-	if owned != (ports.Set{}) {
-		fmt.Println("Plat5 is already running for this project; keeping its ports.")
+	// -x app: you run the app yourself, so the last start's app containers go,
+	// and free its ports.
+	if app == nil && prev.AppCompose != "" {
+		fmt.Println("Stopping your app's containers (-x app)…")
+		old := compose.Runner{Dir: dirOf(prev.AppCompose), Files: []string{prev.AppCompose}, Env: stk.AppEnv()}
+		if err := old.Down(); err != nil {
+			fmt.Println("warning:", err)
+		}
 	}
-	if err := config.ResolvePorts(&cfg, owned); err != nil {
+
+	owned := compose.PublishedPorts(cfg.ComposeProject)
+	if err := ports.Check(stk.Ports(), func(p int) bool { return owned[p] }); err != nil {
+		return err
+	}
+	if err := stk.Prepare(); err != nil {
 		return err
 	}
 
-	stateDir, err := state.Dir(cfg.ProjectID)
-	if err != nil {
-		return err
+	what := "Plat5"
+	if len(stk.Modules) > 0 {
+		what += " + " + strings.Join(stk.Modules, ", ")
 	}
-
-	plat5Dir, plat5Image, err := resolvePlat5Stack(cfg, stateDir)
-	if err != nil {
-		return err
+	fmt.Printf("Starting %s…\n", what)
+	if stk.Builds() {
+		fmt.Println("Building from source: checkouts (the first build takes a while)…")
 	}
-
-	var authDir string
-	var authImage bool
-	if wantAuth {
-		authDir, authImage, err = resolveAuthStack(cfg, stateDir)
-		if err != nil {
-			return err
-		}
-	}
-
-	var obsDir string
-	var obsImage bool
-	if wantObs {
-		obsDir, obsImage, err = resolveObservabilityStack(cfg, stateDir)
-		if err != nil {
-			return err
-		}
-	}
-
-	var opDir string
-	var opImage bool
-	if wantOperator {
-		opDir, opImage, err = resolveOperatorStack(cfg, stateDir)
-		if err != nil {
-			return err
-		}
-	}
-
-	// --build defaults: on only for local compose trees when flag omitted.
-	buildPlat5 := startBuild
-	if !startBuildSet {
-		buildPlat5 = !plat5Image
-	}
-	buildAuth := startBuild
-	if !startBuildSet {
-		buildAuth = !authImage
-	}
-	buildObs := startBuild
-	if !startBuildSet {
-		buildObs = !obsImage
-	}
-	buildOperator := startBuild
-	if !startBuildSet {
-		buildOperator = !opImage
-	}
-
-	overrideOpts := compose.OverrideOpts{
-		HostGateway: config.NeedsHostGateway(cfg.OtelEndpoint),
-	}
-	if err := config.CheckRolesFile(cfg.RolesFile); err != nil {
-		return err
-	}
-	plat5Opts := overrideOpts
-	plat5Opts.RolesFile = cfg.RolesFile
-	plat5Override := filepath.Join(stateDir, "compose.override.yml")
-	if err := compose.WritePlat5Override(plat5Override, cfg.Ports.Gateway, cfg.Ports.ControlPlane, plat5Opts); err != nil {
-		return err
-	}
-
-	st := state.State{
-		ProjectID:                cfg.ProjectID,
-		ConfigPath:               cfg.ConfigPath,
-		Plat5Compose:             plat5Dir,
-		ComposeProject:           cfg.ComposeProject,
-		AuthComposeName:          cfg.AuthComposeName,
-		ObservabilityComposeName: cfg.ObservabilityComposeName,
-		Plat5Override:            plat5Override,
-		GatewayPort:              cfg.Ports.Gateway,
-		ControlPlanePort:         cfg.Ports.ControlPlane,
-		AuthPort:                 cfg.Ports.Auth,
-		OperatorPort:             cfg.Ports.Operator,
-		OperatorIdPPort:          cfg.Ports.OperatorIdP,
-		GrafanaPort:              cfg.Ports.Grafana,
-		OTLPGRPCPort:             cfg.Ports.OTLPGRPC,
-		OTLPHTTPPort:             cfg.Ports.OTLPHTTP,
-		AlloyPort:                cfg.Ports.Alloy,
-		StartedAt:                time.Now().UTC(),
-	}
-
-	edgeEnv := append([]string{}, plat5StackEnv(cfg)...)
-	edgeEnv = append(edgeEnv, fmt.Sprintf("ADMIN_TOKEN=%s", cfg.AdminToken))
-	if cfg.OtelEndpoint != "" {
-		edgeEnv = append(edgeEnv, fmt.Sprintf("OTEL_EXPORTER_OTLP_ENDPOINT=%s", cfg.OtelEndpoint))
-		fmt.Println("OTLP export:", cfg.OtelEndpoint)
-	}
-
-	authEnv := append([]string{}, authStackEnv(cfg)...)
-	if cfg.OtelEndpoint != "" {
-		authEnv = append(authEnv, fmt.Sprintf("OTEL_EXPORTER_OTLP_ENDPOINT=%s", cfg.OtelEndpoint))
-	}
-
-	if wantObs {
-		obsOverride := filepath.Join(stateDir, "compose.observability.override.yml")
-		if err := compose.WriteObservabilityOverride(obsOverride, compose.ObservabilityPorts{
-			Grafana:  cfg.Ports.Grafana,
-			OTLPGRPC: cfg.Ports.OTLPGRPC,
-			OTLPHTTP: cfg.Ports.OTLPHTTP,
-			Alloy:    cfg.Ports.Alloy,
-		}); err != nil {
-			return err
-		}
-		st.ObservabilityOverride = obsOverride
-		st.ObservabilityCompose = obsDir
-		st.StartedObservability = true
-
-		fmt.Println("Starting observability…")
-		obs := compose.Runner{
-			Dir:           obsDir,
-			ProjectName:   cfg.ObservabilityComposeName,
-			OverrideFiles: []string{obsOverride},
-		}
-		if err := obs.Up(true, buildObs); err != nil {
-			return err
-		}
-		if err := waitHTTP(cfg.AlloyURL, startWait); err != nil {
-			return fmt.Errorf("observability (alloy) not ready: %w", err)
-		}
-		fmt.Println("Observability is up:")
-		fmt.Println("  Grafana:", cfg.GrafanaURL)
-		fmt.Println("  OTLP HTTP: localhost:" + fmt.Sprint(cfg.Ports.OTLPHTTP))
-		fmt.Println("  Alloy:", cfg.AlloyURL)
-	}
-
-	if wantAuth {
-		if err := config.CheckAuthThemeFile(cfg.AuthThemeFile); err != nil {
-			return err
-		}
-		authOverrideOpts := overrideOpts
-		authOverrideOpts.AuthThemeFile = cfg.AuthThemeFile
-		authOverride := filepath.Join(stateDir, "compose.auth.override.yml")
-		if err := compose.WriteAuthOverride(authOverride, cfg.Ports.Auth, authOverrideOpts); err != nil {
-			return err
-		}
-		st.AuthOverride = authOverride
-		st.AuthCompose = authDir
-		st.StartedAuth = true
-
-		fmt.Println("Starting Plat5 Auth…")
-		auth := compose.Runner{
-			Dir:           authDir,
-			ProjectName:   cfg.AuthComposeName,
-			OverrideFiles: []string{authOverride},
-			Env:           authEnv,
-		}
-		if err := auth.Up(true, buildAuth); err != nil {
-			return err
-		}
-		if err := waitHTTP(cfg.AuthURL, startWait); err != nil {
-			return fmt.Errorf("auth not ready: %w", err)
-		}
-		fmt.Println("Auth is up:", cfg.AuthURL)
-
-		edgeEnv = append(edgeEnv,
-			fmt.Sprintf("AUTH_ISSUER=%s", cfg.AuthURL),
-			fmt.Sprintf("AUTH_JWKS_URI=http://host.docker.internal:%d/.well-known/jwks.json", cfg.Ports.Auth),
-			"AUTH_ALLOWED_AUDIENCES="+gatewayAudiences(cfg),
-		)
-	}
-
-	fmt.Println("Starting Plat5…")
-	edge := compose.Runner{
-		Dir:           plat5Dir,
-		ProjectName:   cfg.ComposeProject,
-		OverrideFiles: []string{plat5Override},
-		Env:           edgeEnv,
-	}
-	if err := edge.Up(startDetach, buildPlat5); err != nil {
-		return err
-	}
-
-	if !startDetach {
-		_ = state.Save(st)
-		return nil
+	runner := stk.Runner()
+	if err := runner.Up(compose.UpOptions{Build: stk.Builds(), Wait: startWait, RemoveOrphans: true}); err != nil {
+		return fmt.Errorf("%w\n  See what failed: plat5 logs", err)
 	}
 
 	cp := controlplane.New(cfg.ControlPlaneURL, cfg.AdminToken)
-	fmt.Println("Waiting for the control plane…")
-	if err := cp.WaitReady(startWait); err != nil {
+	if err := cp.WaitReady(time.Minute); err != nil {
 		return err
 	}
-
-	// The file seeded the first roles document; applying it again brings in edits.
-	// Identity picks the change up without a restart.
+	fmt.Println("Applying roles and routes…")
 	if err := applyRolesFile(cp, cfg.RolesFile); err != nil {
 		return err
 	}
-	if err := applyRouteFiles(cfg, cp); err != nil {
+	if err := applyFiles(cp, cfg.RouteFiles, cfg.Upstreams, true); err != nil {
 		return err
 	}
 
-	fmt.Println("Waiting for gateway…")
-	if err := waitHTTP(cfg.GatewayURL, startWait); err != nil {
-		return fmt.Errorf("gateway not ready: %w", err)
+	st := state.State{ProjectID: cfg.ProjectID, ConfigPath: cfg.ConfigPath, Modules: stk.Modules, StartedAt: time.Now().UTC()}
+
+	if stk.Has(config.ModuleAuth) {
+		dev, err := devseed.Ensure(devseed.Client{
+			GatewayURL: cfg.GatewayURL(),
+			AuthURL:    cfg.URL(ports.Auth),
+			ClientID:   config.DefaultAuthClient,
+			Email:      config.DevEmail,
+			OrgName:    config.DevOrgName,
+		}, prev.Dev)
+		if err != nil {
+			fmt.Printf("warning: could not seed dev keys: %v\n  (The identity routes may not be applied: check routes: in plat5.yml.)\n", err)
+		}
+		st.Dev = dev
 	}
 
-	if wantOperator {
-		dexConfig := filepath.Join(stateDir, "operator-dex.yml")
-		if err := compose.WriteOperatorDexConfig(dexConfig, cfg.OperatorIssuerURL, config.OperatorDevEmail, cfg.OperatorAllowedOrigins); err != nil {
-			return err
+	if app != nil {
+		fmt.Printf("Starting your app (%s)…\n", relPath(cfg.ConfigDir, cfg.AppCompose))
+		if err := app.Up(compose.UpOptions{Build: true, Wait: startWait}); err != nil {
+			_ = state.Save(st)
+			return fmt.Errorf("your app: %w\n  See what failed: plat5 logs --app", err)
 		}
-		opOverride := filepath.Join(stateDir, "compose.operator.override.yml")
-		if err := compose.WriteOperatorOverride(opOverride, compose.OperatorOverride{
-			Port:           cfg.Ports.Operator,
-			IdPPort:        cfg.Ports.OperatorIdP,
-			IssuerURL:      cfg.OperatorIssuerURL,
-			AllowedOrigins: cfg.OperatorAllowedOrigins,
-			Plat5Network:   compose.Plat5NetworkName(cfg.ComposeProject),
-			DexConfig:      dexConfig,
-		}); err != nil {
-			return err
-		}
-		st.OperatorOverride = opOverride
-		st.OperatorCompose = opDir
-		st.OperatorComposeName = cfg.OperatorComposeName
-		st.StartedOperator = true
-
-		fmt.Println("Starting Operator…")
-		// Readiness is the operator healthcheck (internal port): it passes once IdP keys are
-		// fetched. The API port answers 401 to anything unauthenticated, so it says nothing.
-		op := compose.Runner{
-			Dir:           opDir,
-			ProjectName:   cfg.OperatorComposeName,
-			OverrideFiles: []string{opOverride},
-			Env:           operatorStackEnv(cfg),
-			Wait:          true,
-		}
-		if err := op.Up(true, buildOperator); err != nil {
-			return fmt.Errorf("operator not ready: %w", err)
-		}
-		fmt.Println("Operator is up:", cfg.OperatorURL)
-		fmt.Println("  staff IdP:", cfg.OperatorIssuerURL)
-		fmt.Printf("  login:     %s / %s\n", config.OperatorDevEmail, config.OperatorDevPassword)
+		st.AppCompose = cfg.AppCompose
 	}
 
 	if err := state.Save(st); err != nil {
 		return err
 	}
 	fmt.Println()
-	return printStatus(cfg, st)
-}
-
-func applyRouteFiles(cfg config.Resolved, client *controlplane.Client) error {
-	return applyFiles(client, cfg.RouteFiles, cfg.Upstreams, true)
-}
-
-// applyFiles applies routes files in order, binding plat5.yml upstreams.
-// After all files, it warns (non-fatal) about upstreams keys that matched no service.
-func applyFiles(client *controlplane.Client, files []string, ups map[string]string, skipMissing bool) error {
-	used := map[string]bool{}
-	for _, f := range files {
-		if skipMissing {
-			if _, err := os.Stat(f); err != nil {
-				fmt.Printf("Skipping routes file %s (%v)\n", f, err)
-				continue
-			}
-		}
-		fmt.Printf("Applying %s…\n", f)
-		results, bound, err := client.Apply(f, ups)
-		for _, r := range results {
-			printApplyResult(r)
-		}
-		if err != nil {
-			return fmt.Errorf("%s: %w", f, err)
-		}
-		for _, name := range bound {
-			used[name] = true
-		}
-	}
-	for _, name := range upstreams.Unused(ups, used) {
-		fmt.Printf("warning: upstreams.%s matches no service in the applied routes files (not applied)\n", name)
-	}
-	return nil
-}
-
-func waitHTTP(url string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	client := &http.Client{Timeout: 3 * time.Second}
-	for time.Now().Before(deadline) {
-		resp, err := client.Get(url)
-		if err == nil {
-			resp.Body.Close()
-			if resp.StatusCode < 500 {
-				return nil
-			}
-		}
-		time.Sleep(2 * time.Second)
-	}
-	return fmt.Errorf("timeout waiting for %s", url)
-}
-
-// runningPorts is the host ports from the last start for each stack of this
-// project that still has a running container. Those ports belong to us, so
-// a second start keeps them and compose up leaves the containers alone.
-func runningPorts(cfg config.Resolved, prev state.State) ports.Set {
-	var owned ports.Set
-	if compose.ProjectRunning(cfg.ComposeProject) {
-		owned.Gateway = prev.GatewayPort
-		owned.ControlPlane = prev.ControlPlanePort
-	}
-	if compose.ProjectRunning(cfg.AuthComposeName) {
-		owned.Auth = prev.AuthPort
-	}
-	if compose.ProjectRunning(cfg.ObservabilityComposeName) {
-		owned.Grafana = prev.GrafanaPort
-		owned.OTLPGRPC = prev.OTLPGRPCPort
-		owned.OTLPHTTP = prev.OTLPHTTPPort
-		owned.Alloy = prev.AlloyPort
-	}
-	if compose.ProjectRunning(cfg.OperatorComposeName) {
-		owned.Operator = prev.OperatorPort
-		owned.OperatorIdP = prev.OperatorIdPPort
-	}
-	return owned
-}
-
-// applyRolesFile writes the project's roles file as the control plane's roles
-// document. No file is roles off: there is nothing to apply.
-func applyRolesFile(client *controlplane.Client, path string) error {
-	if path == "" {
-		return nil
-	}
-	fmt.Printf("Applying roles %s…\n", path)
-	rev, err := client.PutDocument("roles", path)
-	if err != nil {
-		return fmt.Errorf("roles %s: %w", path, err)
-	}
-	fmt.Printf("  roles: revision %d\n", rev)
+	printSummary(stk, st)
 	return nil
 }

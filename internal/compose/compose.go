@@ -1,92 +1,53 @@
+// Package compose runs docker compose for one project.
 package compose
 
 import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
+	"time"
 )
 
-// ResolveDir validates an exact compose directory path (must contain a compose file).
-// No layout guessing — path mode points at the directory that holds docker-compose.yml.
-func ResolveDir(path string) (string, error) {
-	if path == "" {
-		return "", fmt.Errorf("compose path is empty")
-	}
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return "", err
-	}
-	if err := validateComposeDir(abs); err != nil {
-		return "", err
-	}
-	return abs, nil
-}
-
-// ValidateComposeDir reports whether dir contains a compose file.
-func ValidateComposeDir(dir string) error {
-	return validateComposeDir(dir)
-}
-
-func validateComposeDir(dir string) error {
-	for _, name := range []string{"docker-compose.yml", "compose.yml"} {
-		p := filepath.Join(dir, name)
-		if st, err := os.Stat(p); err == nil && !st.IsDir() {
-			return nil
-		}
-	}
-	return fmt.Errorf("no docker-compose.yml in %s", dir)
-}
-
-// BaseFile returns the compose file name in dir.
-func BaseFile(dir string) string {
-	if _, err := os.Stat(filepath.Join(dir, "docker-compose.yml")); err == nil {
-		return "docker-compose.yml"
-	}
-	if _, err := os.Stat(filepath.Join(dir, "compose.yml")); err == nil {
-		return "compose.yml"
-	}
-	return "docker-compose.yml"
-}
-
-// Runner executes docker compose for one stack.
+// Runner runs docker compose for one project.
 type Runner struct {
-	Dir           string
-	ProjectName   string
-	OverrideFiles []string // absolute paths
-	// Env is applied to every docker compose invocation. Keys here override the
-	// process environment. Compose interpolates the file on restart, down, logs,
-	// and ps — not only up — so required pins (PLAT5_VERSION, AUTH_VERSION,
-	// OPERATOR_VERSION) belong here.
+	// Dir is the project directory: relative paths in Files resolve against it.
+	Dir         string
+	ProjectName string
+	// Files are compose files, in merge order. Empty: the directory's default file.
+	Files []string
+	// Env is applied to every invocation, over the process environment. Compose
+	// interpolates the files on every command (ps, logs, down too), so everything
+	// the files need belongs here.
 	Env []string
-	// Wait adds --wait to detached up: return once services are running and healthy.
-	Wait bool
+	// Quiet sends output nowhere; for probes.
+	Quiet bool
 }
 
-func (r Runner) fileArgs() []string {
-	var args []string
+func (r Runner) args(args ...string) []string {
+	all := []string{"compose"}
 	if r.ProjectName != "" {
-		args = append(args, "-p", r.ProjectName)
+		all = append(all, "-p", r.ProjectName)
 	}
-	base := BaseFile(r.Dir)
-	args = append(args, "-f", base)
-	for _, f := range r.OverrideFiles {
-		if f != "" {
-			args = append(args, "-f", f)
-		}
+	if r.Dir != "" {
+		all = append(all, "--project-directory", r.Dir)
 	}
-	return args
+	for _, f := range r.Files {
+		all = append(all, "-f", f)
+	}
+	return append(all, args...)
 }
 
 func (r Runner) cmd(args ...string) *exec.Cmd {
-	all := append([]string{"compose"}, r.fileArgs()...)
-	all = append(all, args...)
-	c := exec.Command("docker", all...)
+	c := exec.Command("docker", r.args(args...)...)
 	c.Dir = r.Dir
-	c.Stdout = os.Stdout
-	c.Stderr = os.Stderr
-	c.Stdin = os.Stdin
+	if !r.Quiet {
+		c.Stdout = os.Stdout
+		c.Stderr = os.Stderr
+		c.Stdin = os.Stdin
+	}
 	if len(r.Env) > 0 {
 		c.Env = overlayEnv(os.Environ(), r.Env)
 	}
@@ -110,8 +71,7 @@ func overlayEnv(base, overlay []string) []string {
 	}
 	out := make([]string, 0, len(base)+len(order))
 	for _, e := range base {
-		k, _, ok := strings.Cut(e, "=")
-		if ok {
+		if k, _, ok := strings.Cut(e, "="); ok {
 			if _, drop := over[k]; drop {
 				continue
 			}
@@ -124,29 +84,34 @@ func overlayEnv(base, overlay []string) []string {
 	return out
 }
 
-// Up runs docker compose up.
-func (r Runner) Up(detach, build bool) error {
-	args := []string{"up"}
-	if detach {
-		args = append(args, "-d")
-		if r.Wait {
-			args = append(args, "--wait")
-		}
-	}
-	if build {
+// UpOptions are docker compose up flags.
+type UpOptions struct {
+	Build bool
+	// Wait returns once every service is running and healthy, and one-shot
+	// services have exited 0. Zero: don't wait.
+	Wait time.Duration
+	// RemoveOrphans removes services no longer in Files (a module turned off).
+	RemoveOrphans bool
+}
+
+// Up runs docker compose up -d.
+func (r Runner) Up(o UpOptions) error {
+	args := []string{"up", "-d"}
+	if o.Build {
 		args = append(args, "--build")
+	}
+	if o.Wait > 0 {
+		args = append(args, "--wait", "--wait-timeout", strconv.Itoa(int(o.Wait.Seconds())))
+	}
+	if o.RemoveOrphans {
+		args = append(args, "--remove-orphans")
 	}
 	return run(r.cmd(args...))
 }
 
-// Restart runs docker compose restart for services.
-func (r Runner) Restart(services ...string) error {
-	return run(r.cmd(append([]string{"restart"}, services...)...))
-}
-
-// Down runs docker compose down.
+// Down runs docker compose down. Volumes are kept.
 func (r Runner) Down() error {
-	return run(r.cmd("down"))
+	return run(r.cmd("down", "--remove-orphans"))
 }
 
 // Logs runs docker compose logs.
@@ -155,51 +120,58 @@ func (r Runner) Logs(follow bool, services ...string) error {
 	if follow {
 		args = append(args, "-f")
 	}
-	args = append(args, services...)
-	return run(r.cmd(args...))
+	return run(r.cmd(append(args, services...)...))
 }
 
-// Ps runs docker compose ps -a and returns combined output.
+// Ps returns docker compose ps as a table.
 func (r Runner) Ps() (string, error) {
-	c := r.cmd("ps", "-a", "--format", "table {{.Name}}\t{{.Status}}\t{{.Ports}}")
-	c.Stdout = nil
-	c.Stderr = nil
+	c := r.cmd("ps", "-a", "--format", "table {{.Service}}\t{{.Status}}\t{{.Ports}}")
+	c.Stdout, c.Stderr = nil, nil
 	out, err := c.CombinedOutput()
 	return string(out), err
 }
 
-// Running reports whether any compose service container is running.
-func (r Runner) Running() (bool, error) {
-	c := r.cmd("ps", "-q", "--status", "running")
-	c.Stdout = nil
-	c.Stderr = nil
-	out, err := c.CombinedOutput()
-	if err != nil {
-		if strings.Contains(string(out), "No such") || strings.Contains(string(out), "not found") {
-			return false, nil
-		}
-		if len(strings.TrimSpace(string(out))) == 0 {
-			c2 := r.cmd("ps", "-q")
-			c2.Stdout = nil
-			c2.Stderr = nil
-			out2, err2 := c2.CombinedOutput()
-			if err2 != nil {
-				return false, nil
-			}
-			return len(strings.TrimSpace(string(out2))) > 0, nil
-		}
-	}
-	return len(strings.TrimSpace(string(out))) > 0, nil
-}
-
-// ProjectRunning reports whether compose project name has a running container.
-// It needs no compose files: docker compose finds the project by its labels.
-func ProjectRunning(name string) bool {
-	if name == "" {
+// Running reports whether the project has a running container.
+// It needs no compose files: compose finds the project by its labels.
+func Running(project string) bool {
+	if project == "" {
 		return false
 	}
-	out, err := exec.Command("docker", "compose", "-p", name, "ps", "-q", "--status", "running").Output()
+	out, err := exec.Command("docker", "ps", "-q", "--filter", "label=com.docker.compose.project="+project).Output()
 	return err == nil && len(strings.TrimSpace(string(out))) > 0
+}
+
+// publishedRE matches a host port, or a range docker collapsed consecutive ports
+// into: "127.0.0.1:4317-4318->4317-4318/tcp".
+var publishedRE = regexp.MustCompile(`:(\d+)(?:-(\d+))?->`)
+
+// PublishedPorts is the host ports a project's running containers publish.
+func PublishedPorts(project string) map[int]bool {
+	out, err := exec.Command("docker", "ps", "--filter", "label=com.docker.compose.project="+project, "--format", "{{.Ports}}").Output()
+	if err != nil {
+		return nil
+	}
+	return parsePublished(string(out))
+}
+
+func parsePublished(s string) map[int]bool {
+	ports := map[int]bool{}
+	for _, m := range publishedRE.FindAllStringSubmatch(s, -1) {
+		lo, err := strconv.Atoi(m[1])
+		if err != nil {
+			continue
+		}
+		hi := lo
+		if m[2] != "" {
+			if hi, err = strconv.Atoi(m[2]); err != nil || hi < lo {
+				continue
+			}
+		}
+		for p := lo; p <= hi; p++ {
+			ports[p] = true
+		}
+	}
+	return ports
 }
 
 func run(c *exec.Cmd) error {
@@ -209,13 +181,15 @@ func run(c *exec.Cmd) error {
 	return nil
 }
 
-// DockerAvailable checks docker and compose plugin.
+// DockerAvailable checks for docker, a running daemon, and the compose plugin.
 func DockerAvailable() error {
 	if _, err := exec.LookPath("docker"); err != nil {
-		return fmt.Errorf("docker not found on PATH")
+		return fmt.Errorf("docker not found. Install Docker Desktop (or Docker Engine) first")
 	}
-	c := exec.Command("docker", "compose", "version")
-	if out, err := c.CombinedOutput(); err != nil {
+	if out, err := exec.Command("docker", "info", "--format", "{{.ServerVersion}}").CombinedOutput(); err != nil {
+		return fmt.Errorf("docker is not running: %s", strings.TrimSpace(string(out)))
+	}
+	if out, err := exec.Command("docker", "compose", "version").CombinedOutput(); err != nil {
 		return fmt.Errorf("docker compose not available: %s", strings.TrimSpace(string(out)))
 	}
 	return nil

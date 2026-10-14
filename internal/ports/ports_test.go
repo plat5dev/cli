@@ -1,26 +1,44 @@
 package ports
 
 import (
-	"fmt"
 	"net"
+	"strings"
 	"testing"
 )
 
-func TestResolveDefaultsFree(t *testing.T) {
-	// May fail if ports in use on the machine; still validates pinned path.
-	got, err := Resolve(Set{}, Explicit{}, Set{})
-	if err != nil {
-		t.Skipf("defaults busy on this machine: %v", err)
+func TestDefaultsAreTheBlock(t *testing.T) {
+	if err := Validate(Defaults); err != nil {
+		t.Fatal(err)
 	}
-	if got.Gateway == 0 || got.ControlPlane == 0 || got.Auth == 0 {
-		t.Fatalf("zero port: %+v", got)
+	if Defaults[Gateway] != 5400 || Defaults[Auth] != 5401 || Defaults[Operator] != 5410 {
+		t.Fatalf("defaults moved: %v", Defaults)
 	}
-	if got.Gateway == got.ControlPlane || got.Gateway == got.Auth || got.ControlPlane == got.Auth {
-		t.Fatalf("ports must be distinct: %+v", got)
+	names := Names()
+	if names[0] != OTLPGRPC || names[len(names)-1] != OperatorConsole {
+		t.Fatalf("order: %v", names)
 	}
 }
 
-func TestResolvePinnedBusyFails(t *testing.T) {
+func TestWithPins(t *testing.T) {
+	s := With(Set{Gateway: 6400})
+	if s[Gateway] != 6400 || s[Auth] != 5401 {
+		t.Fatalf("%v", s)
+	}
+	if Defaults[Gateway] != 5400 {
+		t.Fatal("With changed Defaults")
+	}
+}
+
+func TestValidate(t *testing.T) {
+	if err := Validate(Set{Gateway: 0}); err == nil {
+		t.Fatal("want range error")
+	}
+	if err := Validate(Set{Gateway: 6000, Auth: 6000}); err == nil || !strings.Contains(err.Error(), "both 6000") {
+		t.Fatalf("want duplicate error, got %v", err)
+	}
+}
+
+func TestCheckNamesBusyPorts(t *testing.T) {
 	ln, err := net.Listen("tcp4", "0.0.0.0:0")
 	if err != nil {
 		t.Fatal(err)
@@ -28,109 +46,12 @@ func TestResolvePinnedBusyFails(t *testing.T) {
 	defer ln.Close()
 	port := ln.Addr().(*net.TCPAddr).Port
 
-	_, err = Resolve(Set{Gateway: port, ControlPlane: DefaultControlPlane, Auth: DefaultAuth}, Explicit{Gateway: true}, Set{})
-	if err == nil {
-		t.Fatal("expected pinned busy error")
+	err = Check(map[Name]int{Gateway: port}, nil)
+	if err == nil || !strings.Contains(err.Error(), "gateway") {
+		t.Fatalf("want busy gateway, got %v", err)
 	}
-}
-
-func TestResolveUnpinnedBusyAllocates(t *testing.T) {
-	ln, err := net.Listen("tcp4", "0.0.0.0:0")
-	if err != nil {
+	// This project's own stack holding the port is not a conflict.
+	if err := Check(map[Name]int{Gateway: port}, func(p int) bool { return p == port }); err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
-	busy := ln.Addr().(*net.TCPAddr).Port
-
-	got, err := Resolve(Set{Gateway: busy}, Explicit{Gateway: false}, Set{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Gateway == busy {
-		t.Fatalf("expected reallocation away from %d", busy)
-	}
-}
-
-func TestFreeDetectsAllInterfacesBind(t *testing.T) {
-	ln, err := net.Listen("tcp4", "0.0.0.0:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ln.Close()
-	port := ln.Addr().(*net.TCPAddr).Port
-
-	if Free(port) {
-		t.Fatalf("expected port %d held on 0.0.0.0 to be busy", port)
-	}
-}
-
-func TestFreeDetectsLoopbackAccept(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ln.Close()
-	port := ln.Addr().(*net.TCPAddr).Port
-
-	go func() {
-		for {
-			c, err := ln.Accept()
-			if err != nil {
-				return
-			}
-			_ = c.Close()
-		}
-	}()
-
-	if Free(port) {
-		t.Fatalf("expected port %d with loopback listener to be busy", port)
-	}
-}
-
-func TestResolveDistinctWhenAllBusy(t *testing.T) {
-	var lns []net.Listener
-	defer func() {
-		for _, ln := range lns {
-			_ = ln.Close()
-		}
-	}()
-
-	hold := func(port int) {
-		t.Helper()
-		ln, err := net.Listen("tcp4", fmt.Sprintf("0.0.0.0:%d", port))
-		if err != nil {
-			t.Skipf("could not hold %d: %v", port, err)
-		}
-		lns = append(lns, ln)
-	}
-
-	a, b, c := mustEphemeral(t), mustEphemeral(t), mustEphemeral(t)
-	hold(a)
-	hold(b)
-	hold(c)
-
-	got, err := Resolve(Set{Gateway: a, ControlPlane: b, Auth: c}, Explicit{}, Set{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	seen := map[int]bool{got.Gateway: true, got.ControlPlane: true, got.Auth: true}
-	if len(seen) != 3 {
-		t.Fatalf("expected 3 distinct ports, got %+v", got)
-	}
-	for _, p := range []int{a, b, c} {
-		if seen[p] {
-			t.Fatalf("reused busy port %d in %+v", p, got)
-		}
-	}
-}
-
-func mustEphemeral(t *testing.T) int {
-	t.Helper()
-	ln, err := net.Listen("tcp4", "0.0.0.0:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := ln.Addr().(*net.TCPAddr).Port
-	_ = ln.Close()
-	return port
 }

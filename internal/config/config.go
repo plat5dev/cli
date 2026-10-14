@@ -1,3 +1,5 @@
+// Package config reads plat5.yml: what the project's local stack is, and how to
+// reach its control plane.
 package config
 
 import (
@@ -9,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/plat5dev/cli/internal/ports"
@@ -16,506 +19,353 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const DefaultAdminToken = "dev-admin-token"
-const DefaultAPIKeyBrand = "plat5"
-
-// DefaultOperatorAllowedOrigin is the browser console origin when operator.allowed_origins is unset.
-// It is the Vite dev server, where an operator console runs locally.
-const DefaultOperatorAllowedOrigin = "http://localhost:5173"
-
-// Local staff IdP login. Same class of local default as admin_token.
 const (
-	OperatorDevEmail    = "staff@example.com"
-	OperatorDevPassword = "password"
+	DefaultAdminToken  = "dev-admin-token"
+	DefaultAPIKeyBrand = "plat5"
+	// DefaultAuthClient is Plat5 Auth's default client, and so the gateway's audience.
+	DefaultAuthClient = "plat5"
 )
+
+// Local dev logins, seeded into the two Auth instances. Same class of local
+// default as admin_token: never a deployment's.
+const (
+	DevEmail      = "dev@example.com"
+	StaffEmail    = "staff@example.com"
+	DevPassword   = "password"
+	DevOrgName    = "Dev"
+	StaffClientID = "operator-console"
+)
+
+// Modules run beside Plat5. All on unless plat5.yml turns one off.
+const (
+	ModuleAuth          = "auth"
+	ModuleOperator      = "operator"
+	ModuleObservability = "observability"
+)
+
+// Modules is every module, in start order.
+var Modules = []string{ModuleAuth, ModuleOperator, ModuleObservability}
+
+// Image pins: versions: keys, and the repos plat5 init reads the latest tag from.
+const (
+	VersionPlat5           = "plat5"
+	VersionAuth            = "auth"
+	VersionOperator        = "operator"
+	VersionOperatorConsole = "operator_console"
+)
+
+// VersionRepos is each pin's GitHub repo.
+var VersionRepos = map[string]string{
+	VersionPlat5:           "plat5dev/plat5",
+	VersionAuth:            "plat5dev/auth",
+	VersionOperator:        "plat5dev/operator",
+	VersionOperatorConsole: "plat5dev/operator-console",
+}
+
+// Sources are the checkouts source: may build from, by the same keys as versions.
+var Sources = []string{VersionPlat5, VersionAuth, VersionOperator, VersionOperatorConsole}
 
 const maxAPIKeyBrandLen = 32
 
 var projectIDSanitizer = regexp.MustCompile(`[^a-zA-Z0-9_-]+`)
 
-// Flags are CLI overrides (highest precedence).
-type Flags struct {
-	Plat5Compose         string
-	AuthCompose          string
-	ObservabilityCompose string
-	OperatorCompose      string
-	Plat5Version         string
-	AuthVersion          string
-	OperatorVersion      string
-	ControlPlaneURL      string
-	GatewayURL           string
-	AuthURL              string
-	AdminToken           string
-}
-
-// File is the on-disk plat5.yml shape.
+// File is plat5.yml.
 type File struct {
-	ProjectID            string             `yaml:"project_id"`
-	Plat5Version         string             `yaml:"plat5_version"`
-	Plat5Compose         string             `yaml:"plat5_compose"`
-	AuthCompose          string             `yaml:"auth_compose"`
-	ObservabilityCompose string             `yaml:"observability_compose"`
-	OperatorCompose      string             `yaml:"operator_compose"`
-	Auth                 AuthBlock          `yaml:"auth"`
-	Observability        ObservabilityBlock `yaml:"observability"`
-	Operator             OperatorBlock      `yaml:"operator"`
-	Otel                 OtelBlock          `yaml:"otel"`
-	Ports                PortsBlock         `yaml:"ports"`
-	ControlPlaneURL      string             `yaml:"control_plane_url"`
-	// LegacyRegistryURL is registry_url, from before the route registry became
-	// the control plane. Read when control_plane_url is unset.
-	LegacyRegistryURL string         `yaml:"registry_url"`
-	GatewayURL        string         `yaml:"gateway_url"`
-	AuthURL           string         `yaml:"auth_url"`
-	AdminToken        string         `yaml:"admin_token"`
-	APIKeyBrand       string         `yaml:"apikey_brand"`
-	Routes            []string       `yaml:"routes"`
-	Upstreams         map[string]any `yaml:"upstreams"`
-	// Roles is the project's roles file (relative to plat5.yml or absolute).
-	// Unset = roles off: every member holds every label.
-	Roles string `yaml:"roles"`
+	ProjectID   string            `yaml:"project_id"`
+	Versions    map[string]string `yaml:"versions"`
+	Modules     map[string]bool   `yaml:"modules"`
+	App         AppBlock          `yaml:"app"`
+	Upstreams   map[string]any    `yaml:"upstreams"`
+	Routes      []string          `yaml:"routes"`
+	Roles       string            `yaml:"roles"`
+	Ports       map[string]int    `yaml:"ports"`
+	AdminToken  string            `yaml:"admin_token"`
+	APIKeyBrand string            `yaml:"apikey_brand"`
+	Auth        AuthBlock         `yaml:"auth"`
+	Operator    OperatorBlock     `yaml:"operator"`
+	IdP         IdPBlock          `yaml:"idp"`
+	Otel        OtelBlock         `yaml:"otel"`
+	Source      map[string]string `yaml:"source"`
 }
 
-// AuthBlock is optional Plat5 Auth settings.
+// AppBlock is the project's own app, which plat5 start runs after Plat5.
+type AppBlock struct {
+	// Compose is the app's compose file. Empty: you run the app yourself.
+	Compose string `yaml:"compose"`
+	// Web is the app's browser origin, allowed to sign in with local Auth.
+	Web string `yaml:"web"`
+}
+
+// AuthBlock adds to local Auth's allowlists, beyond the app's web origin.
 type AuthBlock struct {
-	Enabled bool   `yaml:"enabled"`
-	Version string `yaml:"version"` // ghcr.io/plat5dev/auth tag (AUTH_VERSION)
-	// Project OAuth surface (wired to issuer env on start). Omit = compose/image defaults.
-	AllowedClients      []string `yaml:"allowed_clients"`
-	AllowedRedirectURIs []string `yaml:"allowed_redirect_uris"`
-	AllowedOrigins      []string `yaml:"allowed_origins"`
-	// PublicIssuerURL sets PUBLIC_ISSUER_URL (token iss). Empty = derive from auth URL at start.
-	PublicIssuerURL string `yaml:"public_issuer_url"`
-	// ThemeFile is optional OpenAuth Theme JSON (relative to plat5.yml or absolute).
+	Clients      []string `yaml:"clients"`
+	RedirectURIs []string `yaml:"redirect_uris"`
+	Origins      []string `yaml:"origins"`
+	// ThemeFile is an OpenAuth Theme JSON for the sign-in page.
 	ThemeFile string `yaml:"theme_file"`
 }
 
-// ObservabilityBlock is optional local LGTM stack settings.
-type ObservabilityBlock struct {
-	Enabled bool `yaml:"enabled"`
-}
-
-// OperatorBlock is optional Operator gateway settings.
-// Operator is a second front door for staff. It is not a mode of the customer gateway.
-// Staff sign in to a local Dex the CLI configures; there are no Operator accounts.
+// OperatorBlock adds browser consoles beyond the local operator console.
 type OperatorBlock struct {
-	Enabled bool   `yaml:"enabled"`
-	Version string `yaml:"version"` // ghcr.io/plat5dev/operator tag (OPERATOR_VERSION)
-	// AllowedOrigins are browser consoles: gateway CORS and Dex redirect <origin>/callback.
-	// Unset = DefaultOperatorAllowedOrigin.
-	AllowedOrigins []string `yaml:"allowed_origins"`
+	Origins []string `yaml:"origins"`
 }
 
-// OtelBlock is optional OpenTelemetry export for local stacks started by the CLI.
+// IdPBlock is the customer IdP when the auth module is off.
+type IdPBlock struct {
+	Issuer      string   `yaml:"issuer"`
+	JWKSURI     string   `yaml:"jwks_uri"`
+	Audiences   []string `yaml:"audiences"`
+	UserIDClaim string   `yaml:"user_id_claim"`
+}
+
+// OtelBlock sends telemetry to your own collector instead of the observability module.
 type OtelBlock struct {
-	// Endpoint is OTEL_EXPORTER_OTLP_ENDPOINT (e.g. http://host.docker.internal:4318).
-	// Unset = no OTLP export from Plat5/Auth containers (unless observability auto-wires it).
 	Endpoint string `yaml:"endpoint"`
 }
 
-// PortsBlock holds optional host port pins from yml.
-type PortsBlock struct {
-	Gateway      *int `yaml:"gateway"`
-	ControlPlane *int `yaml:"control_plane"`
-	// LegacyRegistry is ports.registry, read when ports.control_plane is unset.
-	LegacyRegistry *int `yaml:"registry"`
-	Auth           *int `yaml:"auth"`
-	Operator       *int `yaml:"operator"`
-	OperatorIdP    *int `yaml:"operator_idp"`
-	Grafana        *int `yaml:"grafana"`
-	OTLPGRPC       *int `yaml:"otlp_grpc"`
-	OTLPHTTP       *int `yaml:"otlp_http"`
-	Alloy          *int `yaml:"alloy"`
+// Overrides are CLI flags for commands that may talk to a control plane that is
+// not the local one (routes, roles). PLAT5_CONTROL_PLANE_URL and PLAT5_ADMIN_TOKEN
+// do the same from the environment.
+type Overrides struct {
+	ControlPlaneURL string
+	AdminToken      string
 }
 
-// Resolved is effective project config after merge.
+// Resolved is plat5.yml with defaults applied and paths made absolute.
 type Resolved struct {
 	ProjectID  string
 	ConfigPath string
 	ConfigDir  string
-	// Plat5Version pins runtime GHCR tags (gateway, control-plane, identity, audit).
-	Plat5Version string
-	// AuthVersion pins ghcr.io/plat5dev/auth (independent of Plat5Version).
-	AuthVersion string
-	// Plat5Compose / AuthCompose set = path mode (contributor). Empty = image mode (embedded).
-	Plat5Compose             string
-	AuthCompose              string
-	ObservabilityCompose     string
-	OperatorCompose          string
-	AuthEnabled              bool
-	AuthAllowedClients       []string
-	AuthAllowedRedirectURIs  []string
-	AuthAllowedOrigins       []string
-	AuthPublicIssuerURL      string // empty until start derives from AuthURL if unset in yml
-	AuthThemeFile            string // absolute host path; empty = no mount
-	authPublicIssuerExplicit bool
-	ObservabilityEnabled     bool
-	// Operator is a second front door onto identity. Not the customer gateway.
-	OperatorEnabled        bool
-	OperatorVersion        string
-	OperatorAllowedOrigins []string
-	// OperatorIssuerURL is the local Dex issuer, http://localhost:<operator_idp>/dex.
-	OperatorIssuerURL string
-	OtelEndpoint      string
-	otelExplicit      bool // set from yml/env/flag — not auto-wired
-	Ports             ports.Set
-	PortsExplicit     ports.Explicit
-	GatewayURL        string
-	ControlPlaneURL   string
-	AuthURL           string
-	OperatorURL       string
-	GrafanaURL        string
-	AlloyURL          string
-	urlExplicit       urlExplicit
-	AdminToken        string
-	// APIKeyBrand is identity APIKEY_BRAND. Unset → plat5.
-	APIKeyBrand string
-	RouteFiles  []string
-	Upstreams   map[string]string // service name → raw value (port or URL); expanded at apply
-	// RolesFile is the absolute host path of the roles file mounted into identity. Empty = roles off.
-	RolesFile                string
-	ComposeProject           string
-	AuthComposeName          string
-	ObservabilityComposeName string
-	OperatorComposeName      string
-}
 
-type urlExplicit struct {
-	Gateway      bool
-	ControlPlane bool
-	Auth         bool
+	Versions map[string]string
+	// Modules is each module's on/off from plat5.yml (before start -x).
+	Modules map[string]bool
+
+	AppCompose string // absolute; empty = no app
+	AppWeb     string // origin, no trailing slash
+
+	Upstreams  map[string]string
+	RouteFiles []string
+	// RolesFile is absolute. Empty = roles off: every member holds every label.
+	RolesFile string
+
+	Ports    ports.Set
+	PortPins ports.Set
+
+	AdminToken      string
+	ControlPlaneURL string
+	APIKeyBrand     string
+
+	Auth            AuthBlock
+	OperatorOrigins []string
+	IdP             IdPBlock
+	OtelEndpoint    string
+
+	// Source is checkouts to build images from, by version key. Absolute.
+	Source map[string]string
+
+	// ComposeProject is the local stack's compose project.
+	ComposeProject string
 }
 
 // ErrNoProject means no plat5.yml was found.
 type ErrNoProject struct{}
 
-func (e ErrNoProject) Error() string {
-	return "no plat5.yml found; run plat5 init"
-}
+func (ErrNoProject) Error() string { return "no plat5.yml found; run plat5 init" }
 
-// Load finds plat5.yml (walk up), merges flags/env, resolves paths.
-// Does not allocate ports — call ResolvePorts before start.
-func Load(flags Flags) (Resolved, error) {
-	file, configPath, err := findYAML()
+// Load finds plat5.yml (walking up from the working directory) and resolves it.
+func Load(o Overrides) (Resolved, error) {
+	file, path, err := find()
 	if err != nil {
 		return Resolved{}, err
 	}
 	if file == nil {
 		return Resolved{}, ErrNoProject{}
 	}
-
-	configDir := filepath.Dir(configPath)
-	projectID := file.ProjectID
-	if projectID == "" {
-		projectID = filepath.Base(configDir)
+	r, err := Resolve(file, path, o)
+	if err != nil {
+		return Resolved{}, fmt.Errorf("%s: %w", path, err)
 	}
-	projectID = sanitizeProjectID(projectID)
-	if projectID == "" {
-		return Resolved{}, fmt.Errorf("invalid project_id")
-	}
+	return r, nil
+}
 
+// Resolve applies defaults and checks a parsed plat5.yml found at path.
+func Resolve(f *File, path string, o Overrides) (Resolved, error) {
+	dir := filepath.Dir(path)
 	r := Resolved{
-		ProjectID:                projectID,
-		ConfigPath:               configPath,
-		ConfigDir:                configDir,
-		AuthEnabled:              file.Auth.Enabled,
-		AuthAllowedClients:       trimNonEmpty(file.Auth.AllowedClients),
-		AuthAllowedRedirectURIs:  trimNonEmpty(file.Auth.AllowedRedirectURIs),
-		AuthAllowedOrigins:       trimNonEmpty(file.Auth.AllowedOrigins),
-		AuthPublicIssuerURL:      strings.TrimSpace(file.Auth.PublicIssuerURL),
-		AuthThemeFile:            resolveAgainst(configDir, strings.TrimSpace(file.Auth.ThemeFile)),
-		RolesFile:                resolveAgainst(configDir, strings.TrimSpace(file.Roles)),
-		ObservabilityEnabled:     file.Observability.Enabled,
-		OperatorEnabled:          file.Operator.Enabled,
-		OperatorAllowedOrigins:   trimNonEmpty(file.Operator.AllowedOrigins),
-		OtelEndpoint:             strings.TrimSpace(file.Otel.Endpoint),
-		AdminToken:               DefaultAdminToken,
-		ComposeProject:           "plat5-" + projectID,
-		AuthComposeName:          "plat5-" + projectID + "-auth",
-		ObservabilityComposeName: "plat5-" + projectID + "-observability",
-		OperatorComposeName:      "plat5-" + projectID + "-operator",
-	}
-	if r.AuthPublicIssuerURL != "" {
-		r.authPublicIssuerExplicit = true
-	}
-	if r.OtelEndpoint != "" {
-		r.otelExplicit = true
+		ConfigPath: path,
+		ConfigDir:  dir,
+		Versions:   map[string]string{},
+		Modules:    map[string]bool{},
+		Source:     map[string]string{},
+		AdminToken: DefaultAdminToken,
 	}
 
-	if file.AdminToken != "" {
-		r.AdminToken = file.AdminToken
+	r.ProjectID = sanitizeProjectID(firstNonEmpty(f.ProjectID, filepath.Base(dir)))
+	if r.ProjectID == "" {
+		return Resolved{}, fmt.Errorf("project_id: invalid")
 	}
-	if v := strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")); v != "" {
-		r.OtelEndpoint = v
-		r.otelExplicit = true
-	}
-	r.RouteFiles = resolveRouteFiles(configDir, file.Routes)
+	r.ComposeProject = "plat5-" + r.ProjectID
 
-	ups, err := upstreams.ParseMap(file.Upstreams)
+	for k, v := range f.Modules {
+		if !contains(Modules, k) {
+			return Resolved{}, fmt.Errorf("modules.%s: unknown module (want %s)", k, strings.Join(Modules, ", "))
+		}
+		r.Modules[k] = v
+	}
+	for _, m := range Modules {
+		if _, set := r.Modules[m]; !set {
+			r.Modules[m] = true
+		}
+	}
+
+	for k, v := range f.Source {
+		if !contains(Sources, k) {
+			return Resolved{}, fmt.Errorf("source.%s: unknown (want %s)", k, strings.Join(Sources, ", "))
+		}
+		if v = strings.TrimSpace(v); v != "" {
+			r.Source[k] = resolveAgainst(dir, v)
+		}
+	}
+	for k, v := range f.Versions {
+		if _, known := VersionRepos[k]; !known {
+			return Resolved{}, fmt.Errorf("versions.%s: unknown (want %s)", k, strings.Join(sortedKeys(VersionRepos), ", "))
+		}
+		r.Versions[k] = strings.TrimSpace(v)
+	}
+	for _, k := range r.NeededVersions() {
+		if r.Versions[k] == "" && r.Source[k] == "" {
+			return Resolved{}, fmt.Errorf("versions.%s is required (plat5 init writes the latest tag)", k)
+		}
+	}
+
+	r.AppCompose = resolveAgainst(dir, strings.TrimSpace(f.App.Compose))
+	if web := strings.TrimSpace(f.App.Web); web != "" {
+		origin, err := parseOrigin(web)
+		if err != nil {
+			return Resolved{}, fmt.Errorf("app.web: %w", err)
+		}
+		r.AppWeb = origin
+	}
+
+	ups, err := upstreams.ParseMap(f.Upstreams)
 	if err != nil {
 		return Resolved{}, err
 	}
 	r.Upstreams = ups
+	if len(f.Routes) == 0 {
+		r.RouteFiles = []string{filepath.Join(dir, "routes.yml")}
+	}
+	for _, p := range f.Routes {
+		r.RouteFiles = append(r.RouteFiles, resolveAgainst(dir, p))
+	}
+	r.RolesFile = resolveAgainst(dir, strings.TrimSpace(f.Roles))
 
-	r.Plat5Version = firstNonEmpty(flags.Plat5Version, os.Getenv("PLAT5_VERSION"), file.Plat5Version)
-	if r.Plat5Version == "" {
-		return Resolved{}, fmt.Errorf("plat5_version is required (plat5 init writes the latest tag)")
+	r.PortPins = ports.Set{}
+	for k, v := range f.Ports {
+		n := ports.Name(k)
+		if _, known := ports.Defaults[n]; !known {
+			return Resolved{}, fmt.Errorf("ports.%s: unknown port", k)
+		}
+		r.PortPins[n] = v
 	}
-	r.AuthVersion = firstNonEmpty(flags.AuthVersion, os.Getenv("AUTH_VERSION"), file.Auth.Version)
-	if r.AuthEnabled && r.AuthVersion == "" {
-		return Resolved{}, fmt.Errorf("auth.version is required when auth is enabled")
-	}
-	r.OperatorVersion = firstNonEmpty(flags.OperatorVersion, os.Getenv("OPERATOR_VERSION"), file.Operator.Version)
-	if r.OperatorEnabled && r.OperatorVersion == "" {
-		return Resolved{}, fmt.Errorf("operator.version is required when operator is enabled")
-	}
-	for i, o := range r.OperatorAllowedOrigins {
-		// An origin has no path. The gateway and the browser compare it exactly.
-		r.OperatorAllowedOrigins[i] = strings.TrimRight(o, "/")
-	}
-	if len(r.OperatorAllowedOrigins) == 0 {
-		r.OperatorAllowedOrigins = []string{DefaultOperatorAllowedOrigin}
-	}
-	brand, err := resolveAPIKeyBrand(file.APIKeyBrand)
-	if err != nil {
+	r.Ports = ports.With(r.PortPins)
+	if err := ports.Validate(r.Ports); err != nil {
 		return Resolved{}, err
 	}
-	r.APIKeyBrand = brand
-	r.Plat5Compose = firstNonEmpty(flags.Plat5Compose, os.Getenv("PLAT5_COMPOSE"), file.Plat5Compose)
-	r.AuthCompose = firstNonEmpty(flags.AuthCompose, os.Getenv("PLAT5_AUTH_COMPOSE"), file.AuthCompose)
-	r.ObservabilityCompose = firstNonEmpty(flags.ObservabilityCompose, os.Getenv("PLAT5_OBSERVABILITY_COMPOSE"), file.ObservabilityCompose)
-	r.OperatorCompose = firstNonEmpty(flags.OperatorCompose, os.Getenv("PLAT5_OPERATOR_COMPOSE"), file.OperatorCompose)
-	r.Plat5Compose = resolveAgainst(configDir, r.Plat5Compose)
-	r.AuthCompose = resolveAgainst(configDir, r.AuthCompose)
-	r.ObservabilityCompose = resolveAgainst(configDir, r.ObservabilityCompose)
-	r.OperatorCompose = resolveAgainst(configDir, r.OperatorCompose)
 
-	if file.Ports.Gateway != nil {
-		r.Ports.Gateway = *file.Ports.Gateway
-		r.PortsExplicit.Gateway = true
+	if f.AdminToken != "" {
+		r.AdminToken = f.AdminToken
 	}
-	if cp := firstPort(file.Ports.ControlPlane, file.Ports.LegacyRegistry); cp != nil {
-		r.Ports.ControlPlane = *cp
-		r.PortsExplicit.ControlPlane = true
+	r.ControlPlaneURL = r.URL(ports.ControlPlane)
+	if v := firstNonEmpty(o.ControlPlaneURL, os.Getenv("PLAT5_CONTROL_PLANE_URL")); v != "" {
+		r.ControlPlaneURL = strings.TrimRight(v, "/")
 	}
-	if file.Ports.Auth != nil {
-		r.Ports.Auth = *file.Ports.Auth
-		r.PortsExplicit.Auth = true
-	}
-	if file.Ports.Operator != nil {
-		r.Ports.Operator = *file.Ports.Operator
-		r.PortsExplicit.Operator = true
-	}
-	if file.Ports.OperatorIdP != nil {
-		r.Ports.OperatorIdP = *file.Ports.OperatorIdP
-		r.PortsExplicit.OperatorIdP = true
-	}
-	if file.Ports.Grafana != nil {
-		r.Ports.Grafana = *file.Ports.Grafana
-		r.PortsExplicit.Grafana = true
-	}
-	if file.Ports.OTLPGRPC != nil {
-		r.Ports.OTLPGRPC = *file.Ports.OTLPGRPC
-		r.PortsExplicit.OTLPGRPC = true
-	}
-	if file.Ports.OTLPHTTP != nil {
-		r.Ports.OTLPHTTP = *file.Ports.OTLPHTTP
-		r.PortsExplicit.OTLPHTTP = true
-	}
-	if file.Ports.Alloy != nil {
-		r.Ports.Alloy = *file.Ports.Alloy
-		r.PortsExplicit.Alloy = true
-	}
-
-	if file.GatewayURL != "" {
-		r.GatewayURL = file.GatewayURL
-		r.urlExplicit.Gateway = true
-	}
-	if v := firstNonEmpty(file.ControlPlaneURL, file.LegacyRegistryURL); v != "" {
-		r.ControlPlaneURL = v
-		r.urlExplicit.ControlPlane = true
-	}
-	if file.AuthURL != "" {
-		r.AuthURL = file.AuthURL
-		r.urlExplicit.Auth = true
-	}
-
-	if v := os.Getenv("PLAT5_GATEWAY_URL"); v != "" {
-		r.GatewayURL = v
-		r.urlExplicit.Gateway = true
-	}
-	if v := firstNonEmpty(os.Getenv("PLAT5_CONTROL_PLANE_URL"), os.Getenv("PLAT5_REGISTRY_URL")); v != "" {
-		r.ControlPlaneURL = v
-		r.urlExplicit.ControlPlane = true
-	}
-	if v := os.Getenv("PLAT5_AUTH_URL"); v != "" {
-		r.AuthURL = v
-		r.urlExplicit.Auth = true
-	}
-	if v := os.Getenv("PLAT5_ADMIN_TOKEN"); v != "" {
-		r.AdminToken = v
-	} else if v := os.Getenv("ADMIN_TOKEN"); v != "" {
+	if v := firstNonEmpty(o.AdminToken, os.Getenv("PLAT5_ADMIN_TOKEN")); v != "" {
 		r.AdminToken = v
 	}
 
-	if flags.GatewayURL != "" {
-		r.GatewayURL = flags.GatewayURL
-		r.urlExplicit.Gateway = true
-	}
-	if flags.ControlPlaneURL != "" {
-		r.ControlPlaneURL = flags.ControlPlaneURL
-		r.urlExplicit.ControlPlane = true
-	}
-	if flags.AuthURL != "" {
-		r.AuthURL = flags.AuthURL
-		r.urlExplicit.Auth = true
-	}
-	if flags.AdminToken != "" {
-		r.AdminToken = flags.AdminToken
+	if r.APIKeyBrand, err = parseAPIKeyBrand(firstNonEmpty(f.APIKeyBrand, DefaultAPIKeyBrand)); err != nil {
+		return Resolved{}, err
 	}
 
-	if r.Ports.Gateway == 0 {
-		r.Ports.Gateway = ports.DefaultGateway
+	r.Auth = AuthBlock{
+		Clients:      trimNonEmpty(f.Auth.Clients),
+		RedirectURIs: trimNonEmpty(f.Auth.RedirectURIs),
+		Origins:      trimOrigins(f.Auth.Origins),
+		ThemeFile:    resolveAgainst(dir, strings.TrimSpace(f.Auth.ThemeFile)),
 	}
-	if r.Ports.ControlPlane == 0 {
-		r.Ports.ControlPlane = ports.DefaultControlPlane
+	r.OperatorOrigins = trimOrigins(f.Operator.Origins)
+	r.IdP = IdPBlock{
+		Issuer:      strings.TrimSpace(f.IdP.Issuer),
+		JWKSURI:     strings.TrimSpace(f.IdP.JWKSURI),
+		Audiences:   trimNonEmpty(f.IdP.Audiences),
+		UserIDClaim: strings.TrimSpace(f.IdP.UserIDClaim),
 	}
-	if r.Ports.Auth == 0 {
-		r.Ports.Auth = ports.DefaultAuth
+	if !r.Modules[ModuleAuth] && (r.IdP.Issuer == "" || r.IdP.JWKSURI == "" || len(r.IdP.Audiences) == 0) {
+		return Resolved{}, fmt.Errorf("modules.auth is off: set idp.issuer, idp.jwks_uri, and idp.audiences to your IdP")
 	}
-	if r.Ports.Operator == 0 {
-		r.Ports.Operator = ports.DefaultOperator
+	if r.Modules[ModuleAuth] && r.IdP.Issuer != "" {
+		return Resolved{}, fmt.Errorf("idp: is for your own IdP; turn modules.auth off to use it")
 	}
-	if r.Ports.OperatorIdP == 0 {
-		r.Ports.OperatorIdP = ports.DefaultOperatorIdP
-	}
-	if r.Ports.Grafana == 0 {
-		r.Ports.Grafana = ports.DefaultGrafana
-	}
-	if r.Ports.OTLPGRPC == 0 {
-		r.Ports.OTLPGRPC = ports.DefaultOTLPGRPC
-	}
-	if r.Ports.OTLPHTTP == 0 {
-		r.Ports.OTLPHTTP = ports.DefaultOTLPHTTP
-	}
-	if r.Ports.Alloy == 0 {
-		r.Ports.Alloy = ports.DefaultAlloy
-	}
-	deriveURLs(&r)
+	r.OtelEndpoint = strings.TrimSpace(f.Otel.Endpoint)
 	return r, nil
 }
 
-// ResolvePorts allocates/validates host ports and refreshes non-explicit URLs.
-// When observability is enabled and otel.endpoint was not set explicitly, wires
-// OTEL to http://host.docker.internal:<otlp_http>.
-// ResolvePorts picks host ports. owned is what this project's running stack
-// already publishes; those ports are kept (see ports.Resolve).
-func ResolvePorts(r *Resolved, owned ports.Set) error {
-	resolved, err := ports.Resolve(r.Ports, r.PortsExplicit, owned)
-	if err != nil {
-		return err
+// NeededVersions is the image pins the enabled modules need.
+// The operator module's staff IdP is Plat5 Auth, so it needs the auth pin too.
+func (r Resolved) NeededVersions() []string {
+	need := []string{VersionPlat5}
+	if r.Modules[ModuleAuth] || r.Modules[ModuleOperator] {
+		need = append(need, VersionAuth)
 	}
-	r.Ports = resolved
-	deriveURLs(r)
-	wireOtelFromObservability(r)
-	return nil
+	if r.Modules[ModuleOperator] {
+		need = append(need, VersionOperator, VersionOperatorConsole)
+	}
+	return need
 }
 
-// ApplySavedPorts sets ports from a previous start and refreshes non-explicit URLs.
-func ApplySavedPorts(r *Resolved, st ports.Set) {
-	if st.Gateway > 0 {
-		r.Ports.Gateway = st.Gateway
-	}
-	if st.ControlPlane > 0 {
-		r.Ports.ControlPlane = st.ControlPlane
-	}
-	if st.Auth > 0 {
-		r.Ports.Auth = st.Auth
-	}
-	if st.Operator > 0 {
-		r.Ports.Operator = st.Operator
-	}
-	if st.OperatorIdP > 0 {
-		r.Ports.OperatorIdP = st.OperatorIdP
-	}
-	if st.Grafana > 0 {
-		r.Ports.Grafana = st.Grafana
-	}
-	if st.OTLPGRPC > 0 {
-		r.Ports.OTLPGRPC = st.OTLPGRPC
-	}
-	if st.OTLPHTTP > 0 {
-		r.Ports.OTLPHTTP = st.OTLPHTTP
-	}
-	if st.Alloy > 0 {
-		r.Ports.Alloy = st.Alloy
-	}
-	deriveURLs(r)
-	wireOtelFromObservability(r)
+// URL is the local URL of a published port.
+func (r Resolved) URL(n ports.Name) string {
+	return fmt.Sprintf("http://localhost:%d", r.Ports[n])
 }
 
-func wireOtelFromObservability(r *Resolved) {
-	if r.otelExplicit || !r.ObservabilityEnabled {
-		return
-	}
-	if r.Ports.OTLPHTTP <= 0 {
-		return
-	}
-	r.OtelEndpoint = fmt.Sprintf("http://host.docker.internal:%d", r.Ports.OTLPHTTP)
+// GatewayURL is where clients call the deployment.
+func (r Resolved) GatewayURL() string { return r.URL(ports.Gateway) }
+
+// AuthClients is local Auth's client ids, which are also the gateway's audiences
+// (Plat5 Auth puts the client id in the token's aud).
+func (r Resolved) AuthClients() []string {
+	return uniq(append([]string{DefaultAuthClient}, r.Auth.Clients...))
 }
 
-func deriveURLs(r *Resolved) {
-	// Use localhost (not 127.0.0.1): JWT iss is the Auth origin the browser hits.
-	// Gateway AUTH_ISSUER must match token iss exactly (localhost ≠ 127.0.0.1).
-	if !r.urlExplicit.Gateway {
-		r.GatewayURL = fmt.Sprintf("http://localhost:%d", r.Ports.Gateway)
+// AuthOrigins is the browser origins local Auth allows: the app's, and any extra.
+func (r Resolved) AuthOrigins() []string {
+	var out []string
+	if r.AppWeb != "" {
+		out = append(out, r.AppWeb)
 	}
-	if !r.urlExplicit.ControlPlane {
-		r.ControlPlaneURL = fmt.Sprintf("http://localhost:%d", r.Ports.ControlPlane)
-	}
-	if !r.urlExplicit.Auth {
-		r.AuthURL = fmt.Sprintf("http://localhost:%d", r.Ports.Auth)
-	}
-	if r.Ports.Operator > 0 {
-		r.OperatorURL = fmt.Sprintf("http://localhost:%d", r.Ports.Operator)
-	}
-	if r.Ports.OperatorIdP > 0 {
-		// Token iss is the origin the browser signs in at, like Auth above.
-		r.OperatorIssuerURL = fmt.Sprintf("http://localhost:%d/dex", r.Ports.OperatorIdP)
-	}
-	if !r.authPublicIssuerExplicit {
-		// Token iss should match the browser-facing Auth origin.
-		r.AuthPublicIssuerURL = strings.TrimRight(r.AuthURL, "/")
-	}
-	if r.Ports.Grafana > 0 {
-		r.GrafanaURL = fmt.Sprintf("http://localhost:%d", r.Ports.Grafana)
-	}
-	if r.Ports.Alloy > 0 {
-		r.AlloyURL = fmt.Sprintf("http://localhost:%d", r.Ports.Alloy)
-	}
+	return uniq(append(out, r.Auth.Origins...))
 }
 
-func trimNonEmpty(in []string) []string {
-	if len(in) == 0 {
-		return nil
+// AuthRedirectURIs is <origin>/callback for each allowed origin, and any extra.
+func (r Resolved) AuthRedirectURIs() []string {
+	var out []string
+	for _, o := range r.AuthOrigins() {
+		out = append(out, o+"/callback")
 	}
-	out := make([]string, 0, len(in))
-	for _, s := range in {
-		s = strings.TrimSpace(s)
-		if s != "" {
-			out = append(out, s)
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
+	return uniq(append(out, r.Auth.RedirectURIs...))
+}
+
+// OperatorConsoleOrigins is the local console's origin, and any extra.
+func (r Resolved) OperatorConsoleOrigins() []string {
+	return uniq(append([]string{r.URL(ports.OperatorConsole)}, r.OperatorOrigins...))
 }
 
 var unknownFieldRE = regexp.MustCompile(`^line (\d+): field (\S+) not found in type `)
 
-// parseFile decodes plat5.yml strictly: an unknown key is an error naming the key.
-func parseFile(data []byte) (*File, error) {
+// Parse decodes plat5.yml strictly: an unknown key is an error naming the key.
+func Parse(data []byte) (*File, error) {
 	var f File
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
@@ -526,25 +376,24 @@ func parseFile(data []byte) (*File, error) {
 		}
 		var msgs []string
 		for _, e := range te.Errors {
-			m := unknownFieldRE.FindStringSubmatch(e)
-			if m == nil {
-				msgs = append(msgs, e)
+			if m := unknownFieldRE.FindStringSubmatch(e); m != nil {
+				msgs = append(msgs, fmt.Sprintf("line %s: unknown key %q", m[1], m[2]))
 				continue
 			}
-			msgs = append(msgs, fmt.Sprintf("line %s: unknown key %q", m[1], m[2]))
+			msgs = append(msgs, e)
 		}
 		return nil, errors.New(strings.Join(msgs, "; "))
 	}
 	return &f, nil
 }
 
-func findYAML() (*File, string, error) {
+func find() (*File, string, error) {
 	dir, err := os.Getwd()
 	if err != nil {
 		return nil, "", err
 	}
 	for {
-		for _, name := range []string{"plat5.yaml", "plat5.yml"} {
+		for _, name := range []string{"plat5.yml", "plat5.yaml"} {
 			p := filepath.Join(dir, name)
 			data, err := os.ReadFile(p)
 			if err != nil {
@@ -553,7 +402,7 @@ func findYAML() (*File, string, error) {
 				}
 				return nil, "", fmt.Errorf("read %s: %w", p, err)
 			}
-			f, err := parseFile(data)
+			f, err := Parse(data)
 			if err != nil {
 				return nil, "", fmt.Errorf("parse %s: %w", p, err)
 			}
@@ -565,20 +414,48 @@ func findYAML() (*File, string, error) {
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			break
+			return nil, "", nil
 		}
 		dir = parent
 	}
-	return nil, "", nil
 }
 
-func resolveRouteFiles(configDir string, routes []string) []string {
-	if len(routes) == 0 {
-		return []string{filepath.Join(configDir, "routes.yml")}
+// CheckFile fails if a configured file is missing or a directory. Empty is fine.
+func CheckFile(key, path string) error {
+	if path == "" {
+		return nil
 	}
-	out := make([]string, 0, len(routes))
-	for _, r := range routes {
-		out = append(out, resolveAgainst(configDir, r))
+	st, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("%s: file not found: %s", key, path)
+		}
+		return fmt.Errorf("%s: %w", key, err)
+	}
+	if st.IsDir() {
+		return fmt.Errorf("%s: not a file: %s", key, path)
+	}
+	return nil
+}
+
+// NeedsHostGateway reports whether endpoint targets host.docker.internal.
+func NeedsHostGateway(endpoint string) bool {
+	u, err := url.Parse(strings.TrimSpace(endpoint))
+	return err == nil && strings.EqualFold(u.Hostname(), "host.docker.internal")
+}
+
+func parseOrigin(raw string) (string, error) {
+	u, err := url.Parse(strings.TrimRight(strings.TrimSpace(raw), "/"))
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.Path != "" || u.RawQuery != "" {
+		return "", fmt.Errorf("%q is not an origin (scheme://host[:port])", raw)
+	}
+	return u.Scheme + "://" + u.Host, nil
+}
+
+func trimOrigins(in []string) []string {
+	out := trimNonEmpty(in)
+	for i, o := range out {
+		out[i] = strings.TrimRight(o, "/")
 	}
 	return out
 }
@@ -587,33 +464,25 @@ func resolveAgainst(base, p string) string {
 	if p == "" {
 		return ""
 	}
+	if strings.HasPrefix(p, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			p = filepath.Join(home, p[2:])
+		}
+	}
 	if filepath.IsAbs(p) {
 		return filepath.Clean(p)
 	}
 	return filepath.Clean(filepath.Join(base, p))
 }
 
-func resolveAPIKeyBrand(yml string) (string, error) {
-	if raw, ok := os.LookupEnv("APIKEY_BRAND"); ok {
-		return parseAPIKeyBrand(raw)
-	}
-	if strings.TrimSpace(yml) != "" {
-		return parseAPIKeyBrand(yml)
-	}
-	return DefaultAPIKeyBrand, nil
-}
-
 func parseAPIKeyBrand(raw string) (string, error) {
 	s := strings.TrimSpace(raw)
-	if s == "" {
-		return "", fmt.Errorf("apikey_brand is empty")
-	}
 	if len(s) > maxAPIKeyBrandLen {
 		return "", fmt.Errorf("apikey_brand longer than %d characters", maxAPIKeyBrandLen)
 	}
-	for i, r := range s {
-		letter := r >= 'a' && r <= 'z'
-		digit := i > 0 && r >= '0' && r <= '9'
+	for i, c := range s {
+		letter := c >= 'a' && c <= 'z'
+		digit := i > 0 && c >= '0' && c <= '9'
 		if !letter && !digit {
 			return "", fmt.Errorf("apikey_brand must be [a-z][a-z0-9]*, max %d", maxAPIKeyBrandLen)
 		}
@@ -621,18 +490,11 @@ func parseAPIKeyBrand(raw string) (string, error) {
 	return s, nil
 }
 
-func firstNonEmpty(vals ...string) string {
-	for _, v := range vals {
-		if strings.TrimSpace(v) != "" {
-			return strings.TrimSpace(v)
-		}
-	}
-	return ""
-}
+// SanitizeProjectID is the project id plat5 uses for a name.
+func SanitizeProjectID(id string) string { return sanitizeProjectID(id) }
 
 func sanitizeProjectID(id string) string {
-	id = strings.TrimSpace(id)
-	id = projectIDSanitizer.ReplaceAllString(id, "-")
+	id = projectIDSanitizer.ReplaceAllString(strings.TrimSpace(id), "-")
 	id = strings.Trim(id, "-")
 	if len(id) > 64 {
 		id = id[:64]
@@ -640,73 +502,51 @@ func sanitizeProjectID(id string) string {
 	return strings.ToLower(id)
 }
 
-// CheckAuthThemeFile fails if a configured theme file is missing or not a regular file.
-// Empty path is omitted (today's behavior: no mount). Call before starting Auth.
-func CheckAuthThemeFile(path string) error {
-	if path == "" {
-		return nil
-	}
-	st, err := os.Stat(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("auth.theme_file: file not found: %s", path)
+func trimNonEmpty(in []string) []string {
+	var out []string
+	for _, s := range in {
+		if s = strings.TrimSpace(s); s != "" {
+			out = append(out, s)
 		}
-		return fmt.Errorf("auth.theme_file: %s: %w", path, err)
 	}
-	if st.IsDir() {
-		return fmt.Errorf("auth.theme_file: not a file: %s", path)
-	}
-	return nil
+	return out
 }
 
-// CheckRolesFile fails if a configured roles file is missing or not a regular file.
-// Empty path is roles off. The control plane validates the contents on apply.
-func CheckRolesFile(path string) error {
-	if path == "" {
-		return nil
-	}
-	st, err := os.Stat(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("roles: file not found: %s", path)
+func uniq(in []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, s := range in {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
 		}
-		return fmt.Errorf("roles: %s: %w", path, err)
 	}
-	if st.IsDir() {
-		return fmt.Errorf("roles: not a file: %s", path)
-	}
-	return nil
+	return out
 }
 
-// NeedsHostGateway reports whether endpoint targets host.docker.internal
-// (containers need extra_hosts host-gateway to reach a host-published collector).
-func NeedsHostGateway(endpoint string) bool {
-	endpoint = strings.TrimSpace(endpoint)
-	if endpoint == "" {
-		return false
-	}
-	u, err := url.Parse(endpoint)
-	if err != nil || u.Host == "" {
-		// bare host:port
-		host := endpoint
-		if i := strings.Index(endpoint, "/"); i >= 0 {
-			host = endpoint[:i]
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v = strings.TrimSpace(v); v != "" {
+			return v
 		}
-		if h, _, ok := strings.Cut(host, ":"); ok {
-			return strings.EqualFold(h, "host.docker.internal")
-		}
-		return strings.EqualFold(host, "host.docker.internal")
 	}
-	host := u.Hostname()
-	return strings.EqualFold(host, "host.docker.internal")
+	return ""
 }
 
-// firstPort is the first pin that is set.
-func firstPort(pins ...*int) *int {
-	for _, p := range pins {
-		if p != nil {
-			return p
+func contains(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
 		}
 	}
-	return nil
+	return false
+}
+
+func sortedKeys(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }

@@ -1,13 +1,14 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
-	"github.com/plat5dev/cli/internal/compose"
+	"github.com/charmbracelet/huh"
 	"github.com/plat5dev/cli/internal/config"
 	"github.com/plat5dev/cli/internal/prompt"
 	"github.com/plat5dev/cli/internal/release"
@@ -15,205 +16,327 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// noTemplate is --template none: Plat5 only, with sample routes.
+const noTemplate = "none"
+
 var (
-	initProjectID            string
-	initPlat5Compose         string
-	initAuthCompose          string
-	initObservabilityCompose string
-	initOperatorCompose      string
-	initAuth                 bool
-	initObservability        bool
-	initOperator             bool
-	initForce                bool
-	initYes                  bool
-	initTemplate             string
-	initTemplatesDir         string
-	initPlat5Version         string
-	initAuthVersion          string
-	initOperatorVersion      string
-	initTemplateRef          string
-	initListTemplates        bool
+	initTemplate        string
+	initTemplatesDir    string
+	initTemplateRef     string
+	initListTemplates   bool
+	initYes             bool
+	initForce           bool
+	initNoAuth          bool
+	initNoOperator      bool
+	initNoObservability bool
+	initSources         []string
+	initVersions        []string
 )
 
 var initCmd = &cobra.Command{
-	Use:   "init",
-	Short: "Create a Plat5 project (optionally from a template)",
-	Long: `Create a Plat5 project in the current directory.
+	Use:   "init [directory]",
+	Short: "Create a project from a starter",
+	Long: `Create a Plat5 project: a starter app, plat5.yml, routes, and roles.
+Then cd into it and run plat5 start.
 
-Examples:
-  plat5 init --auth -y
-  plat5 init --template bun-effect-api --auth -y
+  plat5 init my-app                         asks for a starter and modules
+  plat5 init my-app --template go-fiber-api -y
   plat5 init --list-templates
-  plat5 init                          # interactive prompts
 
-plat5 start pulls published images (no local Plat5 checkout).
---template fetches a starter (official name, owner/repo, or archive URL),
-or from local --templates-dir, then writes plat5.yml.
-Without a template: plat5.yml + sample routes.yml.
+Without a directory, the project is the current directory.
 
-List first-party starters: plat5 init --list-templates
-Community: plat5 init --template owner/my-template
-Copy refuses to overwrite existing files.
+A starter is a first-party name (--list-templates), owner/repo on GitHub, or an
+archive URL. --template none is Plat5 alone, with sample routes.
 
-Advanced (local compose trees for development): --plat5-compose / --auth-compose /
---observability-compose / --operator-compose or PLAT5_COMPOSE / PLAT5_AUTH_COMPOSE /
-PLAT5_OBSERVABILITY_COMPOSE / PLAT5_OPERATOR_COMPOSE.`,
+Contributors: --source plat5=../plat5 builds that module from a checkout instead
+of pulling its image (plat5, auth, operator, operator_console).`,
+	Args: cobra.MaximumNArgs(1),
 	RunE: runInit,
 }
 
 func init() {
-	initCmd.Flags().StringVar(&initProjectID, "project-id", "", "Project id (default: directory name)")
-	initCmd.Flags().StringVar(&initPlat5Compose, "plat5-compose", "", "Advanced: local Plat5 compose dir (or PLAT5_COMPOSE)")
-	initCmd.Flags().StringVar(&initAuthCompose, "auth-compose", "", "Advanced: local Auth compose dir (or PLAT5_AUTH_COMPOSE)")
-	initCmd.Flags().StringVar(&initObservabilityCompose, "observability-compose", "", "Advanced: local observability compose dir")
-	initCmd.Flags().StringVar(&initOperatorCompose, "operator-compose", "", "Advanced: local Operator compose dir (or PLAT5_OPERATOR_COMPOSE)")
-	initCmd.Flags().BoolVar(&initAuth, "auth", false, "Enable Plat5 Auth in plat5.yml")
-	initCmd.Flags().BoolVar(&initObservability, "observability", false, "Enable observability stack in plat5.yml")
-	initCmd.Flags().BoolVar(&initOperator, "operator", false, "Enable Operator stack in plat5.yml")
-	initCmd.Flags().BoolVar(&initForce, "force", false, "Overwrite existing plat5.yml (bare init only)")
-	initCmd.Flags().BoolVarP(&initYes, "yes", "y", false, "Non-interactive; do not prompt")
-	initCmd.Flags().StringVar(&initTemplate, "template", "", "Starter: official name, owner/repo, or https://…/archive/….tar.gz")
-	initCmd.Flags().StringVar(&initTemplatesDir, "templates-dir", "", "Local templates root (skip remote fetch)")
-	initCmd.Flags().StringVar(&initPlat5Version, "plat5-version", "", "Runtime GHCR pin written to plat5.yml (default: latest plat5dev/plat5 tag)")
-	initCmd.Flags().StringVar(&initAuthVersion, "auth-version", "", "Auth GHCR pin written to auth.version (default: latest plat5dev/auth tag)")
-	initCmd.Flags().StringVar(&initOperatorVersion, "operator-version", "", "Operator GHCR pin written to operator.version (default: latest plat5dev/operator tag)")
-	initCmd.Flags().StringVar(&initTemplateRef, "template-ref", "", "Git ref for remote templates (default master; or PLAT5_TEMPLATE_REF)")
-	initCmd.Flags().BoolVar(&initListTemplates, "list-templates", false, "List first-party templates and exit")
+	f := initCmd.Flags()
+	f.StringVar(&initTemplate, "template", "", "Starter: a first-party name, owner/repo, an archive URL, or none")
+	f.BoolVar(&initListTemplates, "list-templates", false, "List first-party starters")
+	f.BoolVarP(&initYes, "yes", "y", false, "Don't ask; take the defaults (first starter, every module)")
+	f.BoolVar(&initForce, "force", false, "Overwrite an existing plat5.yml")
+	f.BoolVar(&initNoAuth, "no-auth", false, "Turn the auth module off (then set idp: in plat5.yml)")
+	f.BoolVar(&initNoOperator, "no-operator", false, "Turn the operator module off")
+	f.BoolVar(&initNoObservability, "no-observability", false, "Turn the observability module off")
+	f.StringArrayVar(&initSources, "source", nil, "Build a module from a checkout: plat5=../plat5 (repeatable)")
+	f.StringArrayVar(&initVersions, "version", nil, "Pin an image: plat5=v0.7.0 (repeatable; default the latest tag)")
+	f.StringVar(&initTemplatesDir, "templates-dir", "", "Read starters from a local directory (or PLAT5_TEMPLATES)")
+	f.StringVar(&initTemplateRef, "template-ref", "", "Git ref for remote starters (default master; or PLAT5_TEMPLATE_REF)")
+}
+
+type initChoices struct {
+	dir      string
+	starter  string
+	modules  map[string]bool
+	sources  map[string]string
+	versions map[string]string
 }
 
 func runInit(cmd *cobra.Command, args []string) error {
-	cwd, err := os.Getwd()
+	if initListTemplates {
+		return listTemplates()
+	}
+	ch, err := initChoose(cmd, args)
 	if err != nil {
 		return err
 	}
 
-	if initListTemplates {
-		return runListTemplates(cmd)
+	if err := os.MkdirAll(ch.dir, 0o755); err != nil {
+		return err
 	}
-
-	ymlPath := filepath.Join(cwd, "plat5.yml")
+	ymlPath := filepath.Join(ch.dir, "plat5.yml")
 	if _, err := os.Stat(ymlPath); err == nil && !initForce {
-		return fmt.Errorf("%s already exists (use --force to overwrite plat5.yml)", ymlPath)
+		return fmt.Errorf("%s already exists (--force to overwrite it)", ymlPath)
 	}
-
-	interactive := !initYes && prompt.Interactive()
-	var session *prompt.Session
-	if interactive {
-		session = prompt.NewSession(os.Stdin, os.Stdout)
-	}
-
-	projectID := initProjectID
+	projectID := config.SanitizeProjectID(filepath.Base(ch.dir))
 	if projectID == "" {
-		projectID = filepath.Base(cwd)
-	}
-	if session != nil && !cmd.Flags().Changed("project-id") {
-		projectID, err = session.String("Project id", projectID)
-		if err != nil {
-			return err
-		}
-		if projectID == "" {
-			return fmt.Errorf("project id is required")
-		}
-	}
-
-	// Compose paths: flags/env only (advanced local-dev). Never prompted.
-	plat5Compose := initPlat5Compose
-	if plat5Compose == "" {
-		plat5Compose = os.Getenv("PLAT5_COMPOSE")
-	}
-	if plat5Compose != "" {
-		plat5Compose, err = resolvePlat5Flag(plat5Compose)
-		if err != nil {
-			return fmt.Errorf("plat5-compose: %w", err)
-		}
-	}
-
-	// Interactive template choice when --template omitted.
-	chosenTemplate := initTemplate
-	if session != nil && !cmd.Flags().Changed("template") {
-		chosenTemplate, err = promptTemplate(session)
-		if err != nil {
-			return err
-		}
-	}
-
-	authEnabled := initAuth
-	if session != nil && !cmd.Flags().Changed("auth") {
-		authEnabled, err = session.YesNo("Enable Plat5 Auth?", false)
-		if err != nil {
-			return err
-		}
-	}
-
-	authCompose := initAuthCompose
-	if authCompose == "" {
-		authCompose = os.Getenv("PLAT5_AUTH_COMPOSE")
-	}
-	if authCompose != "" {
-		authCompose, err = resolveAuthFlag(authCompose)
-		if err != nil {
-			return fmt.Errorf("auth-compose: %w", err)
-		}
-	}
-
-	obsEnabled := initObservability
-	if session != nil && !cmd.Flags().Changed("observability") {
-		obsEnabled, err = session.YesNo("Enable observability?", false)
-		if err != nil {
-			return err
-		}
-	}
-
-	obsCompose := initObservabilityCompose
-	if obsCompose == "" {
-		obsCompose = os.Getenv("PLAT5_OBSERVABILITY_COMPOSE")
-	}
-	if obsCompose != "" {
-		obsCompose, err = resolveObservabilityFlag(obsCompose)
-		if err != nil {
-			return fmt.Errorf("observability-compose: %w", err)
-		}
-	}
-
-	operatorEnabled := initOperator
-	if session != nil && !cmd.Flags().Changed("operator") {
-		operatorEnabled, err = session.YesNo("Enable Operator?", false)
-		if err != nil {
-			return err
-		}
-	}
-
-	operatorCompose := initOperatorCompose
-	if operatorCompose == "" {
-		operatorCompose = os.Getenv("PLAT5_OPERATOR_COMPOSE")
-	}
-	if operatorCompose != "" {
-		operatorCompose, err = resolveOperatorFlag(operatorCompose)
-		if err != nil {
-			return fmt.Errorf("operator-compose: %w", err)
-		}
+		return fmt.Errorf("can't make a project id from %q", filepath.Base(ch.dir))
 	}
 
 	var tpl *template.Template
-	if chosenTemplate != "" {
-		opts, err := templateResolveOpts()
+	if ch.starter != "" {
+		opts, err := templateOpts()
 		if err != nil {
 			return err
 		}
-		tpl, err = template.Resolve(opts, chosenTemplate)
-		if err != nil {
+		if tpl, err = template.Resolve(opts, ch.starter); err != nil {
 			return err
 		}
-		if err := tpl.Copy(cwd); err != nil {
+		if err := tpl.Copy(ch.dir); err != nil {
 			return err
 		}
-		if err := tpl.Substitute(cwd, projectID); err != nil {
+		if err := tpl.Substitute(ch.dir, projectID); err != nil {
 			return err
 		}
-		fmt.Printf("Copied template %s → %s\n", tpl.Manifest.Name, cwd)
+		fmt.Printf("Copied starter %s\n", tpl.Manifest.Name)
 	}
 
-	upstreams := map[string]string{"api": "http://host.docker.internal:3000"}
+	versions, err := resolveVersions(ch)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(ymlPath, []byte(renderPlat5YML(projectID, ch, versions, tpl)), 0o644); err != nil {
+		return err
+	}
+	fmt.Println("Wrote plat5.yml")
+
+	if tpl == nil {
+		for name, body := range map[string]string{
+			"routes.identity.yml": identityRoutesCatalog,
+			"routes.audit.yml":    auditRoutesCatalog,
+			"routes.yml":          sampleRoutes,
+		} {
+			if err := writeIfAbsent(ch.dir, name, body); err != nil {
+				return err
+			}
+		}
+	}
+	// A starter may ship roles with its own labels; keep them.
+	if err := writeIfAbsent(ch.dir, "roles.yml", starterRoles); err != nil {
+		return err
+	}
+
+	fmt.Println()
+	fmt.Println("Next:")
+	if wd, _ := os.Getwd(); filepath.Clean(wd) != filepath.Clean(ch.dir) {
+		fmt.Printf("  cd %s\n", relPath(wd, ch.dir))
+	}
+	fmt.Println("  plat5 start")
+	return nil
+}
+
+// initChoose settles the directory, starter, modules, sources, and pins from
+// args, flags, and (on a terminal, without -y) prompts.
+func initChoose(cmd *cobra.Command, args []string) (initChoices, error) {
+	ch := initChoices{
+		modules: map[string]bool{
+			config.ModuleAuth:          !initNoAuth,
+			config.ModuleOperator:      !initNoOperator,
+			config.ModuleObservability: !initNoObservability,
+		},
+		sources:  map[string]string{},
+		versions: map[string]string{},
+	}
+	if err := parsePairs("--source", initSources, config.Sources, ch.sources); err != nil {
+		return ch, err
+	}
+	if err := parsePairs("--version", initVersions, config.Sources, ch.versions); err != nil {
+		return ch, err
+	}
+	for k, v := range ch.sources {
+		abs, err := filepath.Abs(prompt.ExpandPath(v))
+		if err != nil {
+			return ch, err
+		}
+		ch.sources[k] = abs
+	}
+
+	interactive := !initYes && prompt.Interactive()
+	dir := ""
+	if len(args) == 1 {
+		dir = args[0]
+	}
+	starter := initTemplate
+	if starter == noTemplate {
+		starter = ""
+	}
+
+	if interactive {
+		var fields []huh.Field
+		if dir == "" {
+			dir = "my-app"
+			fields = append(fields, huh.NewInput().Title("Project directory").Value(&dir).
+				Validate(func(s string) error {
+					if config.SanitizeProjectID(filepath.Base(s)) == "" {
+						return errors.New("pick a name with letters or digits")
+					}
+					return nil
+				}))
+		}
+		if !cmd.Flags().Changed("template") {
+			list, err := starters()
+			if err != nil {
+				return ch, err
+			}
+			opts := []huh.Option[string]{}
+			for _, o := range list {
+				opts = append(opts, huh.NewOption(fmt.Sprintf("%-26s %s", o.Name, o.Description), o.Name))
+			}
+			opts = append(opts, huh.NewOption(fmt.Sprintf("%-26s %s", noTemplate, "Plat5 only, with sample routes"), ""))
+			starter = list[0].Name
+			fields = append(fields, huh.NewSelect[string]().Title("Starter").Options(opts...).Value(&starter))
+		}
+		askModules := !cmd.Flags().Changed("no-auth") && !cmd.Flags().Changed("no-operator") && !cmd.Flags().Changed("no-observability")
+		picked := []string{config.ModuleAuth, config.ModuleOperator, config.ModuleObservability}
+		if askModules {
+			fields = append(fields, huh.NewMultiSelect[string]().
+				Title("Modules (space toggles)").
+				Options(
+					huh.NewOption("auth           sign-in for your users (Plat5 Auth)", config.ModuleAuth).Selected(true),
+					huh.NewOption("operator       staff console and gateway", config.ModuleOperator).Selected(true),
+					huh.NewOption("observability  Grafana: logs, traces, metrics", config.ModuleObservability).Selected(true),
+				).
+				Value(&picked))
+		}
+		if err := runForm(fields); err != nil {
+			return ch, err
+		}
+		if askModules {
+			for _, m := range config.Modules {
+				ch.modules[m] = contains(picked, m)
+			}
+		}
+	} else if !cmd.Flags().Changed("template") {
+		list, err := starters()
+		if err != nil {
+			return ch, err
+		}
+		starter = list[0].Name
+	}
+
+	if dir == "" {
+		dir = "."
+	}
+	abs, err := filepath.Abs(prompt.ExpandPath(dir))
+	if err != nil {
+		return ch, err
+	}
+	ch.dir = abs
+	ch.starter = starter
+	return ch, nil
+}
+
+func runForm(fields []huh.Field) error {
+	if len(fields) == 0 {
+		return nil
+	}
+	err := huh.NewForm(huh.NewGroup(fields...)).Run()
+	if errors.Is(err, huh.ErrUserAborted) {
+		return errors.New("cancelled")
+	}
+	return err
+}
+
+// parsePairs reads key=value flags into out, checking keys against allowed.
+func parsePairs(flag string, pairs, allowed []string, out map[string]string) error {
+	for _, p := range pairs {
+		k, v, ok := strings.Cut(p, "=")
+		if !ok || strings.TrimSpace(v) == "" {
+			return fmt.Errorf("%s %q: want key=value", flag, p)
+		}
+		if !contains(allowed, k) {
+			return fmt.Errorf("%s %s: unknown (want %s)", flag, k, strings.Join(allowed, ", "))
+		}
+		out[k] = strings.TrimSpace(v)
+	}
+	return nil
+}
+
+// resolveVersions pins every image to its latest tag, unless a --version sets it
+// or a --source builds it. A pin the chosen modules need must resolve; the rest
+// are written when they can be, so turning a module on later just works.
+func resolveVersions(ch initChoices) (map[string]string, error) {
+	cfg := config.Resolved{Modules: ch.modules}
+	needed := cfg.NeededVersions()
+	out := map[string]string{}
+	for _, k := range config.Sources {
+		if ch.sources[k] != "" {
+			continue
+		}
+		if v := ch.versions[k]; v != "" {
+			out[k] = v
+			continue
+		}
+		tag, err := release.Latest(config.VersionRepos[k])
+		if err != nil {
+			if contains(needed, k) {
+				return nil, fmt.Errorf("latest %s: %w (pin one with --version %s=vX.Y.Z)", config.VersionRepos[k], err, k)
+			}
+			continue
+		}
+		out[k] = tag
+	}
+	return out, nil
+}
+
+func renderPlat5YML(projectID string, ch initChoices, versions map[string]string, tpl *template.Template) string {
+	var b strings.Builder
+	p := func(format string, a ...any) { fmt.Fprintf(&b, format, a...) }
+
+	p("# Plat5 project. plat5 start runs it; see `plat5 start --help`.\n")
+	p("project_id: %s\n\n", yamlString(projectID))
+
+	if len(versions) > 0 {
+		p("# Image tags. plat5 init wrote the latest of each.\nversions:\n")
+		for _, k := range config.Sources {
+			if v := versions[k]; v != "" {
+				p("  %s: %s\n", k, yamlString(v))
+			}
+		}
+		p("\n")
+	}
+	if len(ch.sources) > 0 {
+		p("# Built from these checkouts instead of pulled.\nsource:\n")
+		for _, k := range config.Sources {
+			if v := ch.sources[k]; v != "" {
+				p("  %s: %s\n", k, yamlString(v))
+			}
+		}
+		p("\n")
+	}
+
+	p("# What plat5 start runs beside Plat5. plat5 start -x <module> skips one for a run.\n")
+	p("modules:\n")
+	p("  %-20s # Plat5 Auth: sign-in for your users (dev mode)\n", fmt.Sprintf("auth: %t", ch.modules[config.ModuleAuth]))
+	p("  %-20s # staff console, operator gateway, staff sign-in\n", fmt.Sprintf("operator: %t", ch.modules[config.ModuleOperator]))
+	p("  %-20s # Grafana with logs, traces, metrics\n\n", fmt.Sprintf("observability: %t", ch.modules[config.ModuleObservability]))
+
+	upstreams := map[string]string{"api": "3000"}
 	routes := []string{"./routes.identity.yml", "./routes.audit.yml", "./routes.yml"}
 	if tpl != nil {
 		if len(tpl.Manifest.Upstreams) > 0 {
@@ -223,565 +346,128 @@ func runInit(cmd *cobra.Command, args []string) error {
 			routes = tpl.Manifest.Routes
 		}
 	}
-
-	pins, err := resolveInitPins(authEnabled, operatorEnabled)
-	if err != nil {
-		return err
-	}
-	body := renderPlat5YML(projectID, plat5Compose, authCompose, authEnabled, obsCompose, obsEnabled, operatorCompose, operatorEnabled, upstreams, routes, pins)
-	if err := os.WriteFile(ymlPath, []byte(body), 0o644); err != nil {
-		return err
-	}
-	fmt.Println("Created", ymlPath)
-
-	if obsEnabled {
-		if n, err := enableTemplateOTLP(cwd); err != nil {
-			return err
-		} else if n > 0 {
-			fmt.Printf("Enabled OTEL_EXPORTER_OTLP_ENDPOINT in %d compose file(s)\n", n)
+	if tpl != nil && tpl.Manifest.App.Compose != "" {
+		p("# Your app. plat5 start runs its compose file after Plat5 (-x app to run it yourself).\n")
+		p("app:\n  compose: %s\n", yamlString("./"+strings.TrimPrefix(tpl.Manifest.App.Compose, "./")))
+		if tpl.Manifest.App.Web != "" {
+			p("  web: %s  # its browser origin: allowed to sign in with local Auth\n", yamlString(tpl.Manifest.App.Web))
 		}
-	}
-
-	if tpl == nil {
-		if err := writeIfAbsent(cwd, "routes.identity.yml", identityRoutesCatalog); err != nil {
-			return err
-		}
-		if err := writeIfAbsent(cwd, "routes.audit.yml", auditRoutesCatalog); err != nil {
-			return err
-		}
-		if err := writeIfAbsent(cwd, "routes.yml", sampleRoutes); err != nil {
-			return err
-		}
-	}
-	// A template may ship its own roles with its labels; keep it.
-	if err := writeIfAbsent(cwd, "roles.yml", starterRoles); err != nil {
-		return err
-	}
-
-	fmt.Println()
-	fmt.Println("Next:")
-	n := 1
-	fmt.Printf("  %d. plat5 start\n", n)
-	n++
-	if authEnabled {
-		fmt.Printf("  %d. Get a dev token: curl -s -X POST http://localhost:5000/dev/token -H 'Content-Type: application/json' -d '{\"email\":\"dev@example.com\"}' | jq -r .access_token\n", n)
-		fmt.Println("     (local auth runs with AUTH_DEV_MODE=true; adjust the port if ports.auth is set or busy — see plat5 status)")
-		n++
-	}
-	if tpl != nil {
-		for _, step := range tpl.Manifest.Next {
-			fmt.Printf("  %d. %s\n", n, step)
-			n++
-		}
+		p("\n")
 	} else {
-		fmt.Printf("  %d. Set upstreams in plat5.yml if needed\n", n)
+		p("# Your app. Set compose: and plat5 start runs it after Plat5.\n")
+		p("# app:\n#   compose: ./docker-compose.yml\n#   web: http://localhost:3001\n\n")
 	}
-	return nil
+
+	p("# Where your services listen, by routes.yml service name. A bare port is a\n")
+	p("# process on your machine (http://host.docker.internal:<port>).\n")
+	p("upstreams:\n")
+	keys := make([]string, 0, len(upstreams))
+	for k := range upstreams {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		p("  %s: %s\n", k, yamlString(upstreams[k]))
+	}
+	p("\n# Route files, applied in order on start (or: plat5 routes apply).\nroutes:\n")
+	for _, r := range routes {
+		p("  - %s\n", yamlString(r))
+	}
+	p("\n# Roles grant labels; routes require them. Applied on start (or: plat5 roles apply).\n")
+	p("# Remove the line to turn roles off: every member holds every label.\n")
+	p("roles: ./roles.yml\n")
+
+	p(`
+# --- Optional ---
+# ports:                 # host ports (defaults: gateway 5400, auth 5401, control_plane 5402,
+#   gateway: 5400        #   grafana 5403, operator 5410, staff_auth 5411, operator_console 5412,
+#                        #   otlp_grpc 4317, otlp_http 4318)
+# admin_token: dev-admin-token
+# apikey_brand: plat5    # keys are {brand}-k-2-…
+# auth:                  # local Auth, beyond app.web
+#   clients: [plat5]
+#   origins: []
+#   redirect_uris: []
+#   theme_file: ./theme.json
+# operator:
+#   origins: []          # more staff consoles
+# idp:                   # with modules.auth off: your IdP
+#   issuer: https://idp.example.com
+#   jwks_uri: https://idp.example.com/.well-known/jwks.json
+#   audiences: [my-api]
+#   user_id_claim: sub
+# otel:
+#   endpoint: http://host.docker.internal:4318   # your collector, instead of observability
+`)
+	if !ch.modules[config.ModuleAuth] {
+		b.WriteString("\n# modules.auth is off: plat5 start needs idp: above.\n")
+	}
+	return b.String()
 }
 
-// promptTemplate offers a menu when templates are discoverable.
-// Returns template name or "" for bare scaffold.
-func promptTemplate(session *prompt.Session) (string, error) {
-	opts, err := templateResolveOpts()
+// starters is what --template can name: the first-party list, or a local
+// --templates-dir's starters (named by folder).
+func starters() ([]template.Summary, error) {
+	opts, err := templateOpts()
 	if err != nil {
-		fmt.Printf("Tip: templates unavailable (%v) — bare scaffold\n", err)
-		return "", nil
-	}
-	list, err := template.ListAvailable(opts)
-	if err != nil || len(list) == 0 {
-		if err != nil {
-			fmt.Println("Tip: could not list templates:", err)
-		}
-		return "", nil
-	}
-
-	display := make([]string, 0, len(list)+1)
-	display = append(display, "none — plat5.yml + sample routes only")
-	for _, s := range list {
-		if s.Description != "" {
-			display = append(display, fmt.Sprintf("%s — %s", s.Name, s.Description))
-		} else {
-			display = append(display, s.Name)
-		}
-	}
-	// Default: first real template (index 1)
-	defaultIdx := 1
-	if len(display) == 1 {
-		defaultIdx = 0
-	}
-	fmt.Println("Template:")
-	idx, err := session.Choice("Template", display, defaultIdx)
-	if err != nil {
-		return "", err
-	}
-	if idx == 0 {
-		return "", nil
-	}
-	return list[idx-1].Name, nil
-}
-
-func runListTemplates(cmd *cobra.Command) error {
-	opts, err := templateResolveOpts()
-	if err != nil {
-		return err
+		return nil, err
 	}
 	list, err := template.ListAvailable(opts)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if len(list) == 0 {
-		fmt.Println("No templates found")
-		return nil
+		return nil, errors.New("no starters found")
+	}
+	return list, nil
+}
+
+func listTemplates() error {
+	list, err := starters()
+	if err != nil {
+		return err
 	}
 	for _, s := range list {
-		if s.Description != "" {
-			fmt.Printf("%-20s  %s\n", s.Name, s.Description)
-		} else {
-			fmt.Println(s.Name)
-		}
+		fmt.Printf("%-20s  %s\n", s.Name, s.Description)
 	}
 	return nil
 }
 
-type initPins struct {
-	plat5, auth, operator string
-}
-
-// resolveInitPins writes the latest vX.Y.Z tag unless a flag or env overrides it.
-// Auth and operator are looked up only when that stack is enabled.
-func resolveInitPins(authEnabled, operatorEnabled bool) (initPins, error) {
-	var p initPins
-	var err error
-	p.plat5, err = resolvePin(initPlat5Version, "PLAT5_VERSION", release.RepoPlat5)
-	if err != nil {
-		return p, err
-	}
-	if authEnabled {
-		p.auth, err = resolvePin(initAuthVersion, "AUTH_VERSION", release.RepoAuth)
-		if err != nil {
-			return p, err
-		}
-	}
-	if operatorEnabled {
-		p.operator, err = resolvePin(initOperatorVersion, "OPERATOR_VERSION", release.RepoOperator)
-		if err != nil {
-			return p, err
-		}
-	}
-	return p, nil
-}
-
-func resolvePin(explicit, envKey, repo string) (string, error) {
-	if v := strings.TrimSpace(explicit); v != "" {
-		return v, nil
-	}
-	if v := strings.TrimSpace(os.Getenv(envKey)); v != "" {
-		return v, nil
-	}
-	tag, err := release.Latest(repo)
-	if err != nil {
-		return "", err
-	}
-	return tag, nil
-}
-
-// templateResolveOpts prefers explicit local dirs; otherwise remote GitHub archives.
-func templateResolveOpts() (template.ResolveOptions, error) {
+// templateOpts prefers a local templates directory; otherwise GitHub archives.
+func templateOpts() (template.ResolveOptions, error) {
 	opts := template.ResolveOptions{Ref: initTemplateRef}
-	if initTemplatesDir != "" {
-		abs, err := filepath.Abs(prompt.ExpandPath(initTemplatesDir))
-		if err != nil {
-			return opts, err
-		}
-		opts.LocalRoot = abs
-		return opts, nil
+	dir := initTemplatesDir
+	if dir == "" {
+		dir = os.Getenv("PLAT5_TEMPLATES")
 	}
-	if v := os.Getenv("PLAT5_TEMPLATES"); v != "" {
-		abs, err := filepath.Abs(prompt.ExpandPath(v))
+	if dir != "" {
+		abs, err := filepath.Abs(prompt.ExpandPath(dir))
 		if err != nil {
 			return opts, err
 		}
 		opts.LocalRoot = abs
-		return opts, nil
 	}
 	return opts, nil
-}
-
-func validatePlat5Path(p string) error {
-	if strings.TrimSpace(p) == "" {
-		return nil
-	}
-	_, err := compose.ResolveDir(p)
-	return err
-}
-
-func validateAuthPath(p string) error {
-	_, err := compose.ResolveDir(p)
-	return err
-}
-
-func validateObservabilityPath(p string) error {
-	_, err := compose.ResolveDir(p)
-	return err
-}
-
-func resolvePlat5Flag(p string) (string, error) {
-	return compose.ResolveDir(prompt.ExpandPath(p))
-}
-
-func resolveAuthFlag(p string) (string, error) {
-	return compose.ResolveDir(prompt.ExpandPath(p))
-}
-
-func resolveObservabilityFlag(p string) (string, error) {
-	return compose.ResolveDir(prompt.ExpandPath(p))
-}
-
-func resolveOperatorFlag(p string) (string, error) {
-	return compose.ResolveDir(prompt.ExpandPath(p))
-}
-
-func renderPlat5YML(projectID, plat5Path, auth string, authEnabled bool, obs string, obsEnabled bool, operator string, operatorEnabled bool, upstreams map[string]string, routes []string, pins initPins) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "project_id: %s\n\n", yamlString(projectID))
-	fmt.Fprintf(&b, "# Runtime GHCR tag (gateway, control-plane, identity, audit). plat5 init writes the latest tag.\n")
-	fmt.Fprintf(&b, "plat5_version: %s\n\n", yamlString(pins.plat5))
-	if plat5Path != "" {
-		fmt.Fprintf(&b, "plat5_compose: %s\n", yamlString(plat5Path))
-	}
-	if auth != "" {
-		fmt.Fprintf(&b, "auth_compose: %s\n", yamlString(auth))
-	}
-	if obs != "" {
-		fmt.Fprintf(&b, "observability_compose: %s\n", yamlString(obs))
-	}
-	if operator != "" {
-		fmt.Fprintf(&b, "operator_compose: %s\n", yamlString(operator))
-	}
-	if plat5Path != "" || auth != "" || obs != "" || operator != "" {
-		fmt.Fprintf(&b, "\n")
-	}
-	fmt.Fprintf(&b, "auth:\n  enabled: %t\n", authEnabled)
-	if authEnabled {
-		fmt.Fprintf(&b, "  version: %s  # ghcr.io/plat5dev/auth (independent of plat5_version)\n", yamlString(pins.auth))
-		// Defaults match web-demo (Vite :5173) + Postman OAuth callback.
-		fmt.Fprintf(&b, "  # Also the gateway allowlist (token aud).\n")
-		fmt.Fprintf(&b, "  allowed_clients: [plat5]\n")
-		fmt.Fprintf(&b, "  allowed_redirect_uris:\n")
-		fmt.Fprintf(&b, "    - http://localhost:5173/callback\n")
-		fmt.Fprintf(&b, "    - https://oauth.pstmn.io/v1/callback\n")
-		fmt.Fprintf(&b, "  allowed_origins:\n")
-		fmt.Fprintf(&b, "    - http://localhost:5173\n")
-	}
-	fmt.Fprintf(&b, "\n")
-	fmt.Fprintf(&b, "observability:\n  enabled: %t\n\n", obsEnabled)
-	fmt.Fprintf(&b, "operator:\n  enabled: %t\n", operatorEnabled)
-	if operatorEnabled {
-		fmt.Fprintf(&b, "  version: %s  # ghcr.io/plat5dev/operator\n", yamlString(pins.operator))
-		fmt.Fprintf(&b, "  # Browser consoles: gateway CORS and staff IdP redirect <origin>/callback.\n")
-		fmt.Fprintf(&b, "  allowed_origins:\n")
-		fmt.Fprintf(&b, "    - %s\n", config.DefaultOperatorAllowedOrigin)
-	}
-	fmt.Fprintf(&b, "\n")
-	fmt.Fprintf(&b, "# Optional host port pins. Omit a key to use defaults;\n")
-	fmt.Fprintf(&b, "# unpinned busy ports are auto-allocated. Pinned + busy → start fails.\n")
-	fmt.Fprintf(&b, "# ports:\n#   gateway: 5001\n#   control_plane: 5002\n#   auth: 5000\n")
-	fmt.Fprintf(&b, "#   operator: 5004\n#   operator_idp: 5556\n")
-	fmt.Fprintf(&b, "#   grafana: 3002\n#   otlp_grpc: 4317\n#   otlp_http: 4318\n#   alloy: 12345\n\n")
-	fmt.Fprintf(&b, "admin_token: %s\n\n", config.DefaultAdminToken)
-	fmt.Fprintf(&b, "# Credential brand (identity). Keys {brand}-k-2-, sessions {brand}-s-2-.\n")
-	fmt.Fprintf(&b, "# [a-z][a-z0-9]*, max 32.\n")
-	fmt.Fprintf(&b, "# apikey_brand: plat5\n\n")
-	if obsEnabled {
-		fmt.Fprintf(&b, "# OTLP for Plat5/Auth containers (matches default ports.otlp_http).\n")
-		fmt.Fprintf(&b, "otel:\n  endpoint: http://host.docker.internal:4318\n\n")
-	} else {
-		fmt.Fprintf(&b, "# Optional OTLP for Plat5/Auth containers (unset = no export).\n")
-		fmt.Fprintf(&b, "# When observability.enabled, CLI auto-wires host.docker.internal:<otlp_http> if unset.\n")
-		fmt.Fprintf(&b, "# otel:\n#   endpoint: http://host.docker.internal:4318\n\n")
-	}
-	fmt.Fprintf(&b, "# Where your services listen. Keys match services.* in routes.yml.\n")
-	fmt.Fprintf(&b, "# Bare port → host process (CLI expands to http://host.docker.internal:<port>).\n")
-	fmt.Fprintf(&b, "# Otherwise http://host:port only: no https (TLS upstreams aren't supported yet), no path or query.\n")
-	fmt.Fprintf(&b, "upstreams:\n")
-	if len(upstreams) == 0 {
-		fmt.Fprintf(&b, "  api: 3000\n")
-	} else {
-		keys := make([]string, 0, len(upstreams))
-		for k := range upstreams {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for i, k := range keys {
-			if k == "api" && i != 0 {
-				keys = append([]string{"api"}, append(keys[:i], keys[i+1:]...)...)
-				break
-			}
-		}
-		for _, k := range keys {
-			fmt.Fprintf(&b, "  %s: %s\n", k, yamlString(upstreams[k]))
-		}
-	}
-	fmt.Fprintf(&b, "\nroutes:\n")
-	if len(routes) == 0 {
-		fmt.Fprintf(&b, "  - ./routes.yml\n")
-	} else {
-		for _, r := range routes {
-			fmt.Fprintf(&b, "  - %s\n", yamlString(r))
-		}
-	}
-	fmt.Fprintf(&b, "\n# Roles: each grants labels; routes require them (required_labels).\n")
-	fmt.Fprintf(&b, "# plat5 start applies this file to the control plane (or: plat5 roles apply).\n")
-	fmt.Fprintf(&b, "# Identity picks up changes without a restart.\n")
-	fmt.Fprintf(&b, "# Remove the line to turn roles off (every member holds every label).\n")
-	fmt.Fprintf(&b, "roles: ./roles.yml\n")
-	return b.String()
 }
 
 func yamlString(s string) string {
 	if s == "" {
 		return `""`
 	}
-	if strings.ContainsAny(s, ":#{}[]&*?|>!%@`'\" \t") {
+	if strings.ContainsAny(s, ":#{}[]&*?|>!%@`'\" \t") || s == "true" || s == "false" {
 		return fmt.Sprintf("%q", s)
 	}
 	return s
 }
 
-// enableTemplateOTLP uncomments OTEL_EXPORTER_OTLP_ENDPOINT in project compose files
-// (template starters ship it commented). Returns how many files were changed.
-func enableTemplateOTLP(root string) (int, error) {
-	var changed int
-	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			base := d.Name()
-			if base == "node_modules" || base == ".git" || base == "vendor" || base == "dist" {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		name := d.Name()
-		if name != "docker-compose.yml" && name != "docker-compose.yaml" &&
-			name != "compose.yml" && name != "compose.yaml" {
-			return nil
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		out, n := uncommentOTLPEndpoint(string(data))
-		if n == 0 {
-			return nil
-		}
-		if err := os.WriteFile(path, []byte(out), 0o644); err != nil {
-			return err
-		}
-		changed++
-		return nil
-	})
-	return changed, err
-}
-
-// uncommentOTLPEndpoint turns commented OTEL_EXPORTER_OTLP_ENDPOINT lines into active env entries.
-func uncommentOTLPEndpoint(src string) (string, int) {
-	lines := strings.Split(src, "\n")
-	var n int
-	for i, line := range lines {
-		trim := strings.TrimSpace(line)
-		if !strings.HasPrefix(trim, "#") {
-			continue
-		}
-		rest := strings.TrimSpace(strings.TrimPrefix(trim, "#"))
-		if !strings.HasPrefix(rest, "OTEL_EXPORTER_OTLP_ENDPOINT") {
-			continue
-		}
-		// Preserve indentation of the comment marker.
-		indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
-		lines[i] = indent + rest
-		n++
-	}
-	if n == 0 {
-		return src, 0
-	}
-	return strings.Join(lines, "\n"), n
-}
-
 func writeIfAbsent(dir, name, body string) error {
 	path := filepath.Join(dir, name)
 	if _, err := os.Stat(path); err == nil {
-		fmt.Println("Keeping existing", path)
 		return nil
 	}
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		return err
 	}
-	fmt.Println("Created", path)
+	fmt.Println("Wrote", name)
 	return nil
 }
-
-const identityRoutesCatalog = `# Catalog of identity public routes. Apply to the control plane (or a subset).
-# Not auto-published. Internal validate stays on INTERNAL_PORT.
-# GET /organizations, GET /users, PATCH /users/{user_id}/status, and
-# GET /members/{member_id}/user are served by identity and omitted here: they
-# are for staff, through the operator gateway.
-#
-# Writes that manage the org carry labels. A member's role grants labels
-# (docs/roles.md); its keys and sessions carry them. Reads stay unlabeled,
-# except the invite list, which returns live tokens. Labels are opaque: edit
-# them here, not in identity.
-#
-# Writes are audited by default (docs/audit.md): organization and member
-# writes in the org's log, user writes in the person's own log. Creating an
-# org, redeeming an invite, and minting a session are in that org's log too.
-# The invite list is a read worth recording: it returns live tokens, so it
-# sets audit: true.
-services:
-  identity:
-    url: http://identity:3000
-    user:
-      routes:
-        - path: /user
-          upstream: /users/{subject.user_id}
-          methods: [GET, PATCH, DELETE]
-        - path: /user/memberships
-          upstream: /users/{subject.user_id}/memberships
-          methods: [GET]
-        - path: /user/api-keys
-          upstream: /users/{subject.user_id}/api-keys
-          methods: [GET, POST]
-        - path: /user/api-keys/{key_id}
-          upstream: /users/{subject.user_id}/api-keys/{path.key_id}
-          methods: [DELETE]
-        - path: /user/organizations
-          upstream: /users/{subject.user_id}/organizations
-          methods: [POST]
-        - path: /user/invites/redeem
-          upstream: /users/{subject.user_id}/invites/redeem
-          methods: [POST]
-        - path: /user/organizations/{organization_id}/session
-          upstream: /users/{subject.user_id}/organizations/{path.organization_id}/session
-          methods: [POST]
-    organization:
-      routes:
-        - path: /org
-          upstream: /organizations/{subject.organization_id}
-          methods:
-            GET:
-            PATCH:
-              required_labels: [org:write]
-            DELETE:
-              required_labels: [org:delete]
-        - path: /org/roles
-          upstream: /organizations/{subject.organization_id}/roles
-          methods: [GET]
-        - path: /org/members
-          upstream: /organizations/{subject.organization_id}/members
-          methods:
-            GET:
-            POST:
-              required_labels: [org:members:write]
-        - path: /org/members/{member_id}
-          upstream: /organizations/{subject.organization_id}/members/{path.member_id}
-          methods:
-            GET:
-            PATCH:
-              required_labels: [org:members:write]
-            DELETE:
-              required_labels: [org:members:write]
-        - path: /org/invites
-          upstream: /organizations/{subject.organization_id}/invites
-          methods: [GET, POST]
-          required_labels: [org:members:write]
-          audit: true
-        - path: /org/invites/{invite_id}
-          upstream: /organizations/{subject.organization_id}/invites/{path.invite_id}
-          methods: [DELETE]
-          required_labels: [org:members:write]
-        - path: /org/service-accounts
-          upstream: /organizations/{subject.organization_id}/service-accounts
-          methods:
-            GET:
-            POST:
-              required_labels: [org:service-accounts:write]
-        - path: /org/service-accounts/{service_account_id}
-          upstream: /organizations/{subject.organization_id}/service-accounts/{path.service_account_id}
-          methods:
-            GET:
-            PATCH:
-              required_labels: [org:service-accounts:write]
-            DELETE:
-              required_labels: [org:service-accounts:write]
-        - path: /org/service-accounts/{service_account_id}/api-keys
-          upstream: /organizations/{subject.organization_id}/service-accounts/{path.service_account_id}/api-keys
-          methods:
-            GET:
-            POST:
-              required_labels: [org:service-accounts:write]
-        - path: /org/service-accounts/{service_account_id}/api-keys/{key_id}
-          upstream: /organizations/{subject.organization_id}/service-accounts/{path.service_account_id}/api-keys/{path.key_id}
-          methods: [DELETE]
-          required_labels: [org:service-accounts:write]
-    member:
-      routes:
-        - path: /member
-          upstream: /members/{subject.member_id}
-          methods: [GET, PATCH, DELETE]
-        - path: /member/api-keys
-          upstream: /members/{subject.member_id}/api-keys
-          methods: [GET, POST]
-        - path: /member/api-keys/{key_id}
-          upstream: /members/{subject.member_id}/api-keys/{path.key_id}
-          methods: [DELETE]
-`
-
-const auditRoutesCatalog = `# Catalog of audit public routes. Apply to the control plane.
-# Not auto-published. Internal intent/outcome writes stay on INTERNAL_PORT.
-# Skip this file when audit is off (AUDIT_ENABLED=false on the gateway).
-#
-# An org's log carries IPs and user agents of every member, so reading it is
-# labeled. A person reads their own log. Labels are opaque: edit them here,
-# not in audit.
-services:
-  audit:
-    url: http://audit:3002
-    user:
-      routes:
-        - path: /user/audit-events
-          upstream: /users/{subject.user_id}/audit-events
-          methods: [GET]
-    organization:
-      routes:
-        - path: /org/audit-events
-          upstream: /organizations/{subject.organization_id}/audit-events
-          methods: [GET]
-          required_labels: [org:audit:read]
-`
-
-// starterRoles is a starting point, not Plat5's: Plat5 names no roles (docs/roles.md).
-const starterRoles = `# Your roles. Each grants labels; routes require them (required_labels).
-# ["*"] grants every label. The org:* labels match routes.identity.yml and
-# routes.audit.yml. Add your own services' labels here. plat5 start (or
-# plat5 roles apply) writes this file to the control plane; identity picks it up.
-roles:
-  owner: ["*"]
-  admin: [org:write, org:members:write, org:service-accounts:write, org:audit:read]
-  member: []
-creator_role: owner
-default_role: member
-`
-
-const sampleRoutes = `services:
-  api:
-    # url comes from plat5.yml upstreams (applied by the CLI)
-    user:
-      routes:
-        - path: /user/widgets
-          upstream: /users/{subject.user_id}/widgets
-          methods: [GET, POST]
-        - path: /user/widgets/{id}
-          upstream: /users/{subject.user_id}/widgets/{path.id}
-          methods: [GET, PATCH, DELETE]
-`

@@ -50,3 +50,25 @@ release:
   github:
     owner: plat5dev
     name: cli
+
+# brew install plat5dev/tap/plat5 (macOS and Linux). A formula, not a cask:
+# casks are macOS-only and quarantine an unsigned binary.
+brews:
+  - name: plat5
+    repository:
+      owner: plat5dev
+      name: homebrew-tap
+      branch: master
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: https://www.plat5.com
+    description: Run Plat5 locally and manage its routes and roles
+    license: MIT
+    commit_author:
+      name: github-actions[bot]
+      email: 41898282+github-actions[bot]@users.noreply.github.com
+    commit_msg_template: "plat5 {{ .Tag }}"
+    install: |
+      bin.install "plat5"
+    test: |
+      system "#{bin}/plat5", "version"

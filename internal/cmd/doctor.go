@@ -3,19 +3,20 @@ package cmd
 import (
 	"errors"
 	"fmt"
-	"net/http"
-	"time"
+	"strings"
 
 	"github.com/plat5dev/cli/internal/compose"
 	"github.com/plat5dev/cli/internal/config"
 	"github.com/plat5dev/cli/internal/controlplane"
 	"github.com/plat5dev/cli/internal/ports"
+	"github.com/plat5dev/cli/internal/stack"
 	"github.com/spf13/cobra"
 )
 
 var doctorCmd = &cobra.Command{
 	Use:   "doctor",
-	Short: "Check local prerequisites and project config",
+	Short: "Check Docker, plat5.yml, and ports",
+	Args:  cobra.NoArgs,
 	RunE:  runDoctor,
 }
 
@@ -30,116 +31,58 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		fmt.Printf("✓ %s\n", name)
 	}
 
-	check("docker compose", compose.DockerAvailable())
+	check("docker", compose.DockerAvailable())
 
 	cfg, err := loadConfig()
 	if err != nil {
-		var np config.ErrNoProject
-		if errors.As(err, &np) {
-			check("plat5.yml", err)
-			return doctorExit(failed)
-		}
-		check("config", err)
+		check("plat5.yml", err)
 		return doctorExit(failed)
 	}
-	fmt.Printf("✓ plat5.yml: %s (project %s)\n", cfg.ConfigPath, cfg.ProjectID)
+	check("plat5.yml "+cfg.ConfigPath, nil)
 
-	fmt.Printf("✓ plat5_version: %s\n", cfg.Plat5Version)
-	if cfg.Plat5Compose == "" {
-		fmt.Println("✓ plat5: published images (GHCR)")
-	} else if dir, err := compose.ResolveDir(cfg.Plat5Compose); err != nil {
-		check("plat5_compose", err)
-	} else {
-		fmt.Printf("✓ plat5_compose: %s\n", dir)
+	stk, err := stack.New(cfg, nil)
+	if err != nil {
+		check("modules", err)
+		return doctorExit(failed)
+	}
+	check("modules: core "+strings.Join(stk.Modules, " "), nil)
+	for _, k := range cfg.NeededVersions() {
+		if src := cfg.Source[k]; src != "" {
+			fmt.Printf("· %s: built from %s\n", k, src)
+			continue
+		}
+		fmt.Printf("· %s: %s\n", k, cfg.Versions[k])
+	}
+	check("roles", config.CheckFile("roles", cfg.RolesFile))
+	check("app.compose", config.CheckFile("app.compose", cfg.AppCompose))
+	for _, f := range cfg.RouteFiles {
+		check("routes "+relPath(cfg.ConfigDir, f), config.CheckFile("routes", f))
 	}
 
-	if cfg.AuthEnabled || cfg.AuthCompose != "" {
-		fmt.Printf("✓ auth.version: %s\n", cfg.AuthVersion)
-		if cfg.AuthCompose == "" {
-			fmt.Println("✓ auth: published images (GHCR)")
-		} else if dir, err := compose.ResolveDir(cfg.AuthCompose); err != nil {
-			check("auth_compose", err)
+	running := compose.Running(cfg.ComposeProject)
+	owned := compose.PublishedPorts(cfg.ComposeProject)
+	if busy := ports.Busy(stk.Ports(), func(p int) bool { return owned[p] }); len(busy) > 0 {
+		check("ports", fmt.Errorf("in use: %s", strings.Join(busy, ", ")))
+	} else {
+		check("ports free", nil)
+	}
+
+	if running {
+		cp := controlplane.New(cfg.ControlPlaneURL, cfg.AdminToken)
+		if cp.Ready() {
+			check("control plane "+cfg.ControlPlaneURL, nil)
 		} else {
-			fmt.Printf("✓ auth_compose: %s\n", dir)
+			check("control plane "+cfg.ControlPlaneURL, errors.New("not ready (plat5 logs control-plane)"))
 		}
 	} else {
-		fmt.Println("· auth: not enabled (optional)")
+		fmt.Println("· not running (plat5 start)")
 	}
-
-	if cfg.ObservabilityEnabled || cfg.ObservabilityCompose != "" {
-		if cfg.ObservabilityCompose == "" {
-			fmt.Println("✓ observability: embedded stack")
-		} else if dir, err := compose.ResolveDir(cfg.ObservabilityCompose); err != nil {
-			check("observability_compose", err)
-		} else {
-			fmt.Printf("✓ observability_compose: %s\n", dir)
-		}
-		if cfg.OtelEndpoint != "" {
-			fmt.Printf("· otel.endpoint: %s\n", cfg.OtelEndpoint)
-		}
-	} else {
-		fmt.Println("· observability: not enabled (optional)")
-	}
-
-	if cfg.OperatorEnabled || cfg.OperatorCompose != "" {
-		fmt.Printf("✓ operator.version: %s\n", cfg.OperatorVersion)
-		if cfg.OperatorCompose == "" {
-			fmt.Println("✓ operator: published images (GHCR)")
-		} else if dir, err := compose.ResolveDir(cfg.OperatorCompose); err != nil {
-			check("operator_compose", err)
-		} else {
-			fmt.Printf("✓ operator_compose: %s\n", dir)
-		}
-	} else {
-		fmt.Println("· operator: not enabled (optional)")
-	}
-
-	for _, p := range []struct {
-		name string
-		port int
-		pin  bool
-	}{
-		{"gateway port", cfg.Ports.Gateway, cfg.PortsExplicit.Gateway},
-		{"control_plane port", cfg.Ports.ControlPlane, cfg.PortsExplicit.ControlPlane},
-		{"auth port", cfg.Ports.Auth, cfg.PortsExplicit.Auth},
-		{"operator port", cfg.Ports.Operator, cfg.PortsExplicit.Operator},
-		{"operator_idp port", cfg.Ports.OperatorIdP, cfg.PortsExplicit.OperatorIdP},
-		{"grafana port", cfg.Ports.Grafana, cfg.PortsExplicit.Grafana},
-		{"otlp_http port", cfg.Ports.OTLPHTTP, cfg.PortsExplicit.OTLPHTTP},
-		{"alloy port", cfg.Ports.Alloy, cfg.PortsExplicit.Alloy},
-	} {
-		if !ports.Free(p.port) {
-			if p.pin {
-				fmt.Printf("· %s %d: in use (pinned — start will fail if still busy)\n", p.name, p.port)
-			} else {
-				fmt.Printf("· %s %d: in use (start may auto-allocate)\n", p.name, p.port)
-			}
-		} else {
-			fmt.Printf("✓ %s %d: free\n", p.name, p.port)
-		}
-	}
-
-	cp := controlplane.New(cfg.ControlPlaneURL, cfg.AdminToken)
-	if cp.Ready() {
-		fmt.Printf("✓ control plane reachable at %s\n", cfg.ControlPlaneURL)
-	} else {
-		fmt.Printf("· control plane not reachable at %s (start with plat5 start)\n", cfg.ControlPlaneURL)
-	}
-
-	client := &http.Client{Timeout: 2 * time.Second}
-	if resp, err := client.Get(cfg.GatewayURL); err == nil {
-		resp.Body.Close()
-		fmt.Printf("✓ gateway reachable at %s\n", cfg.GatewayURL)
-	} else {
-		fmt.Printf("· gateway not reachable at %s\n", cfg.GatewayURL)
-	}
-
 	return doctorExit(failed)
 }
 
 func doctorExit(failed bool) error {
 	if failed {
-		return fmt.Errorf("doctor found problems")
+		return errors.New("doctor found problems")
 	}
 	return nil
 }

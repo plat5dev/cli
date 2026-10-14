@@ -55,7 +55,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "prometheus"
       },
       "targets": [
         {
@@ -63,7 +63,7 @@
           "hide": false,
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "prometheus"
           },
           "expr": "sum(rate(http_requests_total{service_name=\"issuer\"}[5m]))",
           "legendFormat": "req/s",
@@ -124,7 +124,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "prometheus"
       },
       "targets": [
         {
@@ -132,7 +132,7 @@
           "hide": false,
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "prometheus"
           },
           "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{service_name=\"issuer\"}[5m])) by (le))",
           "legendFormat": "p95",
@@ -201,7 +201,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "prometheus"
       },
       "targets": [
         {
@@ -209,7 +209,7 @@
           "hide": false,
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "prometheus"
           },
           "expr": "sum(rate(http_requests_total{service_name=\"issuer\", status=~\"5..\"}[5m])) / sum(rate(http_requests_total{service_name=\"issuer\"}[5m])) or vector(0)",
           "legendFormat": "error %",
@@ -280,7 +280,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "prometheus"
       },
       "targets": [
         {
@@ -288,7 +288,7 @@
           "hide": false,
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "prometheus"
           },
           "expr": "sum(rate(db_operation_errors_total{service_name=\"issuer\"}[5m])) / sum(rate(db_operations_total{service_name=\"issuer\"}[5m])) or vector(0)",
           "legendFormat": "error %",
@@ -359,7 +359,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "prometheus"
       },
       "targets": [
         {
@@ -367,7 +367,7 @@
           "hide": false,
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "prometheus"
           },
           "expr": "http_active_requests{service_name=\"issuer\"}",
           "legendFormat": "active",
@@ -428,7 +428,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "prometheus"
       },
       "targets": [
         {
@@ -436,7 +436,7 @@
           "hide": false,
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "prometheus"
           },
           "expr": "time() - process_start_time_seconds{service_name=\"issuer\"}",
           "legendFormat": "uptime",
@@ -497,7 +497,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "prometheus"
       },
       "targets": [
         {
@@ -505,7 +505,7 @@
           "hide": false,
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "prometheus"
           },
           "expr": "sum by (route, method) (rate(http_requests_total{service_name=\"issuer\"}[2m]))",
           "legendFormat": "{{method}} {{route}}",
@@ -595,7 +595,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "prometheus"
       },
       "targets": [
         {
@@ -603,7 +603,7 @@
           "hide": false,
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "prometheus"
           },
           "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket{service_name=\"issuer\"}[5m])) by (le))",
           "legendFormat": "p50",
@@ -616,7 +616,7 @@
           "hide": false,
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "prometheus"
           },
           "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{service_name=\"issuer\"}[5m])) by (le))",
           "legendFormat": "p95",
@@ -629,7 +629,7 @@
           "hide": false,
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "prometheus"
           },
           "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{service_name=\"issuer\"}[5m])) by (le))",
           "legendFormat": "p99",
@@ -719,7 +719,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "prometheus"
       },
       "targets": [
         {
@@ -727,7 +727,7 @@
           "hide": false,
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "prometheus"
           },
           "expr": "sum by (status) (rate(http_requests_total{service_name=\"issuer\"}[2m]))",
           "legendFormat": "{{status}}",
@@ -817,7 +817,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "prometheus"
       },
       "targets": [
         {
@@ -825,7 +825,7 @@
           "hide": false,
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "prometheus"
           },
           "expr": "sum by (db_operation_name) (rate(db_operations_total{service_name=\"issuer\"}[5m]))",
           "legendFormat": "{{db_operation_name}}",
@@ -915,7 +915,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "prometheus"
       },
       "targets": [
         {
@@ -923,7 +923,7 @@
           "hide": false,
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "prometheus"
           },
           "expr": "histogram_quantile(0.95, sum(rate(db_operation_duration_seconds_bucket{service_name=\"issuer\"}[5m])) by (le, db_operation_name))",
           "legendFormat": "{{db_operation_name}}",
@@ -1013,7 +1013,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "prometheus"
       },
       "targets": [
         {
@@ -1021,7 +1021,7 @@
           "hide": false,
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "prometheus"
           },
           "expr": "sum by (outcome) (rate(auth_decisions_total{service_name=\"issuer\"}[5m]))",
           "legendFormat": "{{outcome}}",
@@ -1142,7 +1142,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "prometheus"
       },
       "targets": [
         {
@@ -1150,7 +1150,7 @@
           "hide": false,
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "prometheus"
           },
           "expr": "sum(rate(auth_success_total{service_name=\"issuer\"}[5m]))",
           "legendFormat": "success",
@@ -1163,7 +1163,7 @@
           "hide": false,
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "prometheus"
           },
           "expr": "sum(rate(auth_failures_total{service_name=\"issuer\"}[5m]))",
           "legendFormat": "failure",
@@ -1286,7 +1286,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "prometheus"
       },
       "targets": [
         {
@@ -1294,7 +1294,7 @@
           "hide": false,
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "prometheus"
           },
           "expr": "sum by (delivery_method) (rate(auth_password_codes_total{service_name=\"issuer\"}[5m]))",
           "legendFormat": "{{delivery_method}}",
@@ -1384,7 +1384,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "prometheus"
       },
       "targets": [
         {
@@ -1392,7 +1392,7 @@
           "hide": false,
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "prometheus"
           },
           "expr": "rate(process_cpu_seconds_total{service_name=\"issuer\"}[5m]) * 100",
           "legendFormat": "cpu %",
@@ -1483,7 +1483,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "prometheus"
       },
       "targets": [
         {
@@ -1491,7 +1491,7 @@
           "hide": false,
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "prometheus"
           },
           "expr": "process_resident_memory_bytes{service_name=\"issuer\"} / 1024 / 1024",
           "legendFormat": "rss",

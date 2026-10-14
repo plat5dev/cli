@@ -1,3 +1,4 @@
+# Embedded by plat5 CLI. Plat5's dashboards, beside otel-lgtm's own.
 apiVersion: 1
 providers:
   - name: plat5
@@ -8,5 +9,5 @@ providers:
     updateIntervalSeconds: 30
     allowUiUpdates: true
     options:
-      path: /var/lib/grafana/dashboards
+      path: /otel-lgtm/plat5-dashboards
       foldersFromFilesStructure: false

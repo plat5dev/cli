@@ -4,68 +4,37 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 )
 
-func TestSaveLoadClear(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_STATE_HOME", dir)
-
-	s := State{
-		ProjectID:        "demo",
-		Plat5Compose:     "/tmp/plat5",
-		GatewayPort:      5001,
-		ControlPlanePort: 5002,
-		StartedAt:        time.Now().UTC().Truncate(time.Second),
+func TestRoundTrip(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	s, err := Load("demo")
+	if err != nil || s.ProjectID != "demo" || s.Dev != nil {
+		t.Fatalf("empty load: %+v %v", s, err)
 	}
+	s.Modules = []string{"auth"}
+	s.Dev = &Dev{Email: "dev@example.com", UserKey: "plat5-k-2-x"}
 	if err := Save(s); err != nil {
 		t.Fatal(err)
 	}
 	got, err := Load("demo")
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || got.Dev == nil || got.Dev.UserKey != "plat5-k-2-x" || got.Modules[0] != "auth" {
+		t.Fatalf("%+v %v", got, err)
 	}
-	if got.Plat5Compose != s.Plat5Compose || got.GatewayPort != 5001 {
-		t.Fatalf("got %+v", got)
-	}
-	p, err := Dir("demo")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if p != filepath.Join(dir, "plat5", "projects", "demo") {
-		t.Fatalf("dir %s", p)
-	}
-	if err := Clear("demo"); err != nil {
-		t.Fatal(err)
-	}
-	got, err = Load("demo")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Plat5Compose != "" {
-		t.Fatalf("expected empty after clear: %+v", got)
+	dir, _ := Dir("demo")
+	st, err := os.Stat(filepath.Join(dir, "state.json"))
+	if err != nil || st.Mode().Perm() != 0o600 {
+		t.Fatalf("state.json must be 0600: %v %v", st.Mode(), err)
 	}
 }
 
-// State written before the control plane names its port registry_port.
-func TestLoadLegacyRegistryPort(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_STATE_HOME", dir)
-	p, err := Dir("old")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(p, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(p, "state.json"), []byte(`{"project_id":"old","registry_port":5012,"roles_hash":"x"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	got, err := Load("old")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.ControlPlanePort != 5012 || got.LegacyRegistryPort != 0 {
-		t.Fatalf("got %+v", got)
+func TestUnreadableStateStartsOver(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	dir, _ := Dir("demo")
+	_ = os.MkdirAll(dir, 0o700)
+	_ = os.WriteFile(filepath.Join(dir, "state.json"), []byte("{not json"), 0o600)
+	s, err := Load("demo")
+	if err != nil || s.ProjectID != "demo" {
+		t.Fatalf("%+v %v", s, err)
 	}
 }

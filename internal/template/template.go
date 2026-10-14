@@ -21,8 +21,18 @@ type Manifest struct {
 	Upstreams   map[string]string `yaml:"upstreams"`
 	Routes      []string          `yaml:"routes"`
 	Substitute  []string          `yaml:"substitute"`
-	Next        []string          `yaml:"next"`
-	Exclude     []string          `yaml:"exclude"`
+	// App is how plat5 start runs the starter: its compose file, and its web origin.
+	App App `yaml:"app"`
+	// Next is how to run the app on your own machine instead (plat5 start -x app).
+	Next    []string `yaml:"next"`
+	Exclude []string `yaml:"exclude"`
+}
+
+// App is the starter's compose file (relative to the template root) and the
+// browser origin of its web app, if it has one.
+type App struct {
+	Compose string `yaml:"compose"`
+	Web     string `yaml:"web"`
 }
 
 // Template is a loaded template on disk.

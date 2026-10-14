@@ -40,7 +40,7 @@ func init() {
 }
 
 func runRolesApply(cmd *cobra.Command, args []string) error {
-	cfg, _, err := loadConfigWithState()
+	cfg, err := loadConfig()
 	if err != nil {
 		return err
 	}
@@ -51,7 +51,7 @@ func runRolesApply(cmd *cobra.Command, args []string) error {
 	if path == "" {
 		return fmt.Errorf("no roles file: pass one, or set roles in plat5.yml (roles are off without it)")
 	}
-	if err := config.CheckRolesFile(path); err != nil {
+	if err := config.CheckFile("roles", path); err != nil {
 		return err
 	}
 	return applyRolesFile(controlplane.New(cfg.ControlPlaneURL, cfg.AdminToken), path)

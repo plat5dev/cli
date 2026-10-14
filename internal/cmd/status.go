@@ -2,191 +2,166 @@ package cmd
 
 import (
 	"fmt"
-	"sort"
+	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/plat5dev/cli/internal/compose"
 	"github.com/plat5dev/cli/internal/config"
-	"github.com/plat5dev/cli/internal/controlplane"
-	"github.com/plat5dev/cli/internal/output"
+	"github.com/plat5dev/cli/internal/ports"
+	"github.com/plat5dev/cli/internal/stack"
 	"github.com/plat5dev/cli/internal/state"
 	"github.com/spf13/cobra"
 )
 
 var statusCmd = &cobra.Command{
 	Use:   "status",
-	Short: "Show local Plat5 URLs and health",
+	Short: "Links, logins, keys, and container health",
+	Args:  cobra.NoArgs,
 	RunE:  runStatus,
 }
 
 func runStatus(cmd *cobra.Command, args []string) error {
-	cfg, st, err := loadConfigWithState()
+	cfg, err := loadConfig()
 	if err != nil {
 		return err
 	}
-	return printStatus(cfg, st)
-}
-
-func printStatus(cfg config.Resolved, st state.State) error {
-	stateDir, err := state.Dir(cfg.ProjectID)
+	st, err := state.Load(cfg.ProjectID)
 	if err != nil {
 		return err
 	}
-
-	plat5Dir, _ := resolvePlat5StackForOps(cfg, st, stateDir)
-	authDir, _ := resolveAuthStackForOps(cfg, st, stateDir)
-	obsDir, _ := resolveObservabilityStackForOps(cfg, st, stateDir)
-	opDir, _ := resolveOperatorStackForOps(cfg, st, stateDir)
-
-	edgeRunner := composeRunner(plat5Dir, st.ComposeProject, cfg.ComposeProject, st.Plat5Override, plat5VersionEnv(cfg))
-	authRunner := composeRunner(authDir, st.AuthComposeName, cfg.AuthComposeName, st.AuthOverride, authVersionEnv(cfg))
-	obsRunner := composeRunner(obsDir, st.ObservabilityComposeName, cfg.ObservabilityComposeName, st.ObservabilityOverride, nil)
-	opRunner := composeRunner(opDir, st.OperatorComposeName, cfg.OperatorComposeName, st.OperatorOverride, operatorVersionEnv(cfg))
-
-	edgeRunning := false
-	if edgeRunner != nil {
-		edgeRunning, _ = edgeRunner.Running()
+	if !compose.Running(cfg.ComposeProject) {
+		fmt.Printf("%s is not running. Start it: plat5 start\n", cfg.ProjectID)
+		return nil
 	}
-	authRunning := false
-	if authRunner != nil {
-		authRunning, _ = authRunner.Running()
-	}
-	obsRunning := false
-	if obsRunner != nil {
-		obsRunning, _ = obsRunner.Running()
-	}
-	opRunning := false
-	if opRunner != nil {
-		opRunning, _ = opRunner.Running()
-	}
-
-	gw := output.ProbeHTTP(cfg.GatewayURL, 2*time.Second)
-	cpClient := controlplane.New(cfg.ControlPlaneURL, cfg.AdminToken)
-	cpStatus := "down"
-	var routeNames []string
-	if services, err := cpClient.List(); err == nil {
-		cpStatus = "up"
-		for name := range services {
-			routeNames = append(routeNames, name)
-		}
-		sort.Strings(routeNames)
-	}
-
-	authProbe := "skipped"
-	if st.StartedAuth || authRunning || cfg.AuthEnabled {
-		authProbe = output.ProbeHTTP(cfg.AuthURL, 2*time.Second)
-	}
-
-	opProbe := "skipped"
-	if st.StartedOperator || opRunning || cfg.OperatorEnabled {
-		opProbe = output.ProbeHTTP(cfg.OperatorURL, 2*time.Second)
-	}
-
-	obsProbe := "skipped"
-	if st.StartedObservability || obsRunning || cfg.ObservabilityEnabled {
-		if cfg.GrafanaURL != "" {
-			obsProbe = output.ProbeHTTP(cfg.GrafanaURL, 2*time.Second)
-		} else {
-			obsProbe = "n/a"
+	// What the last start ran, not what plat5.yml says now.
+	var exclude []string
+	for _, m := range config.Modules {
+		if cfg.Modules[m] && !contains(st.Modules, m) {
+			exclude = append(exclude, m)
 		}
 	}
+	stk, err := stack.New(cfg, exclude)
+	if err != nil {
+		return err
+	}
+	printSummary(stk, st)
 
-	lines := []string{
-		fmt.Sprintf("Project:         %s", cfg.ProjectID),
-		fmt.Sprintf("Plat5 version:   %s", cfg.Plat5Version),
-	}
-	if cfg.AuthEnabled || cfg.AuthCompose != "" {
-		lines = append(lines, fmt.Sprintf("Auth version:    %s", cfg.AuthVersion))
-	}
-	if cfg.OperatorEnabled || cfg.OperatorCompose != "" {
-		lines = append(lines, fmt.Sprintf("Op version:      %s", cfg.OperatorVersion))
-	}
-	if plat5Dir != "" {
-		runLabel := "stopped"
-		if edgeRunning {
-			runLabel = "running"
-		}
-		if cfg.Plat5Compose != "" {
-			lines = append(lines, fmt.Sprintf("Plat5:           %s (%s)", plat5Dir, runLabel))
-		} else {
-			lines = append(lines, fmt.Sprintf("Plat5:           %s", runLabel))
+	r := stk.Runner()
+	r.Quiet = true
+	if out, err := r.Ps(); err == nil {
+		fmt.Println("Containers")
+		for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+			fmt.Println("  " + line)
 		}
 	}
-	if authDir != "" {
-		runLabel := "stopped"
-		if authRunning {
-			runLabel = "running"
-		}
-		if cfg.AuthCompose != "" {
-			lines = append(lines, fmt.Sprintf("Auth:            %s (%s)", authDir, runLabel))
-		} else {
-			lines = append(lines, fmt.Sprintf("Auth:            %s", runLabel))
-		}
-	}
-	if obsDir != "" {
-		runLabel := "stopped"
-		if obsRunning {
-			runLabel = "running"
-		}
-		lines = append(lines, fmt.Sprintf("Obs compose:     %s (%s)", obsDir, runLabel))
-	} else {
-		lines = append(lines, "Obs compose:     (not set)")
-	}
-	if opDir != "" {
-		runLabel := "stopped"
-		if opRunning {
-			runLabel = "running"
-		}
-		if cfg.OperatorCompose != "" {
-			lines = append(lines, fmt.Sprintf("Op compose:      %s (%s)", opDir, runLabel))
-		} else {
-			lines = append(lines, fmt.Sprintf("Op compose:      %s", runLabel))
-		}
-	}
-	lines = append(lines, "")
-	lines = append(lines, fmt.Sprintf("Gateway:         %s  (%s)", cfg.GatewayURL, gw))
-	lines = append(lines, fmt.Sprintf("Control plane:   %s  (%s)", cfg.ControlPlaneURL, cpStatus))
-	lines = append(lines, fmt.Sprintf("Auth (IdP):      %s  (%s)", cfg.AuthURL, authProbe))
-	lines = append(lines, fmt.Sprintf("Operator:        %s  (%s)", cfg.OperatorURL, opProbe))
-	if cfg.OperatorEnabled || st.StartedOperator || opRunning {
-		lines = append(lines, fmt.Sprintf("Operator IdP:    %s", cfg.OperatorIssuerURL))
-		lines = append(lines, fmt.Sprintf("Operator login:  %s / %s", config.OperatorDevEmail, config.OperatorDevPassword))
-		lines = append(lines, fmt.Sprintf("Operator CORS:   %s", strings.Join(cfg.OperatorAllowedOrigins, ", ")))
-	}
-	if cfg.GrafanaURL != "" {
-		lines = append(lines, fmt.Sprintf("Grafana:         %s  (%s)", cfg.GrafanaURL, obsProbe))
-	}
-	if cfg.OtelEndpoint != "" {
-		lines = append(lines, fmt.Sprintf("OTLP endpoint:   %s", cfg.OtelEndpoint))
-	}
-	if cfg.AlloyURL != "" && (st.StartedObservability || obsRunning || cfg.ObservabilityEnabled) {
-		lines = append(lines, fmt.Sprintf("Alloy UI:        %s", cfg.AlloyURL))
-	}
-	lines = append(lines, "")
-	lines = append(lines, fmt.Sprintf("Admin token:     %s (from %s)", cfg.AdminToken, output.TokenSource(cfg.AdminToken, config.DefaultAdminToken)))
-	if cpStatus == "up" {
-		lines = append(lines, fmt.Sprintf("Routes:          %s", output.JoinNames(routeNames)))
-	} else {
-		lines = append(lines, "Routes:          (control plane unavailable)")
-	}
-	lines = append(lines, fmt.Sprintf("Config:          %s", cfg.ConfigPath))
-
-	output.PrintStatus(nil, lines)
 	return nil
 }
 
-func composeRunner(dir, stProject, cfgProject, override string, env []string) *compose.Runner {
-	if dir == "" || compose.ValidateComposeDir(dir) != nil {
-		return nil
+// printSummary is what start ends with: every link, login, and key.
+func printSummary(stk *stack.Stack, st state.State) {
+	c := stk.Config
+	w := &table{}
+
+	fmt.Printf("%s is running.\n\n", c.ProjectID)
+	if st.AppCompose != "" && c.AppWeb != "" {
+		w.section("Your app")
+		w.row("Web", c.AppWeb, loginHint(stk, config.DevEmail))
+		w.row("API", "through the gateway", "")
 	}
-	project := stProject
-	if project == "" {
-		project = cfgProject
+
+	w.section("Plat5")
+	w.row("Gateway", c.GatewayURL(), "")
+	if stk.Has(config.ModuleAuth) {
+		w.row("Auth", c.URL(ports.Auth), config.DevEmail+" / "+config.DevPassword)
+	} else {
+		w.row("IdP", c.IdP.Issuer, "")
 	}
-	var overrides []string
-	if override != "" {
-		overrides = []string{override}
+	w.row("Control plane", c.ControlPlaneURL, "admin token "+c.AdminToken)
+
+	if stk.Has(config.ModuleOperator) {
+		w.section("Operator (staff)")
+		w.row("Console", c.URL(ports.OperatorConsole), config.StaffEmail+" / "+config.DevPassword)
+		w.row("Gateway", c.URL(ports.Operator), "")
+		w.row("Staff auth", c.URL(ports.StaffAuth), "")
 	}
-	return &compose.Runner{Dir: dir, ProjectName: project, OverrideFiles: overrides, Env: env}
+	if stk.Has(config.ModuleObservability) {
+		w.section("Observability")
+		w.row("Grafana", c.URL(ports.Grafana), "")
+		w.row("OTLP", fmt.Sprintf("http://localhost:%d", c.Ports[ports.OTLPHTTP]), fmt.Sprintf("gRPC localhost:%d", c.Ports[ports.OTLPGRPC]))
+	}
+
+	if d := st.Dev; d != nil {
+		w.section(fmt.Sprintf("Dev keys (%s, owner of %q)", d.Email, config.DevOrgName))
+		w.row("User key", d.UserKey, "user routes")
+		w.row("Member key", d.MemberKey, "org and member routes")
+	}
+	w.print()
+
+	if d := st.Dev; d != nil {
+		path := "/org"
+		if st.AppCompose != "" {
+			path = "/org/projects"
+		}
+		fmt.Printf("\nTry it:\n  curl %s%s -H \"X-API-Key: %s\"\n", c.GatewayURL(), path, d.MemberKey)
+	}
+	fmt.Println()
+}
+
+func loginHint(stk *stack.Stack, email string) string {
+	if !stk.Has(config.ModuleAuth) {
+		return ""
+	}
+	return email + " / " + config.DevPassword
+}
+
+// table prints aligned rows under section headings.
+type table struct {
+	lines [][3]string // heading has only [0]
+}
+
+func (t *table) section(name string) { t.lines = append(t.lines, [3]string{name}) }
+
+func (t *table) row(label, value, note string) {
+	t.lines = append(t.lines, [3]string{"  " + label, value, note})
+}
+
+func (t *table) print() {
+	w0, w1 := 0, 0
+	for _, l := range t.lines {
+		if l[1] == "" && l[2] == "" && !strings.HasPrefix(l[0], "  ") {
+			continue
+		}
+		w0 = max(w0, len(l[0]))
+		// A key is too long to set the column: it overflows into its note instead.
+		if len(l[1]) <= 40 {
+			w1 = max(w1, len(l[1]))
+		}
+	}
+	for i, l := range t.lines {
+		if l[1] == "" && l[2] == "" && !strings.HasPrefix(l[0], "  ") {
+			if i > 0 {
+				fmt.Println()
+			}
+			fmt.Println(l[0])
+			continue
+		}
+		line := fmt.Sprintf("%-*s  %-*s  %s", w0, l[0], w1, l[1], l[2])
+		fmt.Println(strings.TrimRight(line, " "))
+	}
+}
+
+func relPath(base, p string) string {
+	if r, err := filepath.Rel(base, p); err == nil && !strings.HasPrefix(r, "..") {
+		return r
+	}
+	return p
+}
+
+func contains(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }

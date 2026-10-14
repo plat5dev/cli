@@ -1,157 +1,149 @@
 # Plat5 CLI
 
-Local development CLI for **consumer projects** using Plat5.
+Run Plat5 locally, and manage its routes and roles. Everything runs in Docker: the CLI is one binary and needs nothing else.
 
-Requires a project `plat5.yml` (`plat5 init`). Starts Plat5 (and optionally Auth / observability / Operator) via Docker Compose and applies roles and gateway routes through the control plane's admin API.
+```bash
+plat5 init my-app       # pick a starter
+cd my-app
+plat5 start             # Plat5, its modules, and your app; prints links, logins, keys
+```
 
-`plat5 start` pulls runtime images via `plat5_version` and Auth via `auth.version` (independent pins) using compose embedded in the CLI. `plat5 init` writes those pins from the latest GitHub tag.  
-Advanced (local development): set `plat5_compose` / `auth_compose` / `observability_compose` / `operator_compose` to local compose trees.
-
-Self-host (server) uses published images + compose — see [plat5dev/plat5 self-hosting](https://github.com/plat5dev/plat5/blob/master/docs/self-hosting.md).
+Self-hosting a deployment is compose, not this CLI: [plat5 `docs/self-hosting.md`](https://github.com/plat5dev/plat5/blob/master/docs/self-hosting.md).
 
 ## Install
 
-**Binary:** [GitHub Releases](https://github.com/plat5dev/cli/releases) — download `plat5_<version>_<os>_<arch>.tar.gz`, extract, put `plat5` on your `PATH`. `plat5 version` prints the release version without the leading `v` (tag `v0.5.2` → `0.5.2`).
-
-**Go:**
-
 ```bash
-go install github.com/plat5dev/cli/cmd/plat5@latest
-# clone: go install ./cmd/plat5
-plat5 version
+brew install plat5dev/tap/plat5
+# or
+curl -fsSL https://plat5.com/install.sh | sh
 ```
 
-## Quick start (consumer project)
+macOS and Linux, amd64 and arm64. On Windows, use WSL2. The script verifies the release's checksum and installs to `/usr/local/bin` (or `~/.local/bin`); `PLAT5_CLI_VERSION=v0.6.0` pins a release, `PLAT5_INSTALL_DIR` picks the directory. Or download a tarball from [GitHub Releases](https://github.com/plat5dev/cli/releases). `plat5 version` prints the version without the leading `v`.
 
-```bash
-mkdir my-app && cd my-app
+From source: `go install github.com/plat5dev/cli/cmd/plat5@latest`.
 
-plat5 init --template bun-effect-api --auth -y
-plat5 start
+## What `plat5 start` runs
 
-plat5 status
+One compose project, `plat5-<project_id>`, with one Postgres (a database per plane), then your app's own compose file.
 
-# Get a dev token (local auth only; use the auth URL from `plat5 status`, default :5000)
-curl -s -X POST http://localhost:5000/dev/token \
-  -H 'Content-Type: application/json' -d '{"email":"dev@example.com"}' | jq -r .access_token
+| Module | What | Port | Login |
+|--------|------|------|-------|
+| core (always) | Gateway | 5400 | |
+| | Control plane (admin API) | 5402 | admin token `dev-admin-token` |
+| `auth` | Plat5 Auth, the customer IdP, in dev mode | 5401 | `dev@example.com` / `password` |
+| `operator` | Operator gateway (staff) | 5410 | |
+| | Staff sign-in (a second Plat5 Auth: its own issuer and database) | 5411 | |
+| | Operator console | 5412 | `staff@example.com` / `password` |
+| `observability` | Grafana (grafana/otel-lgtm: Loki, Tempo, Prometheus) | 5403 | none |
+| | OTLP (Alloy, which also reads every container's logs) | 4318 HTTP, 4317 gRPC | |
+| your app (`app.compose`) | A starter's API and web app | 3000, 3001 | `dev@example.com` / `password` |
 
-plat5 stop
+All modules are on unless `plat5.yml` turns one off. `plat5 start -x operator,observability` skips some for one run; `-x app` runs everything but your app, so you can run it on your machine.
+
+A busy port is an error naming it, never a silent move: stop what holds it, or pin another under `ports:`. Running `plat5 start` again updates the stack in place.
+
+After the stack is healthy, start applies `roles.yml` and the route files, then makes sure there is something to call with: the dev person (`dev@example.com`), an org they own named `Dev`, a user key, and a member key. It reuses them while the keys work. Then it prints every link, login, and key; `plat5 status` prints them again.
+
+```
+Plat5
+  Gateway        http://localhost:5400
+  Auth           http://localhost:5401  dev@example.com / password
+  …
+Dev keys (dev@example.com, owner of "Dev")
+  User key       plat5-k-2-…            user routes
+  Member key     plat5-k-2-…            org and member routes
+
+Try it:
+  curl http://localhost:5400/org/projects -H "X-API-Key: plat5-k-2-…"
 ```
 
-The local stack always runs Auth with `AUTH_DEV_MODE=true`: `POST /dev/token` is open and login codes are written to the Auth logs (`plat5 logs --auth`) instead of being emailed. This can't be turned off locally. To test production behavior, run Auth's prod compose instead (point `auth_compose` at it).
-
-`plat5_version` pins runtime GHCR tags. `plat5 init` sets it to the latest `plat5dev/plat5` tag. With Auth enabled, `auth.version` pins `ghcr.io/plat5dev/auth`. With Operator enabled, `operator.version` pins `ghcr.io/plat5dev/operator`. Each is the latest tag of that repo unless you set it.
-
-Templates: first-party short names (`plat5 init --list-templates`) fetch public GitHub repos under `plat5dev/template-*` (branch `master`, override with `--template-ref` / `PLAT5_TEMPLATE_REF`). Also accepts `owner/repo` or an archive URL. Cached under `~/.cache/plat5/templates/`. Local: `--templates-dir` / `PLAT5_TEMPLATES` (directory of template folders).
+Local Auth runs in dev mode: `POST /dev/token` mints a token for any email, and login codes for new sign-ups are in `plat5 logs auth`. The sign-in pages say which plane they are (customer or staff) and show the dev login.
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `plat5 init` | Create project; `--template` copies a reference app + writes `plat5.yml` (`--auth` / `--operator`) |
-| `plat5 start [-d] [--auth] [--observability] [--operator] [--build]` | Start stacks, wait for the control plane, apply roles and routes |
-| `plat5 stop [--auth] [--observability] [--operator]` | Stop Plat5; modules if started / enabled |
-| `plat5 status` | URLs, health, registered routes |
-| `plat5 doctor` | Docker, project config, ports |
-| `plat5 logs [-f=false] [service…]` | Plat5 compose logs (`--auth` / `--observability` / `--operator`). Follows by default; `-f=false` prints and exits |
-| `plat5 routes apply [file…]` | `POST /apply` (defaults to `routes:` list) |
-| `plat5 routes list` | List services |
-| `plat5 routes get <name>` | Show service config |
-| `plat5 routes rm <name>` | Delete service |
-| `plat5 roles apply [file]` | `PUT /roles` (defaults to `roles:` in `plat5.yml`) |
-| `plat5 roles show` | Show the current roles document |
-| `plat5 version` | CLI version |
+| Command | |
+|---------|--|
+| `plat5 init [dir]` | Create a project from a starter. Asks for the starter and modules; `-y` takes the defaults. `--template none` is Plat5 alone |
+| `plat5 start [-x module,…]` | Run the stack and your app, apply roles and routes, seed dev keys, print the summary |
+| `plat5 status` | The summary again, and container health |
+| `plat5 stop` | Stop everything. Data (volumes) is kept |
+| `plat5 logs [service…]` | Container logs, following. `--app` for your app; `-f=false` to print and exit |
+| `plat5 doctor` | Check Docker, `plat5.yml`, files, and ports |
+| `plat5 routes apply [file…]` | `POST /apply` (default: the `routes:` files, with `upstreams:` bound) |
+| `plat5 routes list` / `get <name>` / `rm <name>` | The control plane's services |
+| `plat5 roles apply [file]` / `roles show` | `PUT /roles` (default: `roles:`), and the current document |
+| `plat5 version` | |
 
-## Project config (`plat5.yml`)
+`routes` and `roles` talk to the local control plane unless `--control-plane-url` / `--admin-token` (or `PLAT5_CONTROL_PLANE_URL` / `PLAT5_ADMIN_TOKEN`) point elsewhere.
 
-Walks up from cwd. **Required** for all project commands.
+## `plat5.yml`
+
+Found by walking up from the working directory. Relative paths resolve against its directory. Unknown keys are errors.
 
 ```yaml
-project_id: my-app          # default: directory name; local compose isolation slug
+project_id: my-app                 # default: the directory name
 
-plat5_version: v0.6.0                  # written by plat5 init; latest plat5dev/plat5 tag
+versions:                          # image tags; plat5 init writes the latest of each
+  plat5: v0.7.0
+  auth: v0.2.0                     # both Auth instances
+  operator: v0.4.0
+  operator_console: v0.1.0
 
-auth:
-  enabled: false
-  # version: v0.1.11                   # written by plat5 init --auth; latest plat5dev/auth tag
-  # Project OAuth surface → issuer env on start (plat5 init --auth defaults = web-demo :5173).
-  # allowed_clients is also the gateway audience (token aud). Unset → plat5.
-  # allowed_clients: [plat5]
-  # allowed_redirect_uris:
-  #   - http://localhost:5173/callback
-  #   - https://oauth.pstmn.io/v1/callback
-  # allowed_origins:
-  #   - http://localhost:5173
-  # public_issuer_url:                 # default: derived auth URL (localhost:<ports.auth>)
-  # theme_file: ./theme.json           # optional OpenAuth Theme JSON
+modules:                           # all true unless set false
+  auth: true
+  operator: true
+  observability: true
 
-observability:
-  enabled: false
+app:                               # your app; plat5 start runs it after Plat5
+  compose: ./docker-compose.yml
+  web: http://localhost:3001       # its browser origin: allowed to sign in with local Auth
 
-operator:
-  enabled: false
-  # version: v0.3.3                 # written by plat5 init --operator; latest plat5dev/operator tag
-  # allowed_origins:                # browser consoles: gateway CORS + IdP redirect <origin>/callback
-  #   - http://localhost:5173
+upstreams:                         # where services listen, by routes.yml service name
+  api: 3000
 
-# Optional host port pins. Omitted keys use defaults;
-# if a default is busy, start auto-allocates. Pinned + busy → error.
-ports:
-  gateway: 5001
-  control_plane: 5002   # was registry; still read
-  auth: 5000
-  operator: 5004
-  operator_idp: 5556
-  grafana: 3002
+routes:
+  - ./routes.identity.yml
+  - ./routes.audit.yml
+  - ./routes.yml
+
+roles: ./roles.yml                 # omit to turn roles off
+
+# Optional
+ports:                             # host ports; these are the defaults
+  gateway: 5400
+  auth: 5401
+  control_plane: 5402
+  grafana: 5403
+  operator: 5410
+  staff_auth: 5411
+  operator_console: 5412
   otlp_grpc: 4317
   otlp_http: 4318
-  alloy: 12345
-
-admin_token: dev-admin-token   # local only; do not put production tokens here
-
-# Credential brand → identity APIKEY_BRAND. Unset → plat5.
-# [a-z][a-z0-9]*, max 32. Keys are {brand}-k-2-, sessions {brand}-s-2-.
-# apikey_brand: plat5
-
-# Optional OTLP for Plat5/Auth containers (unset = no export).
-# When observability.enabled, CLI auto-wires host.docker.internal:<otlp_http>
-# if otel.endpoint is unset. Explicit endpoint always wins.
-# Host-published Alloy: CLI injects env and adds host-gateway extra_hosts
-# only when the endpoint host is host.docker.internal.
-# otel:
-#   endpoint: http://host.docker.internal:4318
-# Or set OTEL_EXPORTER_OTLP_ENDPOINT in the environment (overrides yml).
-
-# Topology: where each service process listens (keys = services.* in routes files).
-# Injected as url at apply time (overwrites url in the file for that service).
-upstreams:
-  api: http://host.docker.internal:3000  # app on the host (bare `3000` is shorthand for this)
-  # api: http://localhost:3000           # gateway shares host network view
-  # api: http://api.internal:8080        # named host on a shared network
-  # Always http://host:port: no path, no query. https:// is rejected (TLS upstreams aren't supported yet).
-
-# Route contract files (paths, scopes). Prefer upstreams for urls.
-routes:
-  - ./routes.identity.yml            # identity public surface (edit or omit)
-  - ./routes.audit.yml               # GET /org/audit-events, /user/audit-events (omit with AUDIT_ENABLED=false)
-  - ./routes.yml
-  # - ./routes.dev.yml                   # optional extras (e.g. debug routes)
-
-# Roles: each grants labels; routes require them. Omit to turn roles off.
-roles: ./roles.yml
+admin_token: dev-admin-token       # local only
+apikey_brand: plat5                # keys are {brand}-k-2-…, sessions {brand}-s-2-…
+auth:                              # local Auth, beyond app.web
+  clients: [plat5]                 # also the gateway's audiences (Plat5 Auth's aud is the client id)
+  origins: []                      # each also allows <origin>/callback
+  redirect_uris: []
+  theme_file: ./theme.json         # OpenAuth Theme JSON for the sign-in page
+operator:
+  origins: []                      # more staff consoles (CORS and staff redirects)
+idp:                               # with modules.auth false: the gateway's IdP
+  issuer: https://idp.example.com
+  jwks_uri: https://idp.example.com/.well-known/jwks.json
+  audiences: [my-api]
+  user_id_claim: sub
+otel:
+  endpoint: http://host.docker.internal:4318   # your collector, instead of the observability module
+source:                            # contributors: build from checkouts (see below)
+  plat5: ../plat5
 ```
-
-When `plat5 start` starts Auth, the gateway `AUTH_ALLOWED_AUDIENCES` is `auth.allowed_clients` (unset means `plat5`, the issuer default). Plat5 Auth puts that client id in the token `aud`. A shell `AUTH_ALLOWED_AUDIENCES` is not required, and does not override this.
-
-Relative paths resolve against the directory containing `plat5.yml`.
-
-Flags / env still override: `--plat5-compose`, `PLAT5_COMPOSE`, `PLAT5_ADMIN_TOKEN`, `PLAT5_GATEWAY_URL`, etc.
 
 ### Upstreams
 
 | Value | Becomes | When to use |
 |-------|---------|-------------|
-| `3000` (bare port) | `http://host.docker.internal:3000` | App on the host; Plat5 gateway in Docker (default local) |
+| `3000` (bare port) | `http://host.docker.internal:3000` | Your app's port on the host. A starter's compose file publishes it there too |
 | `localhost:3000` / `127.0.0.1:3000` | `http://localhost:3000` | Gateway can use loopback (non-Docker gateway, etc.) |
 | `host:port` | `http://host:port` (a port is required) | Named host on a shared network |
 | `http://host:port` | unchanged | Same, written out |
@@ -177,9 +169,7 @@ plat5 routes apply ./other.yml
 
 ### Audit
 
-The gateway records each audited request through the `audit` service: `organization` and `member` requests in the org's log, `user` requests in the person's own log. Writes are audited by default, and reads a route marks `audit: true` ([plat5 `docs/audit.md`](https://github.com/plat5dev/plat5/blob/master/docs/audit.md)). It is on by default. While audit is down, audited requests are `503`. `routes.audit.yml` publishes `GET /org/audit-events` (label `org:audit:read`) and `GET /user/audit-events`. `AUDIT_ENABLED=false` in the environment turns audit off for the deployment; then drop `routes.audit.yml` from `routes:`.
-
-Projects made by an older `plat5 init` have no `routes.audit.yml`. Copy it from a fresh `plat5 init` (or [plat5 `services/audit/routes.yml`](https://github.com/plat5dev/plat5/blob/master/services/audit/routes.yml)) to read the log. Recording works without it.
+The gateway records each audited request through the `audit` service: `organization` and `member` requests in the org's log, `user` requests in the person's own log. Writes are audited by default, and reads a route marks `audit: true` ([plat5 `docs/audit.md`](https://github.com/plat5dev/plat5/blob/master/docs/audit.md)). It is on by default. While audit is down, audited requests are `503`. `routes.audit.yml` publishes `GET /org/audit-events` (label `org:audit:read`) and `GET /user/audit-events`. Locally, audit is always on.
 
 ## Roles
 
@@ -194,55 +184,46 @@ creator_role: owner
 default_role: member
 ```
 
-Roles live in the control plane. `plat5 start` writes the file there (it also seeds the first roles document, so identity can start), and `plat5 roles apply` writes it without a restart. Identity picks up a change within a second or two. The gateway caches credentials for up to `APIKEY_CACHE_TTL_SECS` (300s), so a role change reaches existing sessions and keys within that window. Remove `roles:` from `plat5.yml` to turn roles off (`ROLES_ENABLED=false` on identity): no member has a role, every member holds every label, and authorization is left to something else. Turning roles on or off recreates identity.
+Roles live in the control plane. `plat5 start` writes the file there (it also seeds the first roles document, so identity can start), and `plat5 roles apply` writes it without a restart. Identity picks up a change within a second or two. The gateway caches credentials for up to `APIKEY_CACHE_TTL_SECS` (300s), so a role change reaches existing sessions and keys within that window. Remove `roles:` from `plat5.yml` to turn roles off (`ROLES_ENABLED=false` on identity): no member has a role, every member holds every label, and authorization is left to something else. Turning roles on or off recreates identity (`ROLES_ENABLED` is a boot switch).
 
-## Ports and multi-project
+## Starters
 
-Each project gets compose project names `plat5-<project_id>`, `plat5-<project_id>-auth`, `plat5-<project_id>-observability`, `plat5-<project_id>-operator`.
+A starter is a repo `plat5 init` copies: `plat5dev/template-*` by short name (`plat5 init --list-templates`), any `owner/repo`, or an archive URL. Remote starters are cached under `~/.cache/plat5/templates/`; `--templates-dir` reads them from a local directory, `--template-ref` picks a git ref.
 
-Host port mappings are written to override files under XDG state so two projects do not share containers. Defaults: gateway 5001, control plane 5002, auth 5000, operator 5004, operator_idp 5556, grafana 3002, OTLP 4317/4318, alloy 12345. Unpinned busy ports are reallocated; **pinned** ports never auto-move. `plat5 start` is safe to re-run: a stack of this project that is already running keeps the ports it has (the CLI prints `Plat5 is already running for this project; keeping its ports.`), and `docker compose up` leaves unchanged containers alone. Run `plat5 stop` first to pick ports again.
+### The starter contract
 
-Start order: observability → auth → plat5 → operator. Stop runs operator first, then plat5, auth, observability. Operator joins the Plat5 compose network (`plat5-<project_id>_plat5`) after Plat5 is up so the image route list can dial `http://identity:3000` and `http://audit:3002`. Identity is not published. Routes are not rewritten. Operator requires detached start (the default).
+What a starter ships, so `plat5 init` and `plat5 start` can run it with no other tools than Docker:
 
-## Operator
+| | |
+|--|--|
+| `plat5.template.yml` | `name`, `description`, `upstreams`, `routes`, `substitute` (files where `{{project_id}}` is replaced), `app`, and `next` |
+| `app.compose` | A compose file that runs the API with hot reload. No `name:`: the project is the directory's |
+| `app.web` | The web app's origin, if the compose file runs one. Local Auth allows it to sign in |
+| `next` | How to run the API on your machine instead (`plat5 start -x app`) |
+| `routes.yml`, `routes.identity.yml`, `routes.audit.yml`, `roles.yml` | The route files and roles `plat5.yml` points at |
 
-[Operator](https://github.com/plat5dev/operator) is a headless gateway for staff: staff JWT in, path out, attribution logged. The image route list is identity's public paths, the org audit log read, and the staff audit log read. It has no accounts. Staff sign in at a local Dex the CLI configures (`staff@example.com` / `password`, issuer `http://localhost:<operator_idp>/dex`).
+`plat5 start` runs `docker compose up -d --build --wait` on `app.compose` with this env, so the file can say `${PLAT5_GATEWAY_URL}`:
 
-| Dex client | For |
-|------------|-----|
-| `operator-cli` (secret `operator-cli-secret`) | Scripts. Password grant |
-| `operator-console` (public, PKCE) | Browser consoles on `operator.allowed_origins`, redirect `<origin>/callback` |
+| Env | |
+|-----|--|
+| `PLAT5_GATEWAY_URL` | The gateway, as the browser reaches it |
+| `PLAT5_AUTH_URL` | The customer IdP's issuer, as the browser reaches it |
+| `PLAT5_AUTH_CLIENT_ID` | The OAuth client id (`plat5`) |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Where to send traces and metrics (Alloy on the host, `http://host.docker.internal:4318`), or empty |
 
-Both client ids are in the gateway's `AUTH_AUDIENCES`. `allowed_origins` is also its `ALLOWED_ORIGINS`.
+Ports: the API on `3000`, the web app on `3001`. First-party starters share one API (profiles, projects, tasks), so they share one web app: [`template-web`](https://github.com/plat5dev/template-web), run from `ghcr.io/plat5dev/template-web`. A starter with its own frontend (SSR, Next.js) runs that instead.
+
+## Contributors: build from checkouts
+
+`source:` builds a module's images from a local checkout instead of pulling them, on the same embedded stack (prod targets: what ships). Keys are the `versions:` keys; a sourced module needs no version.
 
 ```bash
-TOKEN=$(curl -s http://localhost:5556/dex/token \
-  -u operator-cli:operator-cli-secret \
-  -d grant_type=password -d scope="openid email" \
-  -d username=staff@example.com -d password=password | jq -r .access_token)
-curl -s http://localhost:5004/organizations -H "Authorization: Bearer $TOKEN"
+plat5 init my-app --source plat5=../plat5 --source auth=../auth
+cd my-app && plat5 start      # builds, then runs; the first Rust build takes a while
 ```
 
-The staff audit log is on. Every authenticated request is an event, written to operator-audit before the gateway forwards it, so while operator-audit is down every authenticated request gets a 503. The stack runs operator-audit with its own Postgres (`operator-postgres`). That Postgres isn't published, and its named volume survives `plat5 stop`. `operator.version` must be a release that publishes `ghcr.io/plat5dev/operator-audit` (v0.3.2 or later). Read the log through the gateway:
+The embedded compose files (`internal/bundle/stack`) track plat5 HEAD, so a `plat5` checkout at HEAD runs as it will ship. For hot reload of one service, use that repo's own dev compose.
 
-```bash
-curl -s 'http://localhost:5004/operator-audit-events?limit=5' -H "Authorization: Bearer $TOKEN"
-```
+## State
 
-The CLI doesn't publish the operator's health port (8004). To check operator health, run `plat5 status` (probes the Operator URL) or `docker compose ps` for the operator project (`plat5-<project_id>-operator`), whose healthcheck hits `/health/ready` inside the container.
-
-For a browser console, run [operator-console](https://github.com/plat5dev/operator-console) with `VITE_GATEWAY_URL=http://localhost:5004`, `VITE_AUTH_ISSUER=http://localhost:5556/dex`, `VITE_AUTH_CLIENT_ID=operator-console`.
-
-The Dex config and the gateway's IdP settings live in the generated override under XDG state, so path mode (`operator_compose` → `operator/compose`) gets the same wiring.
-
-## State (XDG)
-
-Same path on macOS and Linux:
-
-| Path | Role |
-|------|------|
-| `$XDG_STATE_HOME/plat5/projects/<id>/` | `state.json`, compose overrides (default `~/.local/state/plat5/…`) |
-
-## Path mode (contributors)
-
-Point `plat5_compose` / `auth_compose` / `observability_compose` / `operator_compose` (flags/env/yml) at a directory that **contains** `docker-compose.yml` (or `compose.yml`). No layout probing — exact path only. Image mode (embedded compose + GHCR) is the default for consumers.
+`$XDG_STATE_HOME/plat5/projects/<project_id>/` (default `~/.local/state/plat5/…`, on macOS too): `state.json` (what the last start ran, and the dev keys; mode 0600) and `stack/` (the compose files, the generated override, and the sign-in themes).

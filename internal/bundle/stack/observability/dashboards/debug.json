@@ -55,7 +55,7 @@
         "sort": 1,
         "datasource": {
           "type": "prometheus",
-          "uid": "mimir"
+          "uid": "prometheus"
         },
         "current": {
           "text": "identity",

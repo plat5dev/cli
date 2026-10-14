@@ -1,146 +1,118 @@
+// Package ports is the local stack's host ports: one fixed block, so every doc and
+// every default URL is right. A busy port is an error, never a silent move.
 package ports
 
 import (
 	"fmt"
 	"net"
-	"os"
+	"sort"
 	"strings"
 	"time"
 )
 
-// Defaults for local Plat5 stacks.
+// Name is a published port, as plat5.yml ports: names it.
+type Name string
+
 const (
-	DefaultGateway      = 5001
-	DefaultControlPlane = 5002
-	DefaultAuth         = 5000
-	DefaultOperator     = 5004
-	// DefaultOperatorIdP is the local staff IdP (Dex) beside Operator.
-	DefaultOperatorIdP = 5556
-	DefaultGrafana     = 3002
-	DefaultOTLPGRPC    = 4317
-	DefaultOTLPHTTP    = 4318
-	DefaultAlloy       = 12345
+	Gateway         Name = "gateway"
+	Auth            Name = "auth"
+	ControlPlane    Name = "control_plane"
+	Grafana         Name = "grafana"
+	Operator        Name = "operator"
+	StaffAuth       Name = "staff_auth"
+	OperatorConsole Name = "operator_console"
+	OTLPGRPC        Name = "otlp_grpc"
+	OTLPHTTP        Name = "otlp_http"
 )
 
-// Set is host ports for published services.
-type Set struct {
-	Gateway      int
-	ControlPlane int
-	Auth         int
-	Operator     int
-	OperatorIdP  int
-	Grafana      int
-	OTLPGRPC     int
-	OTLPHTTP     int
-	Alloy        int
+// Defaults is the block. Plat5 is 540x, the operator plane 541x. OTLP keeps its
+// conventional ports so SDK defaults work.
+var Defaults = Set{
+	Gateway:         5400,
+	Auth:            5401,
+	ControlPlane:    5402,
+	Grafana:         5403,
+	Operator:        5410,
+	StaffAuth:       5411,
+	OperatorConsole: 5412,
+	OTLPGRPC:        4317,
+	OTLPHTTP:        4318,
 }
 
-// Explicit tracks which ports were pinned in plat5.yml.
-type Explicit struct {
-	Gateway      bool
-	ControlPlane bool
-	Auth         bool
-	Operator     bool
-	OperatorIdP  bool
-	Grafana      bool
-	OTLPGRPC     bool
-	OTLPHTTP     bool
-	Alloy        bool
+// Names is every port name, in the block's order.
+func Names() []Name {
+	names := make([]Name, 0, len(Defaults))
+	for n := range Defaults {
+		names = append(names, n)
+	}
+	sort.Slice(names, func(i, j int) bool { return Defaults[names[i]] < Defaults[names[j]] })
+	return names
 }
 
-// Resolve picks host ports.
-// owned holds ports this project's running stack already publishes (0 = none).
-// An owned port counts as free, and an unpinned port keeps its owned value,
-// so re-running start reuses the same ports instead of moving them.
-// Pinned ports must be free (or owned) or Resolve fails.
-// Unpinned ports try the default, then allocate a free port if busy.
-// When a default is skipped, a line is written to stdout (CLI DX).
-func Resolve(want Set, exp Explicit, owned Set) (Set, error) {
-	used := make(map[int]struct{}, 8)
+// Set maps a port name to a host port.
+type Set map[Name]int
+
+// With is s over the defaults: a pin replaces its default.
+func With(pins Set) Set {
 	out := Set{}
-
-	var err error
-	out.Gateway, err = resolveOne("gateway", want.Gateway, DefaultGateway, exp.Gateway, owned.Gateway, used)
-	if err != nil {
-		return Set{}, err
+	for n, p := range Defaults {
+		out[n] = p
 	}
-	out.ControlPlane, err = resolveOne("control_plane", want.ControlPlane, DefaultControlPlane, exp.ControlPlane, owned.ControlPlane, used)
-	if err != nil {
-		return Set{}, err
+	for n, p := range pins {
+		out[n] = p
 	}
-	out.Auth, err = resolveOne("auth", want.Auth, DefaultAuth, exp.Auth, owned.Auth, used)
-	if err != nil {
-		return Set{}, err
-	}
-	out.Operator, err = resolveOne("operator", want.Operator, DefaultOperator, exp.Operator, owned.Operator, used)
-	if err != nil {
-		return Set{}, err
-	}
-	out.OperatorIdP, err = resolveOne("operator_idp", want.OperatorIdP, DefaultOperatorIdP, exp.OperatorIdP, owned.OperatorIdP, used)
-	if err != nil {
-		return Set{}, err
-	}
-	out.Grafana, err = resolveOne("grafana", want.Grafana, DefaultGrafana, exp.Grafana, owned.Grafana, used)
-	if err != nil {
-		return Set{}, err
-	}
-	out.OTLPGRPC, err = resolveOne("otlp_grpc", want.OTLPGRPC, DefaultOTLPGRPC, exp.OTLPGRPC, owned.OTLPGRPC, used)
-	if err != nil {
-		return Set{}, err
-	}
-	out.OTLPHTTP, err = resolveOne("otlp_http", want.OTLPHTTP, DefaultOTLPHTTP, exp.OTLPHTTP, owned.OTLPHTTP, used)
-	if err != nil {
-		return Set{}, err
-	}
-	out.Alloy, err = resolveOne("alloy", want.Alloy, DefaultAlloy, exp.Alloy, owned.Alloy, used)
-	if err != nil {
-		return Set{}, err
-	}
-	return out, nil
+	return out
 }
 
-func resolveOne(name string, want, def int, pinned bool, own int, used map[int]struct{}) (int, error) {
-	candidate := def
-	if want != 0 {
-		candidate = want
-	}
-	if !pinned && own != 0 {
-		candidate = own
-	}
-	free := func(p int) bool { return (own != 0 && p == own) || Free(p) }
-
-	if pinned {
-		if _, taken := used[candidate]; taken {
-			return 0, fmt.Errorf("%s port %d already allocated to another service", name, candidate)
-		}
-		if !free(candidate) {
-			return 0, fmt.Errorf("%s port %d is in use (pinned in plat5.yml)", name, candidate)
-		}
-		used[candidate] = struct{}{}
-		return candidate, nil
-	}
-
-	if _, taken := used[candidate]; !taken && free(candidate) {
-		used[candidate] = struct{}{}
-		return candidate, nil
-	}
-
-	for i := 0; i < 64; i++ {
-		p, err := freePort()
-		if err != nil {
-			return 0, fmt.Errorf("%s: allocate free port: %w", name, err)
-		}
-		if _, taken := used[p]; taken {
+// Busy returns the ports in want that something else holds. owned reports
+// whether this project's own running stack holds a port; those count as free,
+// so a second start is a no-op rather than a conflict.
+func Busy(want map[Name]int, owned func(port int) bool) []string {
+	var busy []string
+	for _, n := range sortedNames(want) {
+		p := want[n]
+		if owned != nil && owned(p) {
 			continue
 		}
 		if !Free(p) {
-			continue
+			busy = append(busy, fmt.Sprintf("%s %d", n, p))
 		}
-		used[p] = struct{}{}
-		fmt.Fprintf(os.Stdout, "%s port %d in use → %d\n", name, candidate, p)
-		return p, nil
 	}
-	return 0, fmt.Errorf("%s: could not allocate a free port", name)
+	return busy
+}
+
+// Check fails, naming every busy port, if any port in want is taken.
+func Check(want map[Name]int, owned func(port int) bool) error {
+	busy := Busy(want, owned)
+	if len(busy) == 0 {
+		return nil
+	}
+	return fmt.Errorf("ports in use: %s\n  Stop what holds them (another Plat5 project: plat5 stop there),\n  or pin other ports in plat5.yml under ports:", strings.Join(busy, ", "))
+}
+
+// Validate rejects a port out of range, or two names on one port.
+func Validate(s Set) error {
+	seen := map[int]Name{}
+	for _, n := range sortedNames(s) {
+		p := s[n]
+		if p < 1 || p > 65535 {
+			return fmt.Errorf("ports.%s: %d is not a port", n, p)
+		}
+		if other, dup := seen[p]; dup {
+			return fmt.Errorf("ports.%s and ports.%s are both %d", other, n, p)
+		}
+		seen[p] = n
+	}
+	return nil
+}
+
+func sortedNames(m map[Name]int) []Name {
+	names := make([]Name, 0, len(m))
+	for n := range m {
+		names = append(names, n)
+	}
+	sort.Slice(names, func(i, j int) bool { return names[i] < names[j] })
+	return names
 }
 
 // Free reports whether a host port is available for Docker publish.
@@ -150,7 +122,7 @@ func Free(port int) bool {
 	if port <= 0 || port > 65535 {
 		return false
 	}
-	if !canListen("tcp4", fmt.Sprintf("0.0.0.0:%d", port)) {
+	if listenErr("tcp4", fmt.Sprintf("0.0.0.0:%d", port)) != nil {
 		return false
 	}
 	if err := listenErr("tcp6", fmt.Sprintf("[::]:%d", port)); err != nil && !ignoreIPv6(err) {
@@ -164,10 +136,6 @@ func Free(port int) bool {
 	return true
 }
 
-func canListen(network, addr string) bool {
-	return listenErr(network, addr) == nil
-}
-
 func listenErr(network, addr string) error {
 	ln, err := net.Listen(network, addr)
 	if err != nil {
@@ -178,25 +146,8 @@ func listenErr(network, addr string) error {
 }
 
 func ignoreIPv6(err error) bool {
-	if err == nil {
-		return true
-	}
 	s := err.Error()
 	return strings.Contains(s, "protocol not supported") ||
 		strings.Contains(s, "address family not supported") ||
 		strings.Contains(s, "cannot assign requested address")
-}
-
-func freePort() (int, error) {
-	// Bind all-interfaces so the port is free for Docker's 0.0.0.0 publish.
-	ln, err := net.Listen("tcp4", "0.0.0.0:0")
-	if err != nil {
-		return 0, err
-	}
-	defer ln.Close()
-	addr, ok := ln.Addr().(*net.TCPAddr)
-	if !ok {
-		return 0, fmt.Errorf("unexpected addr %T", ln.Addr())
-	}
-	return addr.Port, nil
 }
