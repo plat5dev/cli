@@ -20,9 +20,19 @@ type State struct {
 	// Modules is the modules the last start ran (core is implied).
 	Modules []string `json:"modules,omitempty"`
 	// AppCompose is the app compose file the last start ran. Empty: none.
-	AppCompose string    `json:"app_compose,omitempty"`
-	Dev        *Dev      `json:"dev,omitempty"`
-	StartedAt  time.Time `json:"started_at"`
+	AppCompose string `json:"app_compose,omitempty"`
+	// AppUpstreams is the upstreams the last start pointed at the app's
+	// containers, by name. routes apply binds them the same way.
+	AppUpstreams map[string]AppUpstream `json:"app_upstreams,omitempty"`
+	Dev          *Dev                   `json:"dev,omitempty"`
+	StartedAt    time.Time              `json:"started_at"`
+}
+
+// AppUpstream is one plat5.yml upstream that the app's own container serves:
+// From is plat5.yml's value (a port), To is the container on the Plat5 network.
+type AppUpstream struct {
+	From string `json:"from"`
+	To   string `json:"to"`
 }
 
 // Dev is the seeded dev person, their org, and a key for each. Reused while

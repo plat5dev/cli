@@ -358,8 +358,10 @@ func renderPlat5YML(projectID string, ch initChoices, versions map[string]string
 		p("# app:\n#   compose: ./docker-compose.yml\n#   web: http://localhost:3001\n\n")
 	}
 
-	p("# Where your services listen, by routes.yml service name. A bare port is a\n")
-	p("# process on your machine (http://host.docker.internal:<port>).\n")
+	p("# Where your services listen, by routes.yml service name. A bare port that\n")
+	p("# app.compose publishes is that container, on the Plat5 network (api:3000).\n")
+	p("# Otherwise, or with -x app, it is a process on your machine\n")
+	p("# (http://host.docker.internal:<port>). See plat5 start --help.\n")
 	p("upstreams:\n")
 	keys := make([]string, 0, len(upstreams))
 	for k := range upstreams {

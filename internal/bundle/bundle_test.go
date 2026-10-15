@@ -58,3 +58,19 @@ func TestAuthDevMode(t *testing.T) {
 		}
 	}
 }
+
+func TestServices(t *testing.T) {
+	names, err := Services()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"gateway", "identity", "auth", "operator", "lgtm"} {
+		found := false
+		for _, n := range names {
+			found = found || n == want
+		}
+		if !found {
+			t.Fatalf("%s missing from %v", want, names)
+		}
+	}
+}

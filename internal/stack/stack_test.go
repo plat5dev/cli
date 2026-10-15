@@ -7,7 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/plat5dev/cli/internal/compose"
 	"github.com/plat5dev/cli/internal/config"
+	"github.com/plat5dev/cli/internal/state"
 )
 
 func resolved(t *testing.T, yml string) config.Resolved {
@@ -226,5 +228,42 @@ func TestOperatorRoutesFile(t *testing.T) {
 	}
 	if strings.Contains(off.override(), "ROUTES_FILE") {
 		t.Fatal("operator off: no routes override")
+	}
+}
+
+func TestInDocker(t *testing.T) {
+	published := map[int]compose.Published{3000: {Service: "api", Target: 8080, Networks: []string{"default"}}}
+	ups := map[string]string{"api": "3000", "billing": "4000", "other": "api:3000"}
+	joined, out, err := inDocker(ups, published, []string{"gateway", "identity"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(joined) != 1 || joined["api"] != (state.AppUpstream{From: "3000", To: "api:8080"}) {
+		t.Fatalf("joined: %+v", joined)
+	}
+	if out["api"] != "api:8080" || out["billing"] != "4000" || out["other"] != "api:3000" {
+		t.Fatalf("upstreams: %+v", out)
+	}
+	if _, _, err := inDocker(ups, published, []string{"api"}); err == nil {
+		t.Fatal("a service named like a Plat5 one must not join")
+	}
+}
+
+func TestAppOverride(t *testing.T) {
+	published := map[int]compose.Published{
+		3000: {Service: "api", Target: 3000, Networks: []string{"backend", "default"}},
+		3001: {Service: "web", Target: 8080},
+	}
+	got := appOverride("plat5-demo", map[string]state.AppUpstream{"api": {From: "3000", To: "api:3000"}}, published)
+	for _, want := range []string{
+		"  api:\n    networks:\n      backend: {}\n      default: {}\n      plat5-stack: {}\n",
+		"networks:\n  plat5-stack:\n    name: plat5-demo_plat5\n    external: true\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("override missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "web:") {
+		t.Fatalf("web is no upstream and must not join:\n%s", got)
 	}
 }

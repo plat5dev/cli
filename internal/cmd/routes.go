@@ -7,6 +7,7 @@ import (
 	"sort"
 
 	"github.com/plat5dev/cli/internal/controlplane"
+	"github.com/plat5dev/cli/internal/state"
 	"github.com/spf13/cobra"
 )
 
@@ -76,6 +77,13 @@ func runRoutesApply(cmd *cobra.Command, args []string) error {
 	if len(files) == 0 {
 		files = cfg.RouteFiles
 	}
+
+	st, err := state.Load(cfg.ProjectID)
+	if err != nil {
+		return err
+	}
+	cfg, joined := withAppUpstreams(cfg, st)
+	printAppUpstreams(joined, ", as plat5 start bound it")
 
 	client := controlplane.New(cfg.ControlPlaneURL, cfg.AdminToken)
 	return applyFiles(client, cfg, files, false)

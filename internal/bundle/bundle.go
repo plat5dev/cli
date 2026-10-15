@@ -9,6 +9,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"gopkg.in/yaml.v3"
 )
 
 //go:embed all:stack
@@ -50,4 +52,25 @@ func Materialize(destDir string) error {
 		}
 		return os.WriteFile(target, data, mode)
 	})
+}
+
+// Services is every service name in the embedded compose files, all modules.
+func Services() ([]string, error) {
+	var names []string
+	for _, f := range Files {
+		data, err := content.ReadFile("stack/" + f)
+		if err != nil {
+			return nil, err
+		}
+		var doc struct {
+			Services map[string]any `yaml:"services"`
+		}
+		if err := yaml.Unmarshal(data, &doc); err != nil {
+			return nil, fmt.Errorf("%s: %w", f, err)
+		}
+		for name := range doc.Services {
+			names = append(names, name)
+		}
+	}
+	return names, nil
 }

@@ -2,10 +2,12 @@
 package compose
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -152,6 +154,62 @@ func PublishedPorts(project string) map[int]bool {
 		return nil
 	}
 	return parsePublished(string(out))
+}
+
+// Published is one host port a compose file publishes: the service, the port it
+// listens on inside its container, and the networks it is on.
+type Published struct {
+	Service  string
+	Target   int
+	Networks []string
+}
+
+// HostPorts is the host ports the project's files publish, from docker compose
+// config. Nothing has to be running.
+func (r Runner) HostPorts() (map[int]Published, error) {
+	c := r.cmd("config", "--format", "json")
+	c.Stdout, c.Stderr = nil, nil
+	out, err := c.Output()
+	if err != nil {
+		return nil, fmt.Errorf("docker compose config: %w", err)
+	}
+	return parseConfigPorts(out)
+}
+
+func parseConfigPorts(data []byte) (map[int]Published, error) {
+	var cfg struct {
+		Services map[string]struct {
+			Networks map[string]any `json:"networks"`
+			Ports    []struct {
+				Target    int             `json:"target"`
+				Published json.RawMessage `json:"published"`
+			} `json:"ports"`
+		} `json:"services"`
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("docker compose config: %w", err)
+	}
+	out := map[int]Published{}
+	for name, svc := range cfg.Services {
+		nets := make([]string, 0, len(svc.Networks))
+		for n := range svc.Networks {
+			nets = append(nets, n)
+		}
+		sort.Strings(nets)
+		for _, p := range svc.Ports {
+			// A string ("3000") in compose v2, a number in older versions.
+			var s string
+			if json.Unmarshal(p.Published, &s) != nil {
+				s = string(p.Published)
+			}
+			host, err := strconv.Atoi(strings.TrimSpace(s))
+			if err != nil || host == 0 {
+				continue
+			}
+			out[host] = Published{Service: name, Target: p.Target, Networks: nets}
+		}
+	}
+	return out, nil
 }
 
 func parsePublished(s string) map[int]bool {
