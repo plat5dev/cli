@@ -144,7 +144,7 @@ source:                            # contributors: build from checkouts (see bel
 
 | Value | Becomes | When to use |
 |-------|---------|-------------|
-| `3000` (bare port) | `http://host.docker.internal:3000` | Your app's port on the host. A starter's compose file publishes it there too |
+| `3000` (bare port) | `http://api:3000` when `app.compose` publishes it, else `http://host.docker.internal:3000` | Your app. See below |
 | `localhost:3000` / `127.0.0.1:3000` | `http://localhost:3000` | Gateway can use loopback (non-Docker gateway, etc.) |
 | `host:port` | `http://host:port` (a port is required) | Named host on a shared network |
 | `http://host:port` | unchanged | Same, written out |
@@ -156,6 +156,8 @@ Unknown keys in `plat5.yml` are also a config error naming the key.
 Keys must match service names in the routes file(s). `plat5 routes apply` and `plat5 start` bind upstreams before `POST /apply`. A key that matches no service in any applied file prints `warning: upstreams.<name> matches no service …` (the apply still succeeds). A service with no `url` and no `upstreams` entry fails before upload: `service "<name>" has no url: add it under upstreams: in plat5.yml, or set url in the routes file`.
 
 You can still set `url` directly in `routes.yml`; an `upstreams` entry for that service wins.
+
+A bare port is your app, wherever it runs. When `plat5 start` runs `app.compose` and a service in it publishes that port, the upstream is that container by service name, at the port it listens on inside (`"127.0.0.1:3000:3000"` on `api` → `http://api:3000`). start puts the service on the Plat5 network with a generated override (`app-override.yml` in the stack dir), and prints `upstreams.api: 3000 → http://api:3000`. The gateway reaches your app the same way on every OS, so the host port can be bound to `127.0.0.1`: only the gateway may reach a Plat5 service, and the host port is for your own curls. `plat5 routes apply` binds it the same way while the app runs. With `plat5 start -x app` there is no container, and a bare port is a process on your machine (`host.docker.internal`), which must listen beyond loopback on Linux. A service named like a Plat5 service (`gateway`, `postgres`, …) can't join; rename it.
 
 `upstreams` binds the operator gateway's route list (`operator.routes`) the same way, by its `upstreams:` names, so a staff route can reach your app on the host.
 

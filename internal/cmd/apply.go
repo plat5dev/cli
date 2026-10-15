@@ -3,9 +3,11 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"sort"
 
 	"github.com/plat5dev/cli/internal/config"
 	"github.com/plat5dev/cli/internal/controlplane"
+	"github.com/plat5dev/cli/internal/state"
 	"github.com/plat5dev/cli/internal/upstreams"
 )
 
@@ -69,4 +71,39 @@ func applyRolesFile(client *controlplane.Client, path string) error {
 	}
 	fmt.Printf("  roles: revision %d\n", rev)
 	return nil
+}
+
+// withAppUpstreams binds the upstreams the last start pointed at the app's
+// containers the same way, while plat5.yml still names the same port. Without
+// it, routes apply would point them back at the host.
+func withAppUpstreams(cfg config.Resolved, st state.State) (config.Resolved, map[string]state.AppUpstream) {
+	if st.AppCompose == "" || len(st.AppUpstreams) == 0 {
+		return cfg, nil
+	}
+	ups := make(map[string]string, len(cfg.Upstreams))
+	for k, v := range cfg.Upstreams {
+		ups[k] = v
+	}
+	used := map[string]state.AppUpstream{}
+	for name, u := range st.AppUpstreams {
+		if ups[name] == u.From {
+			ups[name] = u.To
+			used[name] = u
+		}
+	}
+	cfg.Upstreams = ups
+	return cfg, used
+}
+
+// printAppUpstreams says which upstreams go to the app's containers, not the host.
+func printAppUpstreams(joined map[string]state.AppUpstream, from string) {
+	names := make([]string, 0, len(joined))
+	for n := range joined {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		u := joined[n]
+		fmt.Printf("  upstreams.%s: %s → http://%s (your app's container, on the Plat5 network%s)\n", n, u.From, u.To, from)
+	}
 }

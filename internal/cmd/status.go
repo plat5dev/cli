@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/plat5dev/cli/internal/compose"
@@ -66,7 +67,18 @@ func printSummary(stk *stack.Stack, st state.State) {
 	if st.AppCompose != "" && c.AppWeb != "" {
 		w.section("Your app")
 		w.row("Web", c.AppWeb, loginHint(stk, config.DevEmail))
-		w.row("API", "through the gateway", "")
+		if len(st.AppUpstreams) == 0 {
+			w.row("API", "through the gateway", "")
+		}
+		names := make([]string, 0, len(st.AppUpstreams))
+		for n := range st.AppUpstreams {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		for _, n := range names {
+			u := st.AppUpstreams[n]
+			w.row("API ("+n+")", "through the gateway → http://"+u.To, "localhost:"+u.From+" skips the gateway: no auth, this machine only")
+		}
 	}
 
 	w.section("Plat5")

@@ -37,6 +37,12 @@ Then your app, from app.compose in plat5.yml.
 start applies roles.yml and the routes files, and seeds a dev person, an org they
 own, and a key for each. Running it again updates the stack in place.
 
+A bare-port upstream (api: 3000) that your app's compose file publishes is
+reached in Docker: start puts that container on the Plat5 network and binds the
+upstream to it by service name (http://api:3000). The port on your machine is
+then only for you, and can be bound to 127.0.0.1. With -x app there is no
+container, so the upstream is a process on your machine (host.docker.internal).
+
   plat5 start -x operator         skip a module for this run
   plat5 start -x app              run your app yourself`,
 	Args: cobra.NoArgs,
@@ -73,10 +79,15 @@ func runStart(cmd *cobra.Command, args []string) error {
 	if skipApp {
 		app = nil
 	}
+	var joined map[string]state.AppUpstream
 	if app != nil {
 		if err := config.CheckFile("app.compose", cfg.AppCompose); err != nil {
 			return err
 		}
+		if joined, err = stk.JoinApp(app); err != nil {
+			return err
+		}
+		cfg = stk.Config
 	}
 
 	prev, err := state.Load(cfg.ProjectID)
@@ -119,6 +130,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	fmt.Println("Applying roles and routes…")
+	printAppUpstreams(joined, "")
 	if err := applyRolesFile(cp, cfg.RolesFile); err != nil {
 		return err
 	}
@@ -149,6 +161,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("your app: %w\n  See what failed: plat5 logs --app", err)
 		}
 		st.AppCompose = cfg.AppCompose
+		st.AppUpstreams = joined
 	}
 
 	if err := state.Save(st); err != nil {
