@@ -6,7 +6,6 @@ package stack
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -76,12 +75,12 @@ func (s *Stack) Prepare() error {
 		return err
 	}
 	if s.Has(config.ModuleAuth) && s.Config.Auth.ThemeFile == "" {
-		if err := writeTheme(filepath.Join(s.Dir, "auth-theme.json"), s.authTitle(), customerBanner, "#000000"); err != nil {
+		if err := writeTheme(filepath.Join(s.Dir, "auth-theme.json"), s.authTitle(), customerPlane); err != nil {
 			return err
 		}
 	}
 	if s.Has(config.ModuleOperator) {
-		if err := writeTheme(filepath.Join(s.Dir, "staff-theme.json"), s.staffTitle(), staffBanner, "#b45309"); err != nil {
+		if err := writeTheme(filepath.Join(s.Dir, "staff-theme.json"), s.staffTitle(), staffPlane); err != nil {
 			return err
 		}
 		if err := s.writeOperatorRoutes(); err != nil {
@@ -279,33 +278,6 @@ func (s *Stack) AppEnv() []string {
 // Sign-in page titles: the project's, and its staff's.
 func (s *Stack) authTitle() string  { return s.Config.ProjectID }
 func (s *Stack) staffTitle() string { return s.Config.ProjectID + " staff" }
-
-const (
-	customerBanner = "Customer sign-in (local) · " + config.DevEmail + " / " + config.DevPassword
-	staffBanner    = "Staff sign-in · operator plane (local) · " + config.StaffEmail + " / " + config.DevPassword
-)
-
-// writeTheme writes an OpenAuth Theme for a local Auth: Plat5's look, with a banner
-// that says which sign-in this is and the seeded login.
-func writeTheme(path, title, banner, primary string) error {
-	theme := map[string]any{
-		"title":      title,
-		"favicon":    "/static/p5.jpg",
-		"logo":       map[string]string{"light": "/static/logo.jpg", "dark": "/static/logo.jpg"},
-		"background": map[string]string{"light": "#ffffff", "dark": "#ffffff"},
-		"primary":    map[string]string{"light": primary, "dark": primary},
-		"radius":     "md",
-		"css": fmt.Sprintf(`:root { color-scheme: light; }
-body { color: #000; background: #fff; }
-body::before { content: %q; position: fixed; top: 0; left: 0; right: 0; padding: 8px 16px;
-  background: %s; color: #fff; font: 600 13px/1.4 system-ui, sans-serif; text-align: center; }`, banner, primary),
-	}
-	data, err := json.MarshalIndent(theme, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, data, 0o644)
-}
 
 // svcOverride is what the override sets on one service.
 type svcOverride struct {
