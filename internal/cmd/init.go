@@ -356,7 +356,8 @@ func renderPlat5YML(projectID string, ch initChoices, versions map[string]string
 	p := func(format string, a ...any) { fmt.Fprintf(&b, format, a...) }
 
 	p("# Plat5 project. plat5 start runs it; see `plat5 start --help`.\n")
-	p("project_id: %s\n\n", yamlString(projectID))
+	p("project_id: %s\n", yamlString(projectID))
+	p("cli: \">=%s\"  # the oldest plat5 CLI that reads this file\n\n", config.SchemaVersion)
 
 	if len(versions) > 0 {
 		p("# Image tags. plat5 init wrote the latest of each.\nversions:\n")

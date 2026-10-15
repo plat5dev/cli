@@ -72,6 +72,8 @@ var projectIDSanitizer = regexp.MustCompile(`[^a-zA-Z0-9_-]+`)
 
 // File is plat5.yml.
 type File struct {
+	// CLI is the oldest CLI the project works with: ">=X.Y.Z" (plat5 init writes it).
+	CLI         string            `yaml:"cli"`
 	ProjectID   string            `yaml:"project_id"`
 	Versions    map[string]string `yaml:"versions"`
 	Modules     map[string]bool   `yaml:"modules"`
@@ -397,6 +399,9 @@ var unknownFieldRE = regexp.MustCompile(`^line (\d+): field (\S+) not found in t
 
 // Parse decodes plat5.yml strictly: an unknown key is an error naming the key.
 func Parse(data []byte) (*File, error) {
+	if err := checkCLI(data); err != nil {
+		return nil, err
+	}
 	var f File
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
@@ -406,14 +411,20 @@ func Parse(data []byte) (*File, error) {
 			return nil, err
 		}
 		var msgs []string
+		unknown := false
 		for _, e := range te.Errors {
 			if m := unknownFieldRE.FindStringSubmatch(e); m != nil {
 				msgs = append(msgs, fmt.Sprintf("line %s: unknown key %q", m[1], m[2]))
+				unknown = true
 				continue
 			}
 			msgs = append(msgs, e)
 		}
-		return nil, errors.New(strings.Join(msgs, "; "))
+		msg := strings.Join(msgs, "; ")
+		if unknown {
+			msg += " (" + unknownKeyHint() + ")"
+		}
+		return nil, errors.New(msg)
 	}
 	return &f, nil
 }

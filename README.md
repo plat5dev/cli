@@ -93,10 +93,13 @@ Local Auth runs in dev mode: `POST /dev/token` mints a token for any email, and 
 
 ## `plat5.yml`
 
-Found by walking up from the working directory. Relative paths resolve against its directory. Unknown keys are errors.
+Found by walking up from the working directory. Relative paths resolve against its directory. Unknown keys are errors, with a hint that a newer CLI may know them.
+
+`cli:` is the oldest CLI that reads the file. `plat5 init` writes the version that introduced the newest key it uses (`internal/config.SchemaVersion`), not its own version, and every command checks it first: an older CLI says the project needs a newer one and how to upgrade, instead of failing on a key. Raise `SchemaVersion` in a release that adds a key.
 
 ```yaml
 project_id: my-app                 # default: the directory name
+cli: ">=0.7.0"                     # the oldest plat5 CLI that reads this file
 
 versions:                          # image tags; plat5 init writes the latest of each
   plat5: v0.7.1
