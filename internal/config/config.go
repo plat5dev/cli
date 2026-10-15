@@ -95,6 +95,10 @@ type AppBlock struct {
 	Compose string `yaml:"compose"`
 	// Web is the app's browser origin, allowed to sign in with local Auth.
 	Web string `yaml:"web"`
+	// Console is the origin of the project's own staff console, run by Compose:
+	// allowed to sign in with staff Auth and call the operator gateway. Set, the
+	// operator module runs no console image.
+	Console string `yaml:"console"`
 }
 
 // AuthBlock adds to local Auth's allowlists, beyond the app's web origin.
@@ -147,6 +151,8 @@ type Resolved struct {
 
 	AppCompose string // absolute; empty = no app
 	AppWeb     string // origin, no trailing slash
+	// AppConsole is the project's own staff console origin. Empty: the console image.
+	AppConsole string
 
 	Upstreams  map[string]string
 	RouteFiles []string
@@ -239,11 +245,6 @@ func Resolve(f *File, path string, o Overrides) (Resolved, error) {
 		}
 		r.Versions[k] = strings.TrimSpace(v)
 	}
-	for _, k := range r.NeededVersions() {
-		if r.Versions[k] == "" && r.Source[k] == "" {
-			return Resolved{}, fmt.Errorf("versions.%s is required (plat5 init writes the latest tag)", k)
-		}
-	}
 
 	r.AppCompose = resolveAgainst(dir, strings.TrimSpace(f.App.Compose))
 	if web := strings.TrimSpace(f.App.Web); web != "" {
@@ -252,6 +253,18 @@ func Resolve(f *File, path string, o Overrides) (Resolved, error) {
 			return Resolved{}, fmt.Errorf("app.web: %w", err)
 		}
 		r.AppWeb = origin
+	}
+	if console := strings.TrimSpace(f.App.Console); console != "" {
+		origin, err := parseOrigin(console)
+		if err != nil {
+			return Resolved{}, fmt.Errorf("app.console: %w", err)
+		}
+		r.AppConsole = origin
+	}
+	for _, k := range r.NeededVersions() {
+		if r.Versions[k] == "" && r.Source[k] == "" {
+			return Resolved{}, fmt.Errorf("versions.%s is required (plat5 init writes the latest tag)", k)
+		}
 	}
 
 	ups, err := upstreams.ParseMap(f.Upstreams)
@@ -327,7 +340,10 @@ func (r Resolved) NeededVersions() []string {
 		need = append(need, VersionAuth)
 	}
 	if r.Modules[ModuleOperator] {
-		need = append(need, VersionOperator, VersionOperatorConsole)
+		need = append(need, VersionOperator)
+		if r.AppConsole == "" {
+			need = append(need, VersionOperatorConsole)
+		}
 	}
 	return need
 }
@@ -364,9 +380,17 @@ func (r Resolved) AuthRedirectURIs() []string {
 	return uniq(append(out, r.Auth.RedirectURIs...))
 }
 
+// ConsoleURL is the local staff console: the project's own, or the image's.
+func (r Resolved) ConsoleURL() string {
+	if r.AppConsole != "" {
+		return r.AppConsole
+	}
+	return r.URL(ports.OperatorConsole)
+}
+
 // OperatorConsoleOrigins is the local console's origin, and any extra.
 func (r Resolved) OperatorConsoleOrigins() []string {
-	return uniq(append([]string{r.URL(ports.OperatorConsole)}, r.OperatorOrigins...))
+	return uniq(append([]string{r.ConsoleURL()}, r.OperatorOrigins...))
 }
 
 var unknownFieldRE = regexp.MustCompile(`^line (\d+): field (\S+) not found in type `)

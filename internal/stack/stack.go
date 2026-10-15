@@ -125,8 +125,17 @@ func (s *Stack) Runner() compose.Runner {
 	for _, m := range s.Modules {
 		files = append(files, bundle.Files[m])
 	}
+	if s.runsConsoleImage() {
+		files = append(files, bundle.ConsoleFile)
+	}
 	files = append(files, "override.yml")
 	return compose.Runner{Dir: s.Dir, ProjectName: s.Config.ComposeProject, Files: files, Env: s.Env()}
+}
+
+// runsConsoleImage reports whether the operator module's console image runs: not
+// when the project has its own console (app.console), which its compose file runs.
+func (s *Stack) runsConsoleImage() bool {
+	return s.Has(config.ModuleOperator) && s.Config.AppConsole == ""
 }
 
 // AppRunner is docker compose for the app's own file, or nil when there is none.
@@ -158,7 +167,10 @@ func (s *Stack) Ports() map[ports.Name]int {
 		add(ports.Auth)
 	}
 	if s.Has(config.ModuleOperator) {
-		add(ports.Operator, ports.StaffAuth, ports.OperatorConsole)
+		add(ports.Operator, ports.StaffAuth)
+	}
+	if s.runsConsoleImage() {
+		add(ports.OperatorConsole)
 	}
 	if s.Has(config.ModuleObservability) {
 		add(ports.Grafana, ports.OTLPGRPC, ports.OTLPHTTP)
@@ -254,6 +266,12 @@ func (s *Stack) AppEnv() []string {
 		env["PLAT5_AUTH_URL"] = c.URL(ports.Auth)
 	} else {
 		env["PLAT5_AUTH_URL"] = c.IdP.Issuer
+	}
+	// The staff plane, for the project's own console.
+	if s.Has(config.ModuleOperator) {
+		env["PLAT5_OPERATOR_URL"] = c.URL(ports.Operator)
+		env["PLAT5_STAFF_AUTH_URL"] = c.URL(ports.StaffAuth)
+		env["PLAT5_STAFF_CLIENT_ID"] = config.StaffClientID
 	}
 	return sortedEnv(env)
 }
@@ -436,7 +454,7 @@ func (s *Stack) sourceBuilds() []sourceBuild {
 			sourceBuild{"operator-audit-migrate", dir, "operator-audit"},
 		)
 	}
-	if dir := src[config.VersionOperatorConsole]; dir != "" && s.Has(config.ModuleOperator) {
+	if dir := src[config.VersionOperatorConsole]; dir != "" && s.runsConsoleImage() {
 		out = append(out, sourceBuild{"operator-console", dir, ""})
 	}
 	return out

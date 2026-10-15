@@ -3,10 +3,23 @@
 Run Plat5 locally, and manage its routes and roles. Everything runs in Docker: the CLI is one binary and needs nothing else.
 
 ```bash
-plat5 init my-app       # pick a starter
+plat5 init my-app       # your API (pick a starter), web app, and staff console
 cd my-app
-plat5 start             # Plat5, its modules, and your app; prints links, logins, keys
+plat5 start             # Plat5, its modules, and your apps; prints links, logins, keys
 ```
+
+`plat5 init` writes a project you own:
+
+```
+my-app/
+  api/                  your API, from a starter
+  web/                  your customers' web app (Vite + React)
+  console/              your staff console (Vite + React), on the operator gateway
+  routes.yml, routes.identity.yml, routes.audit.yml, roles.yml, operator.routes.yml
+  plat5.yml, docker-compose.yml, README.md
+```
+
+Each app is a starting point, not a dependency: change it, or delete it. The project's README says how to extend each part. `--no-web` and `--no-console` leave an app out.
 
 Self-hosting a deployment is compose, not this CLI: [plat5 `docs/self-hosting.md`](https://github.com/plat5dev/plat5/blob/master/docs/self-hosting.md).
 
@@ -33,10 +46,10 @@ One compose project, `plat5-<project_id>`, with one Postgres (a database per pla
 | `auth` | Plat5 Auth, the customer IdP, in dev mode | 5401 | `dev@example.com` / `password` |
 | `operator` | Operator gateway (staff) | 5410 | |
 | | Staff sign-in (a second Plat5 Auth: its own issuer and database) | 5411 | |
-| | Operator console | 5412 | `staff@example.com` / `password` |
+| | Operator console, unless the project has its own (`app.console`) | 5412 | `staff@example.com` / `password` |
 | `observability` | Grafana (grafana/otel-lgtm: Loki, Tempo, Prometheus) | 5403 | none |
 | | OTLP (Alloy, which also reads every container's logs) | 4318 HTTP, 4317 gRPC | |
-| your app (`app.compose`) | A starter's API and web app | 3000, 3001 | `dev@example.com` / `password` |
+| your apps (`app.compose`) | `api/`, `web/`, `console/` | 3000, 3001, 5412 | `dev@example.com`, `staff@example.com` / `password` |
 
 All modules are on unless `plat5.yml` turns one off. `plat5 start -x operator,observability` skips some for one run; `-x app` runs everything but your app, so you can run it on your machine.
 
@@ -96,9 +109,10 @@ modules:                           # all true unless set false
   operator: true
   observability: true
 
-app:                               # your app; plat5 start runs it after Plat5
+app:                               # your apps; plat5 start runs them after Plat5
   compose: ./docker-compose.yml
-  web: http://localhost:3001       # its browser origin: allowed to sign in with local Auth
+  web: http://localhost:3001       # web/: allowed to sign in with local Auth
+  console: http://localhost:5412   # console/: allowed to sign in as staff; no stock console runs
 
 upstreams:                         # where services listen, by routes.yml service name
   api: 3000
@@ -165,20 +179,20 @@ A bare port is your app, wherever it runs. When `plat5 start` runs `app.compose`
 
 ### Operator routes
 
-The operator gateway forwards a fixed list of paths: by default the image's own (identity, the org and person audit logs, the staff audit log). `operator.routes` replaces it with your file, in the operator's format ([operator `docs/routes.md`](https://github.com/plat5dev/operator/blob/master/docs/routes.md)). Copy the image's `routes.yml` and add your app's staff paths:
+The operator gateway forwards a fixed list of paths. `plat5 init` writes the operator's own list (identity, the org and person audit logs, the staff audit log) to `operator.routes.yml`, at the version `plat5.yml` pins, with a commented place for your API. The file is the project's: add your app's staff paths, in the operator's format ([operator `docs/routes.md`](https://github.com/plat5dev/operator/blob/master/docs/routes.md)):
 
 ```yaml
 upstreams:
   identity:
     url: http://identity:3000
-    routes: …                      # the image's list, unchanged
+    routes: …                      # the operator's list
   api:                             # url from plat5.yml upstreams.api
     routes:
       - path: /organizations/{organization_id}/projects
         methods: [GET]
 ```
 
-`plat5 start` writes it with upstreams bound and mounts it; the operator gateway reads it at boot, so `plat5 start` again picks up an edit.
+`plat5 start` writes it with upstreams bound and mounts it; the operator gateway reads it at boot, so `plat5 start` again picks up an edit. Without `operator.routes` in `plat5.yml`, the gateway uses its image's list. A newer operator version may route more identity paths: `plat5 init` in an empty directory shows the current list.
 
 ## Routes
 
@@ -191,7 +205,7 @@ plat5 routes apply ./other.yml
 
 `plat5 start` applies the roles file and the configured route files after the control plane is ready.
 
-With roles on, `start`, `routes apply`, and `roles apply` name each `required_labels` entry that no role grants by name, so only roles holding `"*"` can call it: `labels no role grants by name, so only owner can call them: org:delete (DELETE /org)`. An owner-only route reads that way on purpose. A typo (`stats:raed`) reads the same, and is otherwise invisible to an owner.
+With roles on, `start`, `routes apply`, and `roles apply` compare the labels routes require with the labels roles grant. A label on one side only, a letter or two from one on the other, is warned as a likely typo, whichever side it is on: `stats:read (GET /org/stats) and stats:raed (role member)`. A required label no role grants by name is how an owner-only route is written, so it is a quiet note: `owner only (no role grants these by name): org:delete (DELETE /org)`. With no role holding `"*"`, that note is a warning: nobody can call the route.
 
 ### Audit
 
@@ -210,11 +224,11 @@ creator_role: owner
 default_role: member
 ```
 
-Roles live in the control plane. `plat5 start` writes the file there (it also seeds the first roles document, so identity can start), and `plat5 roles apply` writes it without a restart. Identity picks up a change within a second or two. The gateway caches credentials for up to `APIKEY_CACHE_TTL_SECS` (300s), so a role change reaches existing sessions and keys within that window. Remove `roles:` from `plat5.yml` to turn roles off (`ROLES_ENABLED=false` on identity): no member has a role, every member holds every label, and authorization is left to something else. Turning roles on or off recreates identity (`ROLES_ENABLED` is a boot switch).
+Roles live in the control plane. `plat5 start` writes the file there (it also seeds the first roles document, so identity can start), and `plat5 roles apply` writes it without a restart. Identity picks up a change within a second or two. The gateway caches credentials for `APIKEY_CACHE_TTL_SECS`, so a role change reaches keys and sessions already in use when that expires: 5s on the local stack, the gateway's default of 300s unless a deployment sets it. Remove `roles:` from `plat5.yml` to turn roles off (`ROLES_ENABLED=false` on identity): no member has a role, every member holds every label, and authorization is left to something else. Turning roles on or off recreates identity (`ROLES_ENABLED` is a boot switch).
 
 ## Starters
 
-A starter is a repo `plat5 init` copies: `plat5dev/template-*` by short name (`plat5 init --list-templates`), any `owner/repo`, or an archive URL. Remote starters are cached under `~/.cache/plat5/templates/`; `--templates-dir` reads them from a local directory, `--template-ref` picks a git ref.
+A starter is an API repo `plat5 init` copies into `api/`: `plat5dev/template-*` by short name (`plat5 init --list-templates`), any `owner/repo`, or an archive URL. Beside it, init copies the web app ([`template-web`](https://github.com/plat5dev/template-web)) into `web/` and the staff console ([`operator-console`](https://github.com/plat5dev/operator-console)) into `console/`, from the same ref. Nothing is cached: each init downloads, and prints the ref and commit it got. `--templates-dir` reads them all from a local directory (folders named like the repos), `--template-ref` picks a git ref.
 
 ### The starter contract
 
@@ -222,22 +236,24 @@ What a starter ships, so `plat5 init` and `plat5 start` can run it with no other
 
 | | |
 |--|--|
-| `plat5.template.yml` | `name`, `description`, `upstreams`, `routes`, `substitute` (files where `{{project_id}}` is replaced), `app`, and `next` |
-| `app.compose` | A compose file that runs the API with hot reload. No `name:`: the project is the directory's |
-| `app.web` | The web app's origin, if the compose file runs one. Local Auth allows it to sign in |
+| `plat5.template.yml` | `name`, `kind: api`, `description`, `upstreams`, `routes`, `substitute` (files where `{{project_id}}` is replaced), `app`, and `next` |
+| `app.compose` | A compose file that runs the API with hot reload. No `name:`: the project's root compose file includes it |
 | `next` | How to run the API on your machine instead (`plat5 start -x app`) |
-| `routes.yml`, `routes.identity.yml`, `routes.audit.yml`, `roles.yml` | The route files and roles `plat5.yml` points at |
+| `routes.yml`, `routes.identity.yml`, `routes.audit.yml`, `roles.yml` | The route files and roles. Init moves them to the project root |
 
-`plat5 start` runs `docker compose up -d --build --wait` on `app.compose` with this env, so the file can say `${PLAT5_GATEWAY_URL}`:
+A starter without `kind: api` (from before this layout) is copied to the project root alone, as it was.
+
+The web app and console are templates too (`kind: web`, `kind: console`), each with a compose file that runs Vite with the folder mounted. `plat5 start` runs the project's `docker-compose.yml` with `docker compose up -d --build --wait` and this env, so each app's file can say `${PLAT5_GATEWAY_URL}`:
 
 | Env | |
 |-----|--|
 | `PLAT5_GATEWAY_URL` | The gateway, as the browser reaches it |
 | `PLAT5_AUTH_URL` | The customer IdP's issuer, as the browser reaches it |
 | `PLAT5_AUTH_CLIENT_ID` | The OAuth client id (`plat5`) |
+| `PLAT5_OPERATOR_URL`, `PLAT5_STAFF_AUTH_URL`, `PLAT5_STAFF_CLIENT_ID` | The operator gateway, the staff issuer, and the console's client id, with the operator module on |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Where to send traces and metrics (Alloy on the host, `http://host.docker.internal:4318`), or empty |
 
-Ports: the API on `3000`, the web app on `3001`. First-party starters share one API (profiles, projects, tasks), so they share one web app: [`template-web`](https://github.com/plat5dev/template-web), run from `ghcr.io/plat5dev/template-web`. A starter with its own frontend (SSR, Next.js) runs that instead.
+Ports: the API on `3000`, the web app on `3001`, the console on `5412`. First-party starters share one API (profiles, projects, tasks), so they share one web app.
 
 ## Contributors: build from checkouts
 

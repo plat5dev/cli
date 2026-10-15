@@ -76,19 +76,6 @@
           "value": ""
         },
         "options": []
-      },
-      {
-        "type": "textbox",
-        "name": "trace_id",
-        "label": "TraceID",
-        "hide": 0,
-        "skipUrlSync": false,
-        "query": "e58c1b97c2eece7d455fc780a03cd940",
-        "current": {
-          "text": "e58c1b97c2eece7d455fc780a03cd940",
-          "value": "e58c1b97c2eece7d455fc780a03cd940"
-        },
-        "options": []
       }
     ]
   },
@@ -97,11 +84,11 @@
       "id": 1,
       "type": "table",
       "title": "Service Traces",
-      "description": "",
+      "description": "Recent traces for the service. Click a trace ID to open the whole trace, every service in it, in Explore.",
       "gridPos": {
         "x": 0,
         "y": 0,
-        "w": 10,
+        "w": 24,
         "h": 14
       },
       "datasource": {
@@ -175,16 +162,7 @@
             "properties": [
               {
                 "id": "custom.width",
-                "value": 320
-              },
-              {
-                "id": "links",
-                "value": [
-                  {
-                    "title": "View Trace",
-                    "url": "/d/plat5-debug/debug-observability?${__url_time_range}&var-service=${service}&var-contains=${contains}&var-trace_id=${__value.raw}"
-                  }
-                ]
+                "value": 300
               }
             ]
           }
@@ -193,57 +171,6 @@
       "options": {
         "cellHeight": "sm",
         "showHeader": true
-      },
-      "links": [],
-      "pluginVersion": "12.3.1"
-    },
-    {
-      "id": 2,
-      "type": "traces",
-      "title": "View TraceID",
-      "description": "",
-      "gridPos": {
-        "x": 10,
-        "y": 0,
-        "w": 14,
-        "h": 14
-      },
-      "datasource": {
-        "type": "tempo",
-        "uid": "tempo"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "hide": false,
-          "datasource": {
-            "type": "tempo",
-            "uid": "tempo"
-          },
-          "queryType": "traceql",
-          "limit": 20,
-          "tableType": "traces",
-          "query": "${trace_id}",
-          "metricsQueryType": "range"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {},
-        "overrides": []
-      },
-      "options": {
-        "spanFilters": {
-          "criticalPathOnly": false,
-          "matchesOnly": false,
-          "serviceNameOperator": "=",
-          "spanNameOperator": "=",
-          "tags": [
-            {
-              "id": "e829f0ab-5c2",
-              "operator": "="
-            }
-          ]
-        }
       },
       "links": [],
       "pluginVersion": "12.3.1"

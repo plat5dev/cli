@@ -118,7 +118,11 @@ services:
       AUDIT_URL: http://audit:3003
       INTERNAL_AUTH_TOKEN: dev-internal-token
       RUST_LOG: info
-      APIKEY_CACHE_TTL_SECS: "300"
+      # How long the gateway trusts a validated key, session, or IdP subject. It is
+      # how long a revoke, suspend, or role change takes to reach the edge. Short
+      # here, so a roles.yml edit shows on the next call; a deployment picks its
+      # own (the gateway's default is 300).
+      APIKEY_CACHE_TTL_SECS: "5"
       RATE_LIMIT_REQUESTS: "60"
       RATE_LIMIT_WINDOW_SECONDS: "60"
       RATE_LIMIT_AUTH_FAILURE_REQUESTS: "60"

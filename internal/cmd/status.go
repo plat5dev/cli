@@ -93,7 +93,7 @@ func printSummary(stk *stack.Stack, st state.State) {
 
 	if stk.Has(config.ModuleOperator) {
 		w.section("Operator (staff)")
-		w.row("Console", c.URL(ports.OperatorConsole), config.StaffEmail+" / "+config.DevPassword)
+		w.row("Console", c.ConsoleURL(), config.StaffEmail+" / "+config.DevPassword)
 		w.row("Gateway", c.URL(ports.Operator), "")
 		w.row("Staff auth", c.URL(ports.StaffAuth), "")
 	}
@@ -198,7 +198,7 @@ func printWhatYouGot(stk *stack.Stack, st state.State) {
 	}
 	fmt.Println("  Rate limits    Per route, per caller, shared by every gateway replica.")
 	if stk.Has(config.ModuleOperator) {
-		fmt.Printf("  Audit          Every write is recorded: who, where, and what changed. See it in the console, %s.\n", c.URL(ports.OperatorConsole))
+		fmt.Printf("  Audit          Every write is recorded: who, where, and what changed. See it in the console, %s.\n", c.ConsoleURL())
 	} else {
 		fmt.Println("  Audit          Every write is recorded: who, where, and what changed (GET /org/audit-events).")
 	}

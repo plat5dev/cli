@@ -1,0 +1,23 @@
+# Embedded by plat5 CLI: the operator console image, for a project without its own
+# console. With the operator module on and no app.console in plat5.yml, plat5 start
+# runs it. Pulls ghcr.io/plat5dev/operator-console:${OPERATOR_CONSOLE_VERSION}.
+services:
+  operator-console:
+    image: ghcr.io/plat5dev/operator-console:${OPERATOR_CONSOLE_VERSION:?}
+    labels:
+      service.name: operator-console
+      service.namespace: operator
+    ports:
+      - "${OPERATOR_CONSOLE_PORT:?}:8080"
+    environment:
+      GATEWAY_URL: http://localhost:${OPERATOR_PORT:?}
+      AUTH_ISSUER: http://localhost:${STAFF_AUTH_PORT:?}
+      AUTH_CLIENT_ID: operator-console
+    networks:
+      - plat5
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/config.js"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped

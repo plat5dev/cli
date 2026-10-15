@@ -1,9 +1,8 @@
 # Embedded by plat5 CLI: the operator module. The staff front door onto the same
 # identity and audit: the operator gateway, its staff audit log (operator-audit), a staff
-# IdP (Plat5 Auth, its own issuer and database, never the customer one), and the
-# operator console. Pulls ghcr.io/plat5dev/operator{,-audit}:${OPERATOR_VERSION},
-# ghcr.io/plat5dev/auth:${AUTH_VERSION}, and
-# ghcr.io/plat5dev/operator-console:${OPERATOR_CONSOLE_VERSION}.
+# IdP (Plat5 Auth, its own issuer and database, never the customer one). Pulls
+# ghcr.io/plat5dev/operator{,-audit}:${OPERATOR_VERSION} and
+# ghcr.io/plat5dev/auth:${AUTH_VERSION}. The console is operator-console.yml.
 x-otel: &otel
   OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
   DEPLOYMENT_ENV: local
@@ -113,24 +112,4 @@ services:
       interval: 2s
       timeout: 5s
       retries: 60
-    restart: unless-stopped
-
-  operator-console:
-    image: ghcr.io/plat5dev/operator-console:${OPERATOR_CONSOLE_VERSION:?}
-    labels:
-      service.name: operator-console
-      service.namespace: operator
-    ports:
-      - "${OPERATOR_CONSOLE_PORT:?}:8080"
-    environment:
-      GATEWAY_URL: http://localhost:${OPERATOR_PORT:?}
-      AUTH_ISSUER: http://localhost:${STAFF_AUTH_PORT:?}
-      AUTH_CLIENT_ID: operator-console
-    networks:
-      - plat5
-    healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/config.js"]
-      interval: 2s
-      timeout: 5s
-      retries: 30
     restart: unless-stopped

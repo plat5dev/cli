@@ -1,0 +1,88 @@
+# {{.Project}}
+
+Your API{{if .Web}}, a web app for your customers{{end}}{{if .Console}}, and a console for your staff{{end}}, behind Plat5. Plat5 signs people in, keeps organizations and their members, roles, and keys, checks every request at its gateway, and records an audit log. Your code does none of that: it reads the organization from the path.
+
+Everything here is yours to change. It is a starting point, not a dependency.
+
+## Run it
+
+```bash
+plat5 start     # Plat5, then your apps; prints every link, login, and a key
+plat5 status    # the same, again
+plat5 logs --app
+plat5 stop      # data is kept
+```
+
+{{if .Web}}Sign in to the web app as `{{.DevEmail}}` / `{{.Password}}`.{{end}}{{if .Console}} Sign in to the staff console as `{{.StaffEmail}}` / `{{.Password}}`.{{end}} Edit any app and it reloads.
+
+## What's here
+
+| | |
+|--|--|
+| `api/` | Your API ({{.Starter}}). `api/README.md` walks through adding a feature |
+{{- if .Web}}
+| `web/` | Your customer web app: Vite + React. Its *How it works* page explains Plat5, page by page |
+{{- end}}
+{{- if .Console}}
+| `console/` | Your staff console: Vite + React, calling the operator gateway |
+{{- end}}
+| `routes.yml` | Your API at the gateway: each path, who may call it, the labels it needs |
+| `routes.identity.yml`, `routes.audit.yml` | Plat5's own routes: sign-in, organizations, members, keys, the audit log |
+| `roles.yml` | Roles, and the labels each grants |
+{{- if .OperatorRoutes}}
+| `operator.routes.yml` | What staff may call through the operator gateway |
+{{- end}}
+| `plat5.yml` | The project: modules, versions, where your apps listen |
+| `docker-compose.yml` | Runs your apps; each folder has its own compose file |
+
+## How a request reaches your API
+
+```
+client                            Plat5 gateway (:5400)                         your API (api/)
+                                  1. Who is calling? A key, a session, a sign-in
+GET /org/projects          ──▶    2. Which organization? From the credential
+X-API-Key: plat5-k-2-…            3. Allowed? The route's labels, from roles.yml
+                                  4. Rate limit, and the audit log for writes
+                                  5. Write the org into the path            ──▶  GET /organizations/org_123/projects
+```
+
+`routes.yml` says it:
+
+```yaml
+- path: /org/projects                                          # what clients call
+  upstream: /organizations/{subject.organization_id}/projects  # what your API gets
+```
+
+The org in the path comes from the caller's credential, never from the client, so your API trusts it and checks nothing else. That is also why nothing but the gateway may reach your API.
+
+## Extend it
+
+### Add an API route
+
+1. Write the handler in `api/`, on the path your API gets (`/organizations/:organization_id/…`). `api/README.md`, "Build your first feature", has a worked example.
+2. Add the route to `routes.yml`: the `path` clients call, and the `upstream` your API gets.
+3. To limit who may call it, set `required_labels` on the route, and grant the label to roles in `roles.yml`.
+4. `plat5 routes apply && plat5 roles apply`. Nothing restarts.
+{{if .Web}}
+### Add a page to the web app
+
+1. `web/src/pages/YourPage.tsx`. Call your API through `web/src/api/endpoints.ts`: organization routes send the member session (see `listProjects`).
+2. A route in `web/src/App.tsx`, and a link in `web/src/components/Layout.tsx`.
+{{end}}{{if .OperatorRoutes}}
+### Let staff call your API
+
+1. In `operator.routes.yml`, uncomment the `api` upstream and list the paths staff may call. They are your API's own paths, with the org in them: `/organizations/{organization_id}/projects`.
+2. `plat5 start`. The operator gateway reads the file when it starts.
+{{end}}{{if .Console}}
+### Add a page to the staff console
+
+1. `console/src/pages/YourPage.tsx`. Read with `useResource` or `usePaged` from `console/src/api/hooks.ts`; write with `api()` from `console/src/api/client.ts`. Both call the operator gateway with the staff token.
+2. A route in `console/src/App.tsx`, and a link in `console/src/components/Layout.tsx`.
+{{end}}
+### Remove what you don't need
+{{if .Web}}
+- **The teaching pages** in the web app: delete `web/src/learn/`, its route in `web/src/App.tsx`, and its link in `web/src/components/Layout.tsx`.
+{{- end}}
+- **An app**: delete its folder and its line in `docker-compose.yml`.{{if .Web}} Without `web/`, also remove `app.web` from `plat5.yml`.{{end}}{{if .Console}} Without `console/`, also remove `app.console`; `plat5 start` then runs the stock console instead.{{end}}
+- **A module** (sign-in, the staff plane, Grafana): turn it off under `modules:` in `plat5.yml`.
+- **Run your apps yourself**, with your own tools: `plat5 start -x app` runs Plat5 alone. Each app's README says how to run it on its own.
