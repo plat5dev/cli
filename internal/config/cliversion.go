@@ -13,7 +13,7 @@ import (
 // plat5 init records it as plat5.yml's cli: ">=…". Raise it with a release that
 // adds a key to plat5.yml, so an older CLI says to upgrade instead of failing on
 // the key.
-const SchemaVersion = "0.7.0"
+const SchemaVersion = "0.6.3"
 
 // CLIVersion is the running CLI's version (cmd sets it). "dev", or anything
 // that isn't X.Y.Z, skips the cli: check.
