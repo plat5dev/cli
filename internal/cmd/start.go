@@ -21,6 +21,7 @@ const appModule = "app"
 var (
 	startExclude []string
 	startWait    time.Duration
+	startVerbose bool
 )
 
 var startCmd = &cobra.Command{
@@ -52,6 +53,7 @@ container, so the upstream is a process on your machine (host.docker.internal).
 func init() {
 	startCmd.Flags().StringSliceVarP(&startExclude, "exclude", "x", nil, "Skip modules for this run: auth, operator, observability, app")
 	startCmd.Flags().DurationVar(&startWait, "wait", 10*time.Minute, "How long to wait for the stack to be healthy")
+	startCmd.Flags().BoolVarP(&startVerbose, "verbose", "v", false, "Show docker compose's pull, build, and container output (otherwise it goes to a log file)")
 }
 
 func runStart(cmd *cobra.Command, args []string) error {
@@ -106,7 +108,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 
 	owned := compose.PublishedPorts(cfg.ComposeProject)
 	if err := ports.Check(stk.Ports(), func(p int) bool { return owned[p] }); err != nil {
-		return err
+		return fmt.Errorf("%w%s", err, portHolders(stk.Ports(), cfg.ComposeProject))
 	}
 	if err := stk.Prepare(); err != nil {
 		return err
@@ -116,13 +118,24 @@ func runStart(cmd *cobra.Command, args []string) error {
 	if len(stk.Modules) > 0 {
 		what += " + " + strings.Join(stk.Modules, ", ")
 	}
-	fmt.Printf("Starting %s…\n", what)
-	if stk.Builds() {
-		fmt.Println("Building from source: checkouts (the first build takes a while)…")
+	out, err := newStartLog(stk.Dir, startVerbose)
+	if err != nil {
+		return err
 	}
+	defer out.Close()
+
+	fmt.Printf("Starting %s…\n", what)
 	runner := stk.Runner()
+	runner.Output = out.w
+	if err := pullMissing(runner, out); err != nil {
+		return err
+	}
+	if stk.Builds() {
+		fmt.Println("  Building from source: checkouts (the first build takes a while)…")
+	}
+	fmt.Println("  Waiting for every container to be healthy…")
 	if err := runner.Up(compose.UpOptions{Build: stk.Builds(), Wait: startWait, RemoveOrphans: true}); err != nil {
-		return fmt.Errorf("%w\n  See what failed: plat5 logs", err)
+		return out.failed(err, "plat5 logs")
 	}
 
 	cp := controlplane.New(cfg.ControlPlaneURL, cfg.AdminToken)
@@ -146,6 +159,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 			AuthURL:    cfg.URL(ports.Auth),
 			ClientID:   config.DefaultAuthClient,
 			Email:      config.DevEmail,
+			Name:       config.DevName,
 			OrgName:    config.DevOrgName,
 		}, prev.Dev)
 		if err != nil {
@@ -156,9 +170,13 @@ func runStart(cmd *cobra.Command, args []string) error {
 
 	if app != nil {
 		fmt.Printf("Starting your app (%s)…\n", relPath(cfg.ConfigDir, cfg.AppCompose))
+		app.Output = out.w
+		if err := pullMissing(*app, out); err != nil {
+			return err
+		}
 		if err := app.Up(compose.UpOptions{Build: true, Wait: startWait}); err != nil {
 			_ = state.Save(st)
-			return fmt.Errorf("your app: %w\n  See what failed: plat5 logs --app", err)
+			return out.failed(fmt.Errorf("your app: %w", err), "plat5 logs --app")
 		}
 		st.AppCompose = cfg.AppCompose
 		st.AppUpstreams = joined
@@ -169,5 +187,6 @@ func runStart(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Println()
 	printSummary(stk, st)
+	printWhatYouGot(stk, st)
 	return nil
 }

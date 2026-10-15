@@ -7,9 +7,16 @@ import (
 	"strings"
 )
 
-// Interactive reports whether stdin is a terminal.
+// Interactive reports whether stdin and stdout are terminals: someone to ask.
 func Interactive() bool {
-	fi, err := os.Stdin.Stat()
+	return terminal(os.Stdin) && terminal(os.Stdout)
+}
+
+// StdoutTerminal reports whether stdout is a terminal, not a pipe or a file.
+func StdoutTerminal() bool { return terminal(os.Stdout) }
+
+func terminal(f *os.File) bool {
+	fi, err := f.Stat()
 	if err != nil {
 		return false
 	}

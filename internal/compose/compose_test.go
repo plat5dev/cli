@@ -71,3 +71,10 @@ func TestParseConfigPorts(t *testing.T) {
 		t.Fatalf("web: %+v", web)
 	}
 }
+
+func TestParsePortProjects(t *testing.T) {
+	got := parsePortProjects("plat5-e10s\t0.0.0.0:5400->5001/tcp, 127.0.0.1:4317-4318->4317-4318/tcp\n\tignored\ndxapp\t127.0.0.1:3000->3000/tcp\n")
+	if got[5400] != "plat5-e10s" || got[4318] != "plat5-e10s" || got[3000] != "dxapp" || len(got) != 4 {
+		t.Fatalf("%v", got)
+	}
+}

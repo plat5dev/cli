@@ -1,6 +1,6 @@
 {
   "uid": "plat5-service-health",
-  "title": "Service Health Overview",
+  "title": "Service Health",
   "description": "",
   "tags": [
     "plat5",
@@ -59,8 +59,8 @@
           "uid": "prometheus"
         },
         "current": {
-          "text": "gateway",
-          "value": "gateway",
+          "text": "api",
+          "value": "api",
           "selected": true
         },
         "options": []
@@ -76,7 +76,7 @@
       "gridPos": {
         "x": 0,
         "y": 0,
-        "w": 4,
+        "w": 3,
         "h": 4
       },
       "datasource": {
@@ -147,9 +147,9 @@
       "title": "P95 Latency",
       "description": "95th percentile latency",
       "gridPos": {
-        "x": 4,
+        "x": 3,
         "y": 0,
-        "w": 4,
+        "w": 3,
         "h": 4
       },
       "datasource": {
@@ -221,12 +221,12 @@
     {
       "id": 3,
       "type": "stat",
-      "title": "Error Rate",
+      "title": "5xx Rate",
       "description": "5xx error rate",
       "gridPos": {
-        "x": 8,
+        "x": 6,
         "y": 0,
-        "w": 4,
+        "w": 3,
         "h": 4
       },
       "datasource": {
@@ -241,7 +241,84 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(http_requests_total{service_name=\"$service\", status=~\"5..\"}[5m])) / sum(rate(http_requests_total{service_name=\"$service\"}[5m])) or vector(0)",
+          "expr": "(sum(rate(http_requests_total{service_name=\"$service\", status=~\"5..\"}[5m])) or vector(0)) / (sum(rate(http_requests_total{service_name=\"$service\"}[5m])) > 0)",
+          "legendFormat": "error %",
+          "range": true,
+          "instant": false,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "yellow",
+                "value": 0.01
+              },
+              {
+                "color": "red",
+                "value": 0.05
+              }
+            ]
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "links": [],
+      "pluginVersion": "12.3.1"
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "4xx Rate",
+      "description": "Client errors: 401, 403, 404, 422, 429. 429s are rate limiting.",
+      "gridPos": {
+        "x": 9,
+        "y": 0,
+        "w": 3,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "hide": false,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "(sum(rate(http_requests_total{service_name=\"$service\", status=~\"4..\"}[5m])) or vector(0)) / (sum(rate(http_requests_total{service_name=\"$service\"}[5m])) > 0)",
           "legendFormat": "error %",
           "range": true,
           "instant": false,
@@ -298,12 +375,12 @@
     {
       "id": 4,
       "type": "stat",
-      "title": "GW Cache Hitrate",
+      "title": "Gateway Cache Hit Rate",
       "description": "",
       "gridPos": {
         "x": 12,
         "y": 0,
-        "w": 4,
+        "w": 3,
         "h": 4
       },
       "datasource": {
@@ -371,11 +448,11 @@
       "id": 5,
       "type": "stat",
       "title": "Uptime",
-      "description": "Service uptime",
+      "description": "Runtime metrics. Not every service exports them.",
       "gridPos": {
-        "x": 16,
+        "x": 15,
         "y": 0,
-        "w": 4,
+        "w": 3,
         "h": 4
       },
       "datasource": {
@@ -416,7 +493,8 @@
               }
             ]
           },
-          "unit": "s"
+          "unit": "s",
+          "noValue": "Not exported by this service"
         },
         "overrides": []
       },
@@ -444,11 +522,11 @@
       "id": 6,
       "type": "stat",
       "title": "Goroutines",
-      "description": "Active goroutines (Go services)",
+      "description": "Runtime metrics. Not every service exports them. Go services only.",
       "gridPos": {
-        "x": 20,
+        "x": 18,
         "y": 0,
-        "w": 4,
+        "w": 3,
         "h": 4
       },
       "datasource": {
@@ -489,7 +567,8 @@
               }
             ]
           },
-          "unit": "short"
+          "unit": "short",
+          "noValue": "Not exported by this service"
         },
         "overrides": []
       },
@@ -747,7 +826,7 @@
       "id": 9,
       "type": "timeseries",
       "title": "CPU Usage",
-      "description": "CPU usage percentage",
+      "description": "Runtime metrics. Not every service exports them.",
       "gridPos": {
         "x": 0,
         "y": 12,
@@ -826,7 +905,8 @@
               }
             ]
           },
-          "unit": "percent"
+          "unit": "percent",
+          "noValue": "Not exported by this service"
         },
         "overrides": []
       },
@@ -850,7 +930,7 @@
       "id": 10,
       "type": "timeseries",
       "title": "Memory (RSS)",
-      "description": "Resident memory (RSS)",
+      "description": "Runtime metrics. Not every service exports them.",
       "gridPos": {
         "x": 12,
         "y": 12,
@@ -929,7 +1009,8 @@
               }
             ]
           },
-          "unit": "decmbytes"
+          "unit": "decmbytes",
+          "noValue": "Not exported by this service"
         },
         "overrides": []
       },

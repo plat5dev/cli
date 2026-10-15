@@ -4,6 +4,7 @@ package compose
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"regexp"
@@ -26,6 +27,8 @@ type Runner struct {
 	Env []string
 	// Quiet sends output nowhere; for probes.
 	Quiet bool
+	// Output, when set, takes stdout and stderr in place of the terminal.
+	Output io.Writer
 }
 
 func (r Runner) args(args ...string) []string {
@@ -45,7 +48,12 @@ func (r Runner) args(args ...string) []string {
 func (r Runner) cmd(args ...string) *exec.Cmd {
 	c := exec.Command("docker", r.args(args...)...)
 	c.Dir = r.Dir
-	if !r.Quiet {
+	switch {
+	case r.Quiet:
+	case r.Output != nil:
+		c.Stdout = r.Output
+		c.Stderr = r.Output
+	default:
 		c.Stdout = os.Stdout
 		c.Stderr = os.Stderr
 		c.Stdin = os.Stdin
@@ -109,6 +117,43 @@ func (r Runner) Up(o UpOptions) error {
 		args = append(args, "--remove-orphans")
 	}
 	return run(r.cmd(args...))
+}
+
+// MissingImages is the images the project pulls (not builds) that aren't local yet.
+func (r Runner) MissingImages() ([]string, error) {
+	c := r.cmd("config", "--format", "json")
+	c.Stdout, c.Stderr = nil, nil
+	out, err := c.Output()
+	if err != nil {
+		return nil, fmt.Errorf("docker compose config: %w", err)
+	}
+	var cfg struct {
+		Services map[string]struct {
+			Image string          `json:"image"`
+			Build json.RawMessage `json:"build"`
+		} `json:"services"`
+	}
+	if err := json.Unmarshal(out, &cfg); err != nil {
+		return nil, fmt.Errorf("docker compose config: %w", err)
+	}
+	seen := map[string]bool{}
+	var missing []string
+	for _, svc := range cfg.Services {
+		if svc.Image == "" || len(svc.Build) > 0 || seen[svc.Image] {
+			continue
+		}
+		seen[svc.Image] = true
+		if exec.Command("docker", "image", "inspect", svc.Image).Run() != nil {
+			missing = append(missing, svc.Image)
+		}
+	}
+	sort.Strings(missing)
+	return missing, nil
+}
+
+// Pull runs docker compose pull for the images the project doesn't build.
+func (r Runner) Pull() error {
+	return run(r.cmd("pull", "--ignore-buildable"))
 }
 
 // Down runs docker compose down. Volumes are kept.
@@ -210,6 +255,30 @@ func parseConfigPorts(data []byte) (map[int]Published, error) {
 		}
 	}
 	return out, nil
+}
+
+// PortProjects is the compose project of each host port a running container
+// publishes.
+func PortProjects() map[int]string {
+	out, err := exec.Command("docker", "ps", "--filter", "label=com.docker.compose.project", "--format", `{{.Label "com.docker.compose.project"}}	{{.Ports}}`).Output()
+	if err != nil {
+		return nil
+	}
+	return parsePortProjects(string(out))
+}
+
+func parsePortProjects(s string) map[int]string {
+	owners := map[int]string{}
+	for _, line := range strings.Split(s, "\n") {
+		project, published, ok := strings.Cut(line, "\t")
+		if !ok || project == "" {
+			continue
+		}
+		for p := range parsePublished(published) {
+			owners[p] = project
+		}
+	}
+	return owners
 }
 
 func parsePublished(s string) map[int]bool {

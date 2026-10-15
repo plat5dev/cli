@@ -74,3 +74,21 @@ func TestServices(t *testing.T) {
 		}
 	}
 }
+
+func TestMaterializeRemovesStaleFiles(t *testing.T) {
+	dir := t.TempDir()
+	stale := filepath.Join(dir, "observability", "dashboards", "issuer.json")
+	generated := filepath.Join(dir, "override.yml")
+	_ = os.MkdirAll(filepath.Dir(stale), 0o755)
+	_ = os.WriteFile(stale, []byte("{}"), 0o644)
+	_ = os.WriteFile(generated, []byte("services: {}"), 0o644)
+	if err := Materialize(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Fatalf("stale dashboard kept: %v", err)
+	}
+	if _, err := os.Stat(generated); err != nil {
+		t.Fatalf("generated file removed: %v", err)
+	}
+}

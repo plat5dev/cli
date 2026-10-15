@@ -42,6 +42,8 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&flagControlPlaneURL, "control-plane-url", "", "Control plane admin URL (or PLAT5_CONTROL_PLANE_URL). Default: the local one")
 	rootCmd.PersistentFlags().StringVar(&flagAdminToken, "admin-token", "", "Control plane admin token (or PLAT5_ADMIN_TOKEN). Default: plat5.yml admin_token")
 
+	rootCmd.Version = cliVersion()
+	rootCmd.SetVersionTemplate("plat5 {{.Version}}\n")
 	rootCmd.AddCommand(initCmd, startCmd, stopCmd, statusCmd, logsCmd, doctorCmd, routesCmd, rolesCmd, versionCmd)
 }
 

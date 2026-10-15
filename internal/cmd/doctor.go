@@ -65,7 +65,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	running := compose.Running(cfg.ComposeProject)
 	owned := compose.PublishedPorts(cfg.ComposeProject)
 	if busy := ports.Busy(stk.Ports(), func(p int) bool { return owned[p] }); len(busy) > 0 {
-		check("ports", fmt.Errorf("in use: %s", strings.Join(busy, ", ")))
+		check("ports", fmt.Errorf("in use: %s%s", strings.Join(busy, ", "), portHolders(stk.Ports(), cfg.ComposeProject)))
 	} else {
 		check("ports free", nil)
 	}

@@ -21,6 +21,7 @@ type fake struct {
 	// own, only the org's service accounts (like a product that sells to machines).
 	serviceAccountsOnly bool
 	saBody              map[string]any
+	name                string
 }
 
 func (f *fake) handler(t *testing.T) http.Handler {
@@ -69,6 +70,11 @@ func (f *fake) handler(t *testing.T) http.Handler {
 				write(401, map[string]string{})
 				return
 			}
+			write(200, map[string]any{"id": "usr_1", "display_name": nil})
+		case "PATCH /user":
+			var in map[string]string
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			f.name = in["display_name"]
 			write(200, map[string]string{"id": "usr_1"})
 		case "GET /member":
 			if !f.keys[r.Header.Get("X-API-Key")] {
@@ -105,7 +111,7 @@ func (f *fake) handler(t *testing.T) http.Handler {
 }
 
 func client(url string) Client {
-	return Client{GatewayURL: url, AuthURL: url, ClientID: "plat5", Email: "dev@example.com", OrgName: "Dev"}
+	return Client{GatewayURL: url, AuthURL: url, ClientID: "plat5", Email: "dev@example.com", Name: "Dev User", OrgName: "Dev"}
 }
 
 func TestEnsureSeedsOnce(t *testing.T) {
@@ -122,6 +128,9 @@ func TestEnsureSeedsOnce(t *testing.T) {
 	}
 	if f.created != 1 {
 		t.Fatalf("created %d orgs", f.created)
+	}
+	if f.name != "Dev User" {
+		t.Fatalf("display name %q", f.name)
 	}
 
 	// Keys still work: nothing new.

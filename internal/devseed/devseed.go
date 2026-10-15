@@ -25,8 +25,10 @@ type Client struct {
 	// ClientID is the Auth client the dev token is minted for (the gateway's audience).
 	ClientID string
 	Email    string
-	OrgName  string
-	HTTP     *http.Client
+	// Name is the dev person's display name, set when they have none.
+	Name    string
+	OrgName string
+	HTTP    *http.Client
 }
 
 func (c Client) http() *http.Client {
@@ -49,10 +51,17 @@ func Ensure(c Client, prev *state.Dev) (*state.Dev, error) {
 	bearer := header{"Authorization", "Bearer " + token}
 
 	var me struct {
-		ID string `json:"id"`
+		ID          string  `json:"id"`
+		DisplayName *string `json:"display_name"`
 	}
 	if err := c.call("GET", "/user", bearer, nil, &me); err != nil {
 		return nil, err
+	}
+	// A name, so screens show "Dev User" and not an id. Left alone once set.
+	if c.Name != "" && (me.DisplayName == nil || *me.DisplayName == "") {
+		if err := c.call("PATCH", "/user", bearer, map[string]string{"display_name": c.Name}, nil); err != nil && !isNotFound(err) {
+			return nil, err
+		}
 	}
 
 	orgID, err := c.findOrg(bearer)
