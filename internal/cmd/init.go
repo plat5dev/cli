@@ -64,7 +64,7 @@ func init() {
 	f.BoolVar(&initNoOperator, "no-operator", false, "Turn the operator module off")
 	f.BoolVar(&initNoObservability, "no-observability", false, "Turn the observability module off")
 	f.StringArrayVar(&initSources, "source", nil, "Build a module from a checkout: plat5=../plat5 (repeatable)")
-	f.StringArrayVar(&initVersions, "version", nil, "Pin an image: plat5=v0.7.0 (repeatable; default the latest tag)")
+	f.StringArrayVar(&initVersions, "version", nil, "Pin an image: plat5=v0.7.1 (repeatable; default the latest tag)")
 	f.StringVar(&initTemplatesDir, "templates-dir", "", "Read starters from a local directory (or PLAT5_TEMPLATES)")
 	f.StringVar(&initTemplateRef, "template-ref", "", "Git ref for remote starters (default master; or PLAT5_TEMPLATE_REF)")
 }
