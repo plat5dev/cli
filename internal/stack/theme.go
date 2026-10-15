@@ -68,7 +68,7 @@ func themeCSS(p plane) string {
 		banner = `background: var(--color-primary);
   color: oklch(from var(--color-primary) clamp(0, calc((l - 0.714) * -1000), 1) 0 0);`
 	}
-	// Auth v0.3+ serves Inter at /static/inter-latin.woff2; older images fall back to the system face.
+	// Auth v0.2.2+ serves Inter at /static/inter-latin.woff2; older images fall back to the system face.
 	return fmt.Sprintf(`@font-face { font-family: "Inter Variable"; src: url("/static/inter-latin.woff2") format("woff2-variations");
   font-weight: 100 900; font-display: swap; }
 :root { color-scheme: light dark; }
