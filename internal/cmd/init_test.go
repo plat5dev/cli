@@ -30,7 +30,7 @@ func TestRenderedPlat5YMLResolves(t *testing.T) {
 		"from-src":  {initChoices{modules: allModules(), sources: map[string]string{"plat5": "/src/plat5"}}, tpl},
 		"fewer-mod": {initChoices{modules: map[string]bool{config.ModuleAuth: true}, sources: map[string]string{}}, tpl},
 	} {
-		yml := renderPlat5YML("demo", tc.ch, pins, tc.tpl)
+		yml := renderPlat5YML("demo", tc.ch, pins, layout{starter: tc.tpl})
 		f, err := config.Parse([]byte(yml))
 		if err != nil {
 			t.Fatalf("%s: %v\n%s", name, err, yml)
@@ -52,7 +52,7 @@ func TestRenderedPlat5YMLResolves(t *testing.T) {
 }
 
 func TestRenderedPlat5YMLWithoutAuthSaysWhy(t *testing.T) {
-	yml := renderPlat5YML("demo", initChoices{modules: map[string]bool{}, sources: map[string]string{}}, pins, nil)
+	yml := renderPlat5YML("demo", initChoices{modules: map[string]bool{}, sources: map[string]string{}}, pins, layout{})
 	if !strings.Contains(yml, "plat5 start needs idp:") {
 		t.Fatalf("no hint:\n%s", yml)
 	}

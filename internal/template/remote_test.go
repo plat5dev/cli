@@ -88,9 +88,6 @@ func TestResolveRemoteFromGitHubArchive(t *testing.T) {
 		_, _ = w.Write(raw)
 	})
 
-	cache := t.TempDir()
-	t.Setenv("XDG_CACHE_HOME", cache)
-
 	opts := ResolveOptions{
 		Ref:        "master",
 		GitHubBase: srv.URL,
@@ -104,12 +101,22 @@ func TestResolveRemoteFromGitHubArchive(t *testing.T) {
 	if tpl.Manifest.Name != "demo-tpl" {
 		t.Fatalf("manifest %#v", tpl.Manifest)
 	}
+	if want := "acme/demo-tpl@master (0123456)"; tpl.Origin != want {
+		t.Fatalf("origin %q, want %q", tpl.Origin, want)
+	}
+
+	// Nothing is cached: a second init downloads again, into its own dir.
 	tpl2, err := Resolve(opts, "acme/demo-tpl")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tpl2.Dir != tpl.Dir {
-		t.Fatalf("cache dir changed %s vs %s", tpl.Dir, tpl2.Dir)
+	if tpl2.Dir == tpl.Dir {
+		t.Fatalf("second resolve reused %s", tpl.Dir)
+	}
+	tpl.Close()
+	tpl2.Close()
+	if _, err := os.Stat(tpl.Dir); !os.IsNotExist(err) {
+		t.Fatalf("Close left %s", tpl.Dir)
 	}
 }
 
@@ -132,6 +139,14 @@ func writeTarGz(dest, topName, srcDir string) error {
 	defer gz.Close()
 	tw := tar.NewWriter(gz)
 	defer tw.Close()
+	// git archive records the commit in a global header, as GitHub's archives do.
+	if err := tw.WriteHeader(&tar.Header{
+		Typeflag:   tar.TypeXGlobalHeader,
+		Name:       "pax_global_header",
+		PAXRecords: map[string]string{"comment": "0123456789abcdef0123456789abcdef01234567"},
+	}); err != nil {
+		return err
+	}
 
 	return filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {

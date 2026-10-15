@@ -11,8 +11,6 @@ import (
 	"regexp"
 	"strings"
 	"time"
-
-	"github.com/plat5dev/cli/internal/xdg"
 )
 
 // DefaultTemplateRef is the git ref used for GitHub archive fetches.
@@ -87,11 +85,44 @@ func Resolve(opts ResolveOptions, name string) (*Template, error) {
 	if err != nil {
 		return nil, err
 	}
-	dir, err := ensureCached(opts, src)
+	return resolveRemote(opts, src)
+}
+
+// ResolveApp loads a first-party app (web or console) the way Resolve loads a
+// starter: from the local templates directory, else GitHub at the same ref.
+func ResolveApp(opts ResolveOptions, kind string) (*Template, error) {
+	app, ok := Apps[kind]
+	if !ok {
+		return nil, fmt.Errorf("no first-party %s app", kind)
+	}
+	if opts.LocalRoot != "" {
+		return Load(opts.LocalRoot, app.Name)
+	}
+	owner, repo, err := splitOwnerRepo(app.Repo)
 	if err != nil {
 		return nil, err
 	}
-	return LoadFromDir(dir)
+	src := githubArchive(opts, owner, repo, opts.ref())
+	return resolveRemote(opts, src)
+}
+
+// resolveRemote downloads src into a temp dir and loads it. Close removes it.
+func resolveRemote(opts ResolveOptions, src source) (*Template, error) {
+	dir, commit, cleanup, err := fetch(opts, src)
+	if err != nil {
+		return nil, err
+	}
+	tpl, err := LoadFromDir(dir)
+	if err != nil {
+		cleanup()
+		return nil, err
+	}
+	tpl.Origin = src.display
+	if commit != "" {
+		tpl.Origin += " (" + shortCommit(commit) + ")"
+	}
+	tpl.cleanup = cleanup
+	return tpl, nil
 }
 
 // LoadFromDir loads a template whose root is dir (must contain plat5.template.yml).
@@ -104,14 +135,12 @@ func LoadFromDir(dir string) (*Template, error) {
 	if m.Name == "" {
 		m.Name = filepath.Base(dir)
 	}
-	return &Template{Dir: dir, Manifest: m}, nil
+	return &Template{Dir: dir, Manifest: m, Origin: dir}, nil
 }
 
 // source is a downloadable template archive.
 type source struct {
-	// cacheKey is a filesystem-safe unique id under the cache dir.
-	cacheKey string
-	// display is used in errors.
+	// display names it in output and errors: owner/repo@ref, or the URL.
 	display string
 	// url is the tar.gz to download.
 	url string
@@ -123,11 +152,7 @@ func resolveSource(opts ResolveOptions, name string) (source, error) {
 
 	// Full URL to a .tar.gz (or any archive we can extract as tar.gz).
 	if strings.HasPrefix(name, "https://") || strings.HasPrefix(name, "http://") {
-		return source{
-			cacheKey: "url-" + sanitizeCacheKey(name),
-			display:  name,
-			url:      name,
-		}, nil
+		return source{display: name, url: name}, nil
 	}
 
 	// Official short name.
@@ -136,7 +161,7 @@ func resolveSource(opts ResolveOptions, name string) (source, error) {
 		if err != nil {
 			return source{}, err
 		}
-		return githubArchive(opts, owner, repo, ref, name), nil
+		return githubArchive(opts, owner, repo, ref), nil
 	}
 
 	// github.com/owner/repo[/...]
@@ -146,12 +171,12 @@ func resolveSource(opts ResolveOptions, name string) (source, error) {
 		if err != nil {
 			return source{}, fmt.Errorf("template %q: %w", name, err)
 		}
-		return githubArchive(opts, owner, repo, ref, owner+"-"+repo), nil
+		return githubArchive(opts, owner, repo, ref), nil
 	}
 
 	// owner/repo
 	if owner, repo, err := splitOwnerRepo(name); err == nil {
-		return githubArchive(opts, owner, repo, ref, owner+"-"+repo), nil
+		return githubArchive(opts, owner, repo, ref), nil
 	}
 
 	return source{}, fmt.Errorf(
@@ -160,7 +185,7 @@ func resolveSource(opts ResolveOptions, name string) (source, error) {
 	)
 }
 
-func githubArchive(opts ResolveOptions, owner, repo, ref, cacheKey string) source {
+func githubArchive(opts ResolveOptions, owner, repo, ref string) source {
 	// Prefer refs/tags/ for v* / other tags; heads/ for branch-like refs.
 	kind := "heads"
 	if looksLikeTag(ref) {
@@ -168,11 +193,7 @@ func githubArchive(opts ResolveOptions, owner, repo, ref, cacheKey string) sourc
 	}
 	u := fmt.Sprintf("%s/%s/%s/archive/refs/%s/%s.tar.gz",
 		opts.githubBase(), owner, repo, kind, ref)
-	return source{
-		cacheKey: sanitizeCacheKey(cacheKey + "@" + ref),
-		display:  owner + "/" + repo + "@" + ref,
-		url:      u,
-	}
+	return source{display: owner + "/" + repo + "@" + ref, url: u}
 }
 
 func looksLikeTag(ref string) bool {
@@ -185,6 +206,9 @@ func looksLikeTag(ref string) bool {
 	}
 	return false
 }
+
+// commitRe is a full git commit id.
+var commitRe = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
 var ownerRepoRe = regexp.MustCompile(`^([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)(?:/.*)?$`)
 
@@ -200,96 +224,59 @@ func splitOwnerRepo(s string) (owner, repo string, err error) {
 	return m[1], m[2], nil
 }
 
-func sanitizeCacheKey(s string) string {
-	s = strings.ToLower(s)
-	var b strings.Builder
-	for _, r := range s {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-', r == '_', r == '.':
-			b.WriteRune(r)
-		default:
-			b.WriteByte('-')
+// fetch downloads src and extracts it into a fresh temp dir. Nothing is kept:
+// a starter is fetched once per project, and a branch moves. It returns the
+// template root, the commit the archive was made from (GitHub archives say;
+// empty otherwise), and a func that removes the temp dir.
+func fetch(opts ResolveOptions, src source) (root, commit string, cleanup func(), err error) {
+	tmp, err := os.MkdirTemp("", "plat5-template-*")
+	if err != nil {
+		return "", "", nil, err
+	}
+	cleanup = func() { _ = os.RemoveAll(tmp) }
+	defer func() {
+		if err != nil {
+			cleanup()
 		}
-	}
-	out := b.String()
-	for strings.Contains(out, "--") {
-		out = strings.ReplaceAll(out, "--", "-")
-	}
-	out = strings.Trim(out, "-")
-	if len(out) > 120 {
-		out = out[:120]
-	}
-	if out == "" {
-		out = "template"
-	}
-	return out
-}
+	}()
 
-func ensureCached(opts ResolveOptions, src source) (string, error) {
-	cacheRoot, err := templateCacheDir(opts.ref())
+	archive := filepath.Join(tmp, "archive.tar.gz")
+	f, err := os.Create(archive)
 	if err != nil {
-		return "", err
+		return "", "", nil, err
 	}
-	dest := filepath.Join(cacheRoot, src.cacheKey)
-	if _, err := os.Stat(filepath.Join(dest, ManifestName)); err == nil {
-		return dest, nil
+	err = downloadFile(opts.client(), src.url, f)
+	if cerr := f.Close(); err == nil {
+		err = cerr
 	}
-
-	tmpTar, err := os.CreateTemp("", "plat5-tpl-*.tar.gz")
 	if err != nil {
-		return "", err
-	}
-	tmpPath := tmpTar.Name()
-	defer func() { _ = os.Remove(tmpPath) }()
-
-	if err := downloadFile(opts.client(), src.url, tmpTar); err != nil {
-		_ = tmpTar.Close()
-		return "", fmt.Errorf("download template %s: %w", src.display, err)
-	}
-	if err := tmpTar.Close(); err != nil {
-		return "", err
+		return "", "", nil, fmt.Errorf("download template %s: %w", src.display, err)
 	}
 
-	staging := dest + ".staging"
-	_ = os.RemoveAll(staging)
-	if err := os.MkdirAll(staging, 0o755); err != nil {
-		return "", err
+	dest := filepath.Join(tmp, "src")
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		return "", "", nil, err
 	}
-	if err := extractTarGz(tmpPath, staging); err != nil {
-		_ = os.RemoveAll(staging)
-		return "", fmt.Errorf("extract template %s: %w", src.display, err)
+	commit, err = extractTarGz(archive, dest)
+	if err != nil {
+		return "", "", nil, fmt.Errorf("extract template %s: %w", src.display, err)
 	}
-	root := staging
-	if entries, err := os.ReadDir(staging); err == nil && len(entries) == 1 && entries[0].IsDir() {
-		root = filepath.Join(staging, entries[0].Name())
+	root = dest
+	if entries, err := os.ReadDir(dest); err == nil && len(entries) == 1 && entries[0].IsDir() {
+		root = filepath.Join(dest, entries[0].Name())
 	}
 	if _, err := os.Stat(filepath.Join(root, ManifestName)); err != nil {
-		_ = os.RemoveAll(staging)
-		return "", fmt.Errorf("template %s: missing %s after extract (not a Plat5 template?)", src.display, ManifestName)
+		return "", "", nil, fmt.Errorf("template %s: missing %s after extract (not a Plat5 template?)", src.display, ManifestName)
 	}
-	_ = os.RemoveAll(dest)
-	if err := os.Rename(root, dest); err != nil {
-		if err := copyDir(root, dest); err != nil {
-			_ = os.RemoveAll(staging)
-			return "", err
-		}
-		_ = os.RemoveAll(staging)
-	} else {
-		_ = os.RemoveAll(staging)
-	}
-	return dest, nil
+	return root, commit, cleanup, nil
 }
 
-func templateCacheDir(ref string) (string, error) {
-	base, err := xdg.Plat5CacheDir()
-	if err != nil {
-		return "", err
+// shortCommit is the first 7 characters of a commit id.
+func shortCommit(c string) string {
+	if len(c) > 7 {
+		return c[:7]
 	}
-	dir := filepath.Join(base, "templates", sanitizeCacheKey(ref))
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", err
-	}
-	return dir, nil
+	return c
 }
 
 func downloadFile(client *http.Client, rawURL string, w io.Writer) error {
@@ -312,15 +299,17 @@ func downloadFile(client *http.Client, rawURL string, w io.Writer) error {
 	return err
 }
 
-func extractTarGz(src, dest string) error {
+// extractTarGz extracts src into dest. It returns the commit a git archive
+// records in its global header (git archive's "comment"), or empty.
+func extractTarGz(src, dest string) (commit string, err error) {
 	f, err := os.Open(src)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer f.Close()
 	gz, err := gzip.NewReader(f)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer gz.Close()
 	tr := tar.NewReader(gz)
@@ -330,7 +319,13 @@ func extractTarGz(src, dest string) error {
 			break
 		}
 		if err != nil {
-			return err
+			return "", err
+		}
+		if hdr.Typeflag == tar.TypeXGlobalHeader {
+			if c := hdr.PAXRecords["comment"]; commitRe.MatchString(c) {
+				commit = c
+			}
+			continue
 		}
 		name := filepath.Clean(hdr.Name)
 		if name == "." || strings.HasPrefix(name, "..") || filepath.IsAbs(name) {
@@ -338,16 +333,16 @@ func extractTarGz(src, dest string) error {
 		}
 		target := filepath.Join(dest, name)
 		if !strings.HasPrefix(target, filepath.Clean(dest)+string(os.PathSeparator)) && target != filepath.Clean(dest) {
-			return fmt.Errorf("tar path escapes dest: %s", hdr.Name)
+			return "", fmt.Errorf("tar path escapes dest: %s", hdr.Name)
 		}
 		switch hdr.Typeflag {
 		case tar.TypeDir:
 			if err := os.MkdirAll(target, 0o755); err != nil {
-				return err
+				return "", err
 			}
 		case tar.TypeReg, tar.TypeRegA:
 			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-				return err
+				return "", err
 			}
 			mode := hdr.FileInfo().Mode()
 			if mode == 0 {
@@ -355,52 +350,18 @@ func extractTarGz(src, dest string) error {
 			}
 			out, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
 			if err != nil {
-				return err
+				return "", err
 			}
 			if _, err := io.Copy(out, tr); err != nil {
 				_ = out.Close()
-				return err
+				return "", err
 			}
 			if err := out.Close(); err != nil {
-				return err
+				return "", err
 			}
 		default:
 			// skip symlinks etc.
 		}
 	}
-	return nil
-}
-
-func copyDir(src, dest string) error {
-	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
-		}
-		if rel == "." {
-			return os.MkdirAll(dest, 0o755)
-		}
-		target := filepath.Join(dest, rel)
-		if info.IsDir() {
-			return os.MkdirAll(target, 0o755)
-		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return err
-		}
-		in, err := os.Open(path)
-		if err != nil {
-			return err
-		}
-		defer in.Close()
-		out, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, info.Mode())
-		if err != nil {
-			return err
-		}
-		defer out.Close()
-		_, err = io.Copy(out, in)
-		return err
-	})
+	return commit, nil
 }

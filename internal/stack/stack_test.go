@@ -7,8 +7,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/plat5dev/cli/internal/bundle"
 	"github.com/plat5dev/cli/internal/compose"
 	"github.com/plat5dev/cli/internal/config"
+	"github.com/plat5dev/cli/internal/ports"
 	"github.com/plat5dev/cli/internal/state"
 )
 
@@ -265,5 +267,39 @@ func TestAppOverride(t *testing.T) {
 	}
 	if strings.Contains(got, "web:") {
 		t.Fatalf("web is no upstream and must not join:\n%s", got)
+	}
+}
+
+// A project with its own console (app.console) runs no console image: its
+// origin is the staff plane's, the port is the app's, and the app learns where
+// the operator gateway and staff sign-in are.
+func TestAppConsole(t *testing.T) {
+	stock := newStack(t, allOn)
+	if !contains(stock.Runner().Files, bundle.ConsoleFile) {
+		t.Fatalf("no app.console: the console image runs: %v", stock.Runner().Files)
+	}
+	if _, ok := stock.Ports()[ports.OperatorConsole]; !ok {
+		t.Fatal("the console image's port is checked")
+	}
+
+	own := newStack(t, `project_id: demo
+versions: {plat5: v0.7.0, auth: v0.2.0, operator: v0.4.0}
+app: {web: "http://localhost:3001", console: "http://localhost:5412"}
+roles: ./roles.yml
+`)
+	if contains(own.Runner().Files, bundle.ConsoleFile) {
+		t.Fatalf("app.console: no console image: %v", own.Runner().Files)
+	}
+	if _, ok := own.Ports()[ports.OperatorConsole]; ok {
+		t.Fatal("app.console: the app publishes the console port, not the stack")
+	}
+	if got := env(own)["OPERATOR_ORIGINS"]; got != "http://localhost:5412" {
+		t.Fatalf("OPERATOR_ORIGINS %q", got)
+	}
+	app := strings.Join(own.AppEnv(), " ")
+	for _, want := range []string{"PLAT5_OPERATOR_URL=http://localhost:5410", "PLAT5_STAFF_AUTH_URL=http://localhost:5411", "PLAT5_STAFF_CLIENT_ID=operator-console"} {
+		if !strings.Contains(app, want) {
+			t.Errorf("app env missing %s: %s", want, app)
+		}
 	}
 }

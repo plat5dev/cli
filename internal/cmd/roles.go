@@ -57,6 +57,8 @@ func runRolesApply(cmd *cobra.Command, args []string) error {
 	if err := applyRolesFile(controlplane.New(cfg.ControlPlaneURL, cfg.AdminToken), path); err != nil {
 		return err
 	}
+	fmt.Println("  Keys and sessions in use pick it up when the gateway's credential cache")
+	fmt.Println("  expires: 5s on the local stack, APIKEY_CACHE_TTL_SECS in a deployment.")
 	warnUngrantedLabels(path, cfg.RouteFiles)
 	return nil
 }

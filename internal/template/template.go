@@ -16,7 +16,11 @@ const ManifestName = "plat5.template.yml"
 
 // Manifest is the per-template config file.
 type Manifest struct {
-	Name        string            `yaml:"name"`
+	Name string `yaml:"name"`
+	// Kind is what the template is: "api", a starter, which plat5 init puts in
+	// api/ beside the web app and console; "web" or "console", those apps. Empty
+	// is a starter from before that layout, copied to the project root.
+	Kind        string            `yaml:"kind"`
 	Description string            `yaml:"description"`
 	Upstreams   map[string]string `yaml:"upstreams"`
 	Routes      []string          `yaml:"routes"`
@@ -39,6 +43,18 @@ type App struct {
 type Template struct {
 	Dir      string
 	Manifest Manifest
+	// Origin says where it came from: owner/repo@ref (commit), a URL, or a directory.
+	Origin string
+	// cleanup removes a downloaded template's temp dir.
+	cleanup func()
+}
+
+// Close removes a downloaded template's files. A local one is left alone.
+func (t *Template) Close() {
+	if t.cleanup != nil {
+		t.cleanup()
+		t.cleanup = nil
+	}
 }
 
 // Summary is a short listing entry.
@@ -52,6 +68,7 @@ var defaultExcludes = []string{
 	"node_modules",
 	".git",
 	".env",
+	"*.local",
 	"plat5.yml",
 	"plat5.yml.example",
 	ManifestName,
@@ -75,7 +92,7 @@ func List(root string) ([]Summary, error) {
 		}
 		mp := filepath.Join(root, e.Name(), ManifestName)
 		m, err := loadManifest(mp)
-		if err != nil {
+		if err != nil || !m.IsStarter() {
 			continue
 		}
 		desc := m.Description
@@ -109,8 +126,19 @@ func Load(root, name string) (*Template, error) {
 	if m.Name == "" {
 		m.Name = name
 	}
-	return &Template{Dir: dir, Manifest: m}, nil
+	return &Template{Dir: dir, Manifest: m, Origin: dir}, nil
 }
+
+// Kinds of template.
+const (
+	KindAPI     = "api"
+	KindWeb     = "web"
+	KindConsole = "console"
+)
+
+// IsStarter reports whether --template can name it: an API starter, not one of
+// the apps plat5 init adds beside it.
+func (m Manifest) IsStarter() bool { return m.Kind == "" || m.Kind == KindAPI }
 
 func loadManifest(path string) (Manifest, error) {
 	data, err := os.ReadFile(path)

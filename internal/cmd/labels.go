@@ -13,11 +13,16 @@ import (
 // everyLabel is the label that grants every label.
 const everyLabel = "*"
 
-// warnUngrantedLabels names each required label in the routes files that no
-// role grants except through "*". That is how an owner-only route is written,
-// and also what a typo in a label looks like: it passes apply, and only "*"
-// roles can call the route, so the people who hold "*" never notice. Roles off
-// (no roles file): every member holds every label, nothing to check.
+// warnUngrantedLabels checks the labels routes require against the labels roles
+// grant. Roles off (no roles file): every member holds every label, nothing to
+// check.
+//
+// A label on one side only, a letter or two from a label on the other, is
+// likely a typo, on either side: it passes apply, and the route is then
+// owner-only, or the role silently lacks the label. Those are warned. A
+// required label that no role grants by name, and that is near nothing, is how
+// an owner-only route is written ("*" roles call it): that is a quiet note. A
+// granted label no route requires yet is fine.
 func warnUngrantedLabels(rolesFile string, routeFiles []string) {
 	if rolesFile == "" {
 		return
@@ -26,7 +31,7 @@ func warnUngrantedLabels(rolesFile string, routeFiles []string) {
 	if err != nil {
 		return
 	}
-	where := map[string][]string{}
+	required := map[string][]string{}
 	for _, f := range routeFiles {
 		data, err := os.ReadFile(f)
 		if err != nil {
@@ -38,36 +43,99 @@ func warnUngrantedLabels(rolesFile string, routeFiles []string) {
 		}
 		requiredLabels(doc, "", "", func(label, path, method string) {
 			at := strings.TrimSpace(method + " " + path)
-			if !contains(where[label], at) {
-				where[label] = append(where[label], at)
+			if !contains(required[label], at) {
+				required[label] = append(required[label], at)
 			}
 		})
 	}
-	labels := make([]string, 0, len(where))
-	for l := range where {
-		if !granted[l] {
-			labels = append(labels, l)
+	where := func(label string) string {
+		if at, ok := required[label]; ok {
+			return strings.Join(at, ", ")
+		}
+		return "role " + strings.Join(granted[label], ", ")
+	}
+
+	// Typos: a label only one side has, near a label the other side has.
+	var typos []string
+	near := map[string]bool{}
+	for _, a := range sortedKeys(required) {
+		for _, b := range sortedKeys(granted) {
+			if a == b || labelDistance(a, b) > 2 {
+				continue
+			}
+			_, aGranted := granted[a]
+			_, bRequired := required[b]
+			if aGranted && bRequired {
+				continue // both are real labels, on both sides
+			}
+			typos = append(typos, fmt.Sprintf("%s (%s) and %s (%s)", a, where(a), b, where(b)))
+			near[a], near[b] = true, true
 		}
 	}
-	if len(labels) == 0 {
+	if len(typos) > 0 {
+		fmt.Printf("  warning: labels a letter or two apart, one in routes and one in %s. A typo?\n", filepath.Base(rolesFile))
+		for _, t := range typos {
+			fmt.Printf("    %s\n", t)
+		}
+	}
+
+	// Owner-only: required, granted by no role by name, and not a typo above.
+	var only []string
+	for _, l := range sortedKeys(required) {
+		if _, ok := granted[l]; !ok && !near[l] {
+			only = append(only, fmt.Sprintf("%s (%s)", l, where(l)))
+		}
+	}
+	if len(only) == 0 {
 		return
 	}
-	sort.Strings(labels)
-	held := make([]string, 0, len(labels))
-	for _, l := range labels {
-		held = append(held, fmt.Sprintf("%s (%s)", l, strings.Join(where[l], ", ")))
+	if len(every) == 0 {
+		fmt.Printf("  warning: labels no role grants, so no member can call these routes: %s\n", strings.Join(only, "; "))
+		fmt.Printf("    Add them to a role in %s.\n", filepath.Base(rolesFile))
+		return
 	}
-	who := "no role"
-	if len(every) > 0 {
-		who = "only " + strings.Join(every, ", ")
-	}
-	fmt.Printf("  labels no role grants by name, so %s can call them: %s\n", who, strings.Join(held, "; "))
-	fmt.Printf("    A typo? Fix the route. Others need it? Add it to a role in %s.\n", filepath.Base(rolesFile))
+	fmt.Printf("  %s only (no role grants these by name): %s\n", strings.Join(every, ", "), strings.Join(only, "; "))
 }
 
-// grantedLabels is every label some role in the roles file grants by name, and
-// the roles that hold "*".
-func grantedLabels(path string) (map[string]bool, []string, error) {
+// labelDistance is the edit distance between two labels, counting a swap of
+// two neighbouring characters as one edit (raed / read).
+func labelDistance(a, b string) int {
+	ra, rb := []rune(a), []rune(b)
+	d := make([][]int, len(ra)+1)
+	for i := range d {
+		d[i] = make([]int, len(rb)+1)
+		d[i][0] = i
+	}
+	for j := range d[0] {
+		d[0][j] = j
+	}
+	for i := 1; i <= len(ra); i++ {
+		for j := 1; j <= len(rb); j++ {
+			cost := 1
+			if ra[i-1] == rb[j-1] {
+				cost = 0
+			}
+			d[i][j] = min(d[i-1][j]+1, d[i][j-1]+1, d[i-1][j-1]+cost)
+			if i > 1 && j > 1 && ra[i-1] == rb[j-2] && ra[i-2] == rb[j-1] {
+				d[i][j] = min(d[i][j], d[i-2][j-2]+1)
+			}
+		}
+	}
+	return d[len(ra)][len(rb)]
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// grantedLabels is every label some role in the roles file grants by name, with
+// the roles that grant it, and the roles that hold "*".
+func grantedLabels(path string) (map[string][]string, []string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, nil, err
@@ -78,18 +146,17 @@ func grantedLabels(path string) (map[string]bool, []string, error) {
 	if err := yaml.Unmarshal(data, &doc); err != nil {
 		return nil, nil, err
 	}
-	out := map[string]bool{}
+	out := map[string][]string{}
 	var every []string
-	for role, labels := range doc.Roles {
-		for _, l := range labels {
+	for _, role := range sortedKeys(doc.Roles) {
+		for _, l := range doc.Roles[role] {
 			if l == everyLabel {
 				every = append(every, role)
 			} else {
-				out[l] = true
+				out[l] = append(out[l], role)
 			}
 		}
 	}
-	sort.Strings(every)
 	return out, every, nil
 }
 
