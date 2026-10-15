@@ -259,6 +259,9 @@ func runForm(fields []huh.Field) error {
 	if errors.Is(err, huh.ErrUserAborted) {
 		return errors.New("cancelled")
 	}
+	if err != nil && strings.Contains(err.Error(), "TTY") {
+		return errors.New("no terminal to ask on: run plat5 init -y to take the defaults (first starter, every module), or pass --template and the --no-* flags")
+	}
 	return err
 }
 

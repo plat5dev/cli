@@ -85,6 +85,7 @@ func printSummary(stk *stack.Stack, st state.State) {
 	w.row("Gateway", c.GatewayURL(), "")
 	if stk.Has(config.ModuleAuth) {
 		w.row("Auth", c.URL(ports.Auth), config.DevEmail+" / "+config.DevPassword)
+		w.row("", "sign-up codes: plat5 logs auth | grep code", "")
 	} else {
 		w.row("IdP", c.IdP.Issuer, "")
 	}
@@ -98,7 +99,7 @@ func printSummary(stk *stack.Stack, st state.State) {
 	}
 	if stk.Has(config.ModuleObservability) {
 		w.section("Observability")
-		w.row("Grafana", c.URL(ports.Grafana), "")
+		w.row("Grafana", c.URL(ports.Grafana), "Plat5 folder: Service Health, Auth, Debug")
 		w.row("OTLP", fmt.Sprintf("http://localhost:%d", c.Ports[ports.OTLPHTTP]), fmt.Sprintf("gRPC localhost:%d", c.Ports[ports.OTLPGRPC]))
 	}
 
@@ -178,4 +179,31 @@ func contains(list []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// printWhatYouGot ends plat5 start: what Plat5 does for the app, in a few lines,
+// each pointing at where to see it.
+func printWhatYouGot(stk *stack.Stack, st state.State) {
+	c := stk.Config
+	fmt.Println("What Plat5 does for your API")
+	if stk.Has(config.ModuleAuth) {
+		fmt.Println("  Sign-in        Auth signs people in; the gateway checks every token and key. Your API never sees one.")
+	} else {
+		fmt.Println("  Sign-in        The gateway checks every token and key. Your API never sees one.")
+	}
+	fmt.Println("  Tenancy        The gateway writes the caller's org into the path: /org/projects reaches your API as")
+	fmt.Println("                 /organizations/{organization_id}/projects. Your handler reads the param; no membership checks.")
+	if c.RolesFile != "" {
+		fmt.Printf("  Permissions    required_labels in your routes, granted by roles in %s, are checked before your code runs.\n", relPath(c.ConfigDir, c.RolesFile))
+	}
+	fmt.Println("  Rate limits    Per route, per caller, shared by every gateway replica.")
+	if stk.Has(config.ModuleOperator) {
+		fmt.Printf("  Audit          Every write is recorded: who, where, and what changed. See it in the console, %s.\n", c.URL(ports.OperatorConsole))
+	} else {
+		fmt.Println("  Audit          Every write is recorded: who, where, and what changed (GET /org/audit-events).")
+	}
+	if stk.Has(config.ModuleObservability) {
+		fmt.Printf("  Traces         One request, gateway to your SQL, in Grafana, %s.\n", c.URL(ports.Grafana))
+	}
+	fmt.Println()
 }

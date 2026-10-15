@@ -18,7 +18,7 @@ brew install plat5dev/tap/plat5
 curl -fsSL https://plat5.com/install.sh | sh
 ```
 
-macOS and Linux, amd64 and arm64. On Windows, use WSL2. The script verifies the release's checksum and installs to `/usr/local/bin` (or `~/.local/bin`); `PLAT5_CLI_VERSION=v0.6.0` pins a release, `PLAT5_INSTALL_DIR` picks the directory. Or download a tarball from [GitHub Releases](https://github.com/plat5dev/cli/releases). `plat5 version` prints the version without the leading `v`.
+macOS and Linux, amd64 and arm64. On Windows, use WSL2. The script verifies the release's checksum and installs to `/usr/local/bin` (or `~/.local/bin`); `PLAT5_CLI_VERSION=v0.6.0` pins a release, `PLAT5_INSTALL_DIR` picks the directory. Or download a tarball from [GitHub Releases](https://github.com/plat5dev/cli/releases). `plat5 --version` prints `plat5 0.6.1` (no leading `v`); `plat5 version` adds the image versions the project pins.
 
 From source: `go install github.com/plat5dev/cli/cmd/plat5@latest`.
 
@@ -40,7 +40,9 @@ One compose project, `plat5-<project_id>`, with one Postgres (a database per pla
 
 All modules are on unless `plat5.yml` turns one off. `plat5 start -x operator,observability` skips some for one run; `-x app` runs everything but your app, so you can run it on your machine.
 
-A busy port is an error naming it, never a silent move: stop what holds it, or pin another under `ports:`. Running `plat5 start` again updates the stack in place.
+A busy port is an error naming it, never a silent move: stop what holds it, or pin another under `ports:`. When another Plat5 project holds it, the error names the project and how to stop it. Running `plat5 start` again updates the stack in place.
+
+`start` prints its steps, and each image it has to pull, one per line. Docker compose's own pull, build, and container output goes to `start.log` in the stack dir; a failure prints its last lines and the path. `-v` / `--verbose` shows it all instead. The summary ends with what Plat5 does for your API, and where to see each part.
 
 After the stack is healthy, start applies `roles.yml` and the route files, then makes sure there is something to call with: the dev person (`dev@example.com`), an org they own named `Dev`, a user key, and a member key. It reuses them while the keys work. A project whose routes leave out `POST /member/api-keys` gets its member key from a `plat5 dev` service account with the `creator_role` instead (`/org/service-accounts`); one that leaves out `POST /user/api-keys` gets no user key. Then it prints every link, login, and key; `plat5 status` prints them again.
 
@@ -57,22 +59,22 @@ Try it:
   curl http://localhost:5400/org/projects -H "X-API-Key: plat5-k-2-…"
 ```
 
-Local Auth runs in dev mode: `POST /dev/token` mints a token for any email, and login codes for new sign-ups are in `plat5 logs auth`. The sign-in pages say which plane they are (customer or staff) and show the dev login.
+Local Auth runs in dev mode: `POST /dev/token` mints a token for any email, and login codes for new sign-ups are in `plat5 logs auth | grep code`. `start` seeds the dev person as "Dev User". The sign-in pages say which plane they are (customer or staff) and show the dev login.
 
 ## Commands
 
 | Command | |
 |---------|--|
 | `plat5 init [dir]` | Create a project from a starter. Asks for the starter and modules; `-y` takes the defaults. `--template none` is Plat5 alone |
-| `plat5 start [-x module,…]` | Run the stack and your app, apply roles and routes, seed dev keys, print the summary |
+| `plat5 start [-x module,…] [-v]` | Run the stack and your app, apply roles and routes, seed dev keys, print the summary |
 | `plat5 status` | The summary again, and container health |
 | `plat5 stop` | Stop everything. Data (volumes) is kept |
-| `plat5 logs [service…]` | Container logs, following. `--app` for your app; `-f=false` to print and exit |
-| `plat5 doctor` | Check Docker, `plat5.yml`, files, and ports |
+| `plat5 logs [service…]` | Container logs. Follows on a terminal; piped, prints and exits. `--app` for your app; `-f` / `-f=false` to choose |
+| `plat5 doctor` | Check Docker, `plat5.yml`, files, and ports (naming the Plat5 project that holds a busy one) |
 | `plat5 routes apply [file…]` | `POST /apply` (default: the `routes:` files, with `upstreams:` bound) |
 | `plat5 routes list` / `get <name>` / `rm <name>` | The control plane's services |
 | `plat5 roles apply [file]` / `roles show` | `PUT /roles` (default: `roles:`), and the current document |
-| `plat5 version` | |
+| `plat5 version` / `--version` | The CLI version, and the image versions `plat5.yml` pins |
 
 `routes` and `roles` talk to the local control plane unless `--control-plane-url` / `--admin-token` (or `PLAT5_CONTROL_PLANE_URL` / `PLAT5_ADMIN_TOKEN`) point elsewhere.
 
@@ -188,6 +190,8 @@ plat5 routes apply ./other.yml
 `routes.yml` holds the HTTP surface (paths, scopes). Keep deployment topology in `upstreams` so the same contract can point at different origins later.
 
 `plat5 start` applies the roles file and the configured route files after the control plane is ready.
+
+With roles on, `start`, `routes apply`, and `roles apply` name each `required_labels` entry that no role grants by name, so only roles holding `"*"` can call it: `labels no role grants by name, so only owner can call them: org:delete (DELETE /org)`. An owner-only route reads that way on purpose. A typo (`stats:raed`) reads the same, and is otherwise invisible to an owner.
 
 ### Audit
 

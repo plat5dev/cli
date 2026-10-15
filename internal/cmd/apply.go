@@ -38,6 +38,7 @@ func applyFiles(client *controlplane.Client, cfg config.Resolved, files []string
 	for _, name := range upstreams.Unused(ups, used) {
 		fmt.Printf("  warning: upstreams.%s matches no service in the routes files (not applied)\n", name)
 	}
+	warnUngrantedLabels(cfg.RolesFile, files)
 	return nil
 }
 

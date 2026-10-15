@@ -54,7 +54,11 @@ func runRolesApply(cmd *cobra.Command, args []string) error {
 	if err := config.CheckFile("roles", path); err != nil {
 		return err
 	}
-	return applyRolesFile(controlplane.New(cfg.ControlPlaneURL, cfg.AdminToken), path)
+	if err := applyRolesFile(controlplane.New(cfg.ControlPlaneURL, cfg.AdminToken), path); err != nil {
+		return err
+	}
+	warnUngrantedLabels(path, cfg.RouteFiles)
+	return nil
 }
 
 func runRolesShow(cmd *cobra.Command, args []string) error {

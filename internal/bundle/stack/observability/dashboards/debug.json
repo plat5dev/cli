@@ -58,8 +58,8 @@
           "uid": "prometheus"
         },
         "current": {
-          "text": "identity",
-          "value": "identity",
+          "text": "api",
+          "value": "api",
           "selected": true
         },
         "options": []

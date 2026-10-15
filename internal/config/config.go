@@ -33,6 +33,7 @@ const (
 	StaffEmail    = "staff@example.com"
 	DevPassword   = "password"
 	DevOrgName    = "Dev"
+	DevName       = "Dev User"
 	StaffClientID = "operator-console"
 )
 

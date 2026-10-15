@@ -25,12 +25,15 @@ var Files = map[string]string{
 }
 
 // Materialize writes the embedded stack under destDir, replacing what an older
-// CLI wrote there.
+// CLI wrote there. A file an older CLI embedded and this one doesn't (a renamed
+// dashboard) is removed from the embedded subdirectories. destDir's top level
+// also holds what start generates, so it is left alone.
 func Materialize(destDir string) error {
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return err
 	}
-	return fs.WalkDir(content, "stack", func(path string, d fs.DirEntry, err error) error {
+	embedded := map[string]bool{}
+	err := fs.WalkDir(content, "stack", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -38,6 +41,7 @@ func Materialize(destDir string) error {
 		if err != nil {
 			return err
 		}
+		embedded[rel] = true
 		target := filepath.Join(destDir, rel)
 		if d.IsDir() {
 			return os.MkdirAll(target, 0o755)
@@ -51,6 +55,22 @@ func Materialize(destDir string) error {
 			mode = 0o755
 		}
 		return os.WriteFile(target, data, mode)
+	})
+	if err != nil {
+		return err
+	}
+	return filepath.WalkDir(destDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		rel, err := filepath.Rel(destDir, path)
+		if err != nil {
+			return err
+		}
+		if filepath.Dir(rel) != "." && embedded[filepath.Dir(rel)] && !embedded[rel] {
+			return os.Remove(path)
+		}
+		return nil
 	})
 }
 
