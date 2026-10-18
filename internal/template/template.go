@@ -18,13 +18,18 @@ const ManifestName = "plat5.template.yml"
 type Manifest struct {
 	Name string `yaml:"name"`
 	// Kind is what the template is: "api", a starter, which plat5 init puts in
-	// api/ beside the web app and console; "web" or "console", those apps. Empty
-	// is a starter from before that layout, copied to the project root.
+	// api/ beside the two consoles; "customer-console" or "operator-console", those
+	// apps, each in the folder of its kind. Empty is a starter from before that
+	// layout, copied to the project root.
 	Kind        string            `yaml:"kind"`
 	Description string            `yaml:"description"`
 	Upstreams   map[string]string `yaml:"upstreams"`
 	Routes      []string          `yaml:"routes"`
-	Substitute  []string          `yaml:"substitute"`
+	// OperatorRoutes is a starter's file of what staff may call on it through the
+	// operator gateway: an upstreams: block, as operator.routes.yml has. plat5 init
+	// adds its upstreams to operator.routes.yml and leaves the file out of api/.
+	OperatorRoutes string   `yaml:"operator_routes"`
+	Substitute     []string `yaml:"substitute"`
 	// App is how plat5 start runs the starter: its compose file, and its web origin.
 	App App `yaml:"app"`
 	// Next is how to run the app on your own machine instead (plat5 start -x app).
@@ -131,9 +136,9 @@ func Load(root, name string) (*Template, error) {
 
 // Kinds of template.
 const (
-	KindAPI     = "api"
-	KindWeb     = "web"
-	KindConsole = "console"
+	KindAPI             = "api"
+	KindCustomerConsole = "customer-console"
+	KindOperatorConsole = "operator-console"
 )
 
 // IsStarter reports whether --template can name it: an API starter, not one of

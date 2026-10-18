@@ -88,7 +88,7 @@ func Resolve(opts ResolveOptions, name string) (*Template, error) {
 	return resolveRemote(opts, src)
 }
 
-// ResolveApp loads a first-party app (web or console) the way Resolve loads a
+// ResolveApp loads a first-party app (a customer or operator console) the way Resolve loads a
 // starter: from the local templates directory, else GitHub at the same ref.
 func ResolveApp(opts ResolveOptions, kind string) (*Template, error) {
 	app, ok := Apps[kind]

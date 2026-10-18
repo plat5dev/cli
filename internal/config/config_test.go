@@ -13,7 +13,6 @@ versions:
   plat5: v0.7.0
   auth: v0.2.0
   operator: v0.4.0
-  operator_console: v0.1.0
 app:
   compose: ./docker-compose.yml
   web: http://localhost:3001/
@@ -64,8 +63,8 @@ func TestResolveDefaults(t *testing.T) {
 	if got := strings.Join(r.AuthClients(), ","); got != "plat5" {
 		t.Fatalf("clients: %s", got)
 	}
-	if got := strings.Join(r.OperatorConsoleOrigins(), ","); got != "http://localhost:5412" {
-		t.Fatalf("console origins: %s", got)
+	if got := strings.Join(r.OperatorConsoleOrigins(), ","); got != "" {
+		t.Fatalf("console origins without app.operator_console: %s", got)
 	}
 }
 
@@ -74,13 +73,13 @@ func TestUnknownKeysAreErrors(t *testing.T) {
 		t.Fatalf("want unknown key error, got %v", err)
 	}
 	for yml, want := range map[string]string{
-		fullYML + "modules: {grafana: true}\n": "modules.grafana",
-		fullYML + "ports: {registry: 5000}\n":  "ports.registry",
-		fullYML + "source: {web: ../web}\n":    "source.web",
-		fullYML + "ports: {gateway: 5401}\n":   "both 5401",
-		"versions: {auth: v1}\n":               "versions.plat5 is required",
-		"versions: {plat5: v1, auth: v2, operator: v3, operator_console: v4}\napp: {web: localhost:3001}\n": "app.web",
-		fullYML + "idp: {issuer: https://x.test}\n":                                                         "turn modules.auth off",
+		fullYML + "modules: {grafana: true}\n":                                        "modules.grafana",
+		fullYML + "ports: {registry: 5000}\n":                                         "ports.registry",
+		fullYML + "source: {web: ../web}\n":                                           "source.web",
+		fullYML + "ports: {gateway: 5401}\n":                                          "both 5401",
+		"versions: {auth: v1}\n":                                                      "versions.plat5 is required",
+		"versions: {plat5: v1, auth: v2, operator: v3}\napp: {web: localhost:3001}\n": "app.web",
+		fullYML + "idp: {issuer: https://x.test}\n":                                   "turn modules.auth off",
 	} {
 		f, err := Parse([]byte(yml))
 		if err == nil {
@@ -128,7 +127,7 @@ idp:
 }
 
 func TestSourceReplacesAVersion(t *testing.T) {
-	r, err := resolve(t, `versions: {auth: v2, operator: v3, operator_console: v4}
+	r, err := resolve(t, `versions: {auth: v2, operator: v3}
 source: {plat5: ../plat5}
 `)
 	if err != nil {

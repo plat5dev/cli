@@ -45,17 +45,17 @@ func lookupOfficial(name string) *OfficialTemplate {
 }
 
 // Apps are the first-party apps plat5 init adds beside an API starter, by kind:
-// the customer web app and the staff console. Name is the folder under a local
+// the customer console and the operator console. Name is the folder under a local
 // templates directory (--templates-dir), the repo's name.
 var Apps = map[string]OfficialTemplate{
-	KindWeb: {
-		Name:        "template-web",
-		Repo:        "plat5dev/template-web",
-		Description: "Vite + React web app for your customers",
+	KindCustomerConsole: {
+		Name:        "template-customer-console",
+		Repo:        "plat5dev/template-customer-console",
+		Description: "Vite + React console for your customers",
 	},
-	KindConsole: {
-		Name:        "operator-console",
-		Repo:        "plat5dev/operator-console",
-		Description: "Vite + React staff console for the operator gateway",
+	KindOperatorConsole: {
+		Name:        "template-operator-console",
+		Repo:        "plat5dev/template-operator-console",
+		Description: "Vite + React console for your staff, on the operator gateway",
 	},
 }

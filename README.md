@@ -3,7 +3,7 @@
 Run Plat5 locally, and manage its routes and roles. Everything runs in Docker: the CLI is one binary and needs nothing else.
 
 ```bash
-plat5 init my-app       # your API (pick a starter), web app, and staff console
+plat5 init my-app       # your API (pick a starter), and a console for your customers and one for your staff
 cd my-app
 plat5 start             # Plat5, its modules, and your apps; prints links, logins, keys
 ```
@@ -13,13 +13,13 @@ plat5 start             # Plat5, its modules, and your apps; prints links, login
 ```
 my-app/
   api/                  your API, from a starter
-  web/                  your customers' web app (Vite + React)
-  console/              your staff console (Vite + React), on the operator gateway
+  customer-console/     your customers' console (Vite + React), on the gateway
+  operator-console/     your staff's console (Vite + React), on the operator gateway
   routes.yml, routes.identity.yml, routes.audit.yml, roles.yml, operator.routes.yml
   plat5.yml, docker-compose.yml, README.md
 ```
 
-Each app is a starting point, not a dependency: change it, or delete it. The project's README says how to extend each part. `--no-web` and `--no-console` leave an app out.
+Each app is a starting point, not a dependency: change it, or delete it. The project's README says how to extend each part. `--no-customer-console` and `--no-operator-console` leave an app out.
 
 Self-hosting a deployment is compose, not this CLI: [plat5 `docs/self-hosting.md`](https://github.com/plat5dev/plat5/blob/master/docs/self-hosting.md).
 
@@ -46,10 +46,9 @@ One compose project, `plat5-<project_id>`, with one Postgres (a database per pla
 | `auth` | Plat5 Auth, the customer IdP, in dev mode | 5401 | `dev@example.com` / `password` |
 | `operator` | Operator gateway (staff) | 5410 | |
 | | Staff sign-in (a second Plat5 Auth: its own issuer and database) | 5411 | |
-| | Operator console, unless the project has its own (`app.console`) | 5412 | `staff@example.com` / `password` |
 | `observability` | Grafana (grafana/otel-lgtm: Loki, Tempo, Prometheus) | 5403 | none |
 | | OTLP (Alloy, which also reads every container's logs) | 4318 HTTP, 4317 gRPC | |
-| your apps (`app.compose`) | `api/`, `web/`, `console/` | 3000, 3001, 5412 | `dev@example.com`, `staff@example.com` / `password` |
+| your apps (`app.compose`) | `api/`, `customer-console/`, `operator-console/` | 3000, 3001, 5412 | `dev@example.com`, `staff@example.com` / `password` |
 
 All modules are on unless `plat5.yml` turns one off. `plat5 start -x operator,observability` skips some for one run; `-x app` runs everything but your app, so you can run it on your machine.
 
@@ -105,7 +104,6 @@ versions:                          # image tags; plat5 init writes the latest of
   plat5: v0.7.1
   auth: v0.2.2                     # both Auth instances
   operator: v0.4.1
-  operator_console: v0.1.2
 
 modules:                           # all true unless set false
   auth: true
@@ -114,8 +112,8 @@ modules:                           # all true unless set false
 
 app:                               # your apps; plat5 start runs them after Plat5
   compose: ./docker-compose.yml
-  web: http://localhost:3001       # web/: allowed to sign in with local Auth
-  console: http://localhost:5412   # console/: allowed to sign in as staff; no stock console runs
+  web: http://localhost:3001                # customer-console/: allowed to sign in with local Auth
+  operator_console: http://localhost:5412   # operator-console/: allowed to sign in as staff
 
 upstreams:                         # where services listen, by routes.yml service name
   api: 3000
@@ -135,7 +133,6 @@ ports:                             # host ports; these are the defaults
   grafana: 5403
   operator: 5410
   staff_auth: 5411
-  operator_console: 5412
   otlp_grpc: 4317
   otlp_http: 4318
 admin_token: dev-admin-token       # local only
@@ -146,7 +143,7 @@ auth:                              # local Auth, beyond app.web
   redirect_uris: []
   theme_file: ./theme.json         # OpenAuth Theme JSON for the sign-in page
 operator:
-  origins: []                      # more staff consoles (CORS and staff redirects)
+  origins: []                      # more operator consoles (CORS and staff redirects)
   routes: ./operator.routes.yml    # the operator gateway's route list, in place of the image's
 idp:                               # with modules.auth false: the gateway's IdP
   issuer: https://idp.example.com
@@ -231,7 +228,7 @@ Roles live in the control plane. `plat5 start` writes the file there (it also se
 
 ## Starters
 
-A starter is an API repo `plat5 init` copies into `api/`: `plat5dev/template-*` by short name (`plat5 init --list-templates`), any `owner/repo`, or an archive URL. Beside it, init copies the web app ([`template-web`](https://github.com/plat5dev/template-web)) into `web/` and the staff console ([`operator-console`](https://github.com/plat5dev/operator-console)) into `console/`, from the same ref. Nothing is cached: each init downloads, and prints the ref and commit it got. `--templates-dir` reads them all from a local directory (folders named like the repos), `--template-ref` picks a git ref.
+A starter is an API repo `plat5 init` copies into `api/`: `plat5dev/template-*` by short name (`plat5 init --list-templates`), any `owner/repo`, or an archive URL. Beside it, init copies the customer console ([`template-customer-console`](https://github.com/plat5dev/template-customer-console)) into `customer-console/` and the operator console ([`template-operator-console`](https://github.com/plat5dev/template-operator-console)) into `operator-console/`, from the same ref. Nothing is cached: each init downloads, and prints the ref and commit it got. `--templates-dir` reads them all from a local directory (folders named like the repos), `--template-ref` picks a git ref.
 
 ### The starter contract
 
@@ -239,24 +236,25 @@ What a starter ships, so `plat5 init` and `plat5 start` can run it with no other
 
 | | |
 |--|--|
-| `plat5.template.yml` | `name`, `kind: api`, `description`, `upstreams`, `routes`, `substitute` (files where `{{project_id}}` is replaced), `app`, and `next` |
+| `plat5.template.yml` | `name`, `kind: api`, `description`, `upstreams`, `routes`, `operator_routes`, `substitute` (files where `{{project_id}}` is replaced), `app`, and `next` |
 | `app.compose` | A compose file that runs the API with hot reload. No `name:`: the project's root compose file includes it |
 | `next` | How to run the API on your machine instead (`plat5 start -x app`) |
 | `routes.yml`, `routes.identity.yml`, `routes.audit.yml`, `roles.yml` | The route files and roles. Init moves them to the project root |
+| `routes.operator.yml` (`operator_routes`) | Optional. What staff may call on the API through the operator gateway: an `upstreams:` block, as the operator's route list has. Init adds it to the project's `operator.routes.yml`, and leaves the file out of `api/`. Without it, `operator.routes.yml` has a commented place for the API |
 
 A starter without `kind: api` (from before this layout) is copied to the project root alone, as it was.
 
-The web app and console are templates too (`kind: web`, `kind: console`), each with a compose file that runs Vite with the folder mounted. `plat5 start` runs the project's `docker-compose.yml` with `docker compose up -d --build --wait` and this env, so each app's file can say `${PLAT5_GATEWAY_URL}`:
+The two consoles are templates too (`kind: customer-console`, `kind: operator-console`), each in the folder of its kind, with a compose file that runs Vite with the folder mounted. `plat5 start` runs the project's `docker-compose.yml` with `docker compose up -d --build --wait` and this env, so each app's file can say `${PLAT5_GATEWAY_URL}`:
 
 | Env | |
 |-----|--|
 | `PLAT5_GATEWAY_URL` | The gateway, as the browser reaches it |
 | `PLAT5_AUTH_URL` | The customer IdP's issuer, as the browser reaches it |
 | `PLAT5_AUTH_CLIENT_ID` | The OAuth client id (`plat5`) |
-| `PLAT5_OPERATOR_URL`, `PLAT5_STAFF_AUTH_URL`, `PLAT5_STAFF_CLIENT_ID` | The operator gateway, the staff issuer, and the console's client id, with the operator module on |
+| `PLAT5_OPERATOR_URL`, `PLAT5_STAFF_AUTH_URL`, `PLAT5_STAFF_CLIENT_ID` | The operator gateway, the staff issuer, and the operator console's client id, with the operator module on |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Where to send traces and metrics (Alloy on the host, `http://host.docker.internal:4318`), or empty |
 
-Ports: the API on `3000`, the web app on `3001`, the console on `5412`. First-party starters share one API (profiles, projects, tasks), so they share one web app.
+Ports: the API on `3000`, the customer console on `3001`, the operator console on `5412`. First-party starters share one API (profiles, projects, tasks), so they share both consoles: the customer console's projects pages, and the operator console's, which read the API through the routes in `routes.operator.yml`.
 
 ## Contributors: build from checkouts
 

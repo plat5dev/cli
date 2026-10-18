@@ -14,7 +14,7 @@ func TestDefaultsAreTheBlock(t *testing.T) {
 		t.Fatalf("defaults moved: %v", Defaults)
 	}
 	names := Names()
-	if names[0] != OTLPGRPC || names[len(names)-1] != OperatorConsole {
+	if names[0] != OTLPGRPC || names[len(names)-1] != StaffAuth {
 		t.Fatalf("order: %v", names)
 	}
 }

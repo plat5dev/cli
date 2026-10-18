@@ -7,10 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/plat5dev/cli/internal/bundle"
 	"github.com/plat5dev/cli/internal/compose"
 	"github.com/plat5dev/cli/internal/config"
-	"github.com/plat5dev/cli/internal/ports"
 	"github.com/plat5dev/cli/internal/state"
 )
 
@@ -32,7 +30,7 @@ func resolved(t *testing.T, yml string) config.Resolved {
 }
 
 const allOn = `project_id: demo
-versions: {plat5: v0.7.0, auth: v0.2.0, operator: v0.4.0, operator_console: v0.1.0}
+versions: {plat5: v0.7.0, auth: v0.2.0, operator: v0.4.0}
 app: {web: "http://localhost:3001"}
 roles: ./roles.yml
 `
@@ -83,13 +81,10 @@ func TestEnvWiresLocalAuth(t *testing.T) {
 		"GATEWAY_PORT":                "5400",
 		"STAFF_AUTH_PORT":             "5411",
 		"PLAT5_VERSION":               "v0.7.0",
-		"OPERATOR_CONSOLE_VERSION":    "v0.1.0",
 		"IDP_ISSUER":                  "http://localhost:5401",
 		"IDP_JWKS_URI":                "http://auth:5000/.well-known/jwks.json",
 		"IDP_AUDIENCES":               "plat5",
 		"AUTH_REDIRECT_URIS":          "http://localhost:3001/callback",
-		"OPERATOR_ORIGINS":            "http://localhost:5412",
-		"OPERATOR_REDIRECT_URIS":      "http://localhost:5412/callback",
 		"ROLES_ENABLED":               "true",
 		"OTEL_EXPORTER_OTLP_ENDPOINT": "http://alloy:4318",
 		"AUTH_DEV_USERS":              "dev@example.com:password",
@@ -270,29 +265,20 @@ func TestAppOverride(t *testing.T) {
 	}
 }
 
-// A project with its own console (app.console) runs no console image: its
-// origin is the staff plane's, the port is the app's, and the app learns where
-// the operator gateway and staff sign-in are.
-func TestAppConsole(t *testing.T) {
-	stock := newStack(t, allOn)
-	if !contains(stock.Runner().Files, bundle.ConsoleFile) {
-		t.Fatalf("no app.console: the console image runs: %v", stock.Runner().Files)
-	}
-	if _, ok := stock.Ports()[ports.OperatorConsole]; !ok {
-		t.Fatal("the console image's port is checked")
+// The stack runs no console. Without app.operator_console, staff have no
+// console origin; with it, its origin is the staff plane's and the app learns
+// where the operator gateway and staff sign-in are.
+func TestAppOperatorConsole(t *testing.T) {
+	stock := env(newStack(t, allOn))
+	if stock["OPERATOR_ORIGINS"] != "" || stock["OPERATOR_REDIRECT_URIS"] != "" {
+		t.Fatalf("no app.operator_console: origins %q, redirects %q", stock["OPERATOR_ORIGINS"], stock["OPERATOR_REDIRECT_URIS"])
 	}
 
 	own := newStack(t, `project_id: demo
 versions: {plat5: v0.7.0, auth: v0.2.0, operator: v0.4.0}
-app: {web: "http://localhost:3001", console: "http://localhost:5412"}
+app: {web: "http://localhost:3001", operator_console: "http://localhost:5412"}
 roles: ./roles.yml
 `)
-	if contains(own.Runner().Files, bundle.ConsoleFile) {
-		t.Fatalf("app.console: no console image: %v", own.Runner().Files)
-	}
-	if _, ok := own.Ports()[ports.OperatorConsole]; ok {
-		t.Fatal("app.console: the app publishes the console port, not the stack")
-	}
 	if got := env(own)["OPERATOR_ORIGINS"]; got != "http://localhost:5412" {
 		t.Fatalf("OPERATOR_ORIGINS %q", got)
 	}

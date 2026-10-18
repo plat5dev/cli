@@ -49,22 +49,20 @@ var Modules = []string{ModuleAuth, ModuleOperator, ModuleObservability}
 
 // Image pins: versions: keys, and the repos plat5 init reads the latest tag from.
 const (
-	VersionPlat5           = "plat5"
-	VersionAuth            = "auth"
-	VersionOperator        = "operator"
-	VersionOperatorConsole = "operator_console"
+	VersionPlat5    = "plat5"
+	VersionAuth     = "auth"
+	VersionOperator = "operator"
 )
 
 // VersionRepos is each pin's GitHub repo.
 var VersionRepos = map[string]string{
-	VersionPlat5:           "plat5dev/plat5",
-	VersionAuth:            "plat5dev/auth",
-	VersionOperator:        "plat5dev/operator",
-	VersionOperatorConsole: "plat5dev/operator-console",
+	VersionPlat5:    "plat5dev/plat5",
+	VersionAuth:     "plat5dev/auth",
+	VersionOperator: "plat5dev/operator",
 }
 
 // Sources are the checkouts source: may build from, by the same keys as versions.
-var Sources = []string{VersionPlat5, VersionAuth, VersionOperator, VersionOperatorConsole}
+var Sources = []string{VersionPlat5, VersionAuth, VersionOperator}
 
 const maxAPIKeyBrandLen = 32
 
@@ -97,10 +95,9 @@ type AppBlock struct {
 	Compose string `yaml:"compose"`
 	// Web is the app's browser origin, allowed to sign in with local Auth.
 	Web string `yaml:"web"`
-	// Console is the origin of the project's own staff console, run by Compose:
-	// allowed to sign in with staff Auth and call the operator gateway. Set, the
-	// operator module runs no console image.
-	Console string `yaml:"console"`
+	// OperatorConsole is the origin of the project's own operator console, run by
+	// Compose: allowed to sign in with staff Auth and call the operator gateway.
+	OperatorConsole string `yaml:"operator_console"`
 }
 
 // AuthBlock adds to local Auth's allowlists, beyond the app's web origin.
@@ -153,8 +150,8 @@ type Resolved struct {
 
 	AppCompose string // absolute; empty = no app
 	AppWeb     string // origin, no trailing slash
-	// AppConsole is the project's own staff console origin. Empty: the console image.
-	AppConsole string
+	// AppOperatorConsole is the project's own operator console origin. Empty: none.
+	AppOperatorConsole string
 
 	Upstreams  map[string]string
 	RouteFiles []string
@@ -256,12 +253,12 @@ func Resolve(f *File, path string, o Overrides) (Resolved, error) {
 		}
 		r.AppWeb = origin
 	}
-	if console := strings.TrimSpace(f.App.Console); console != "" {
+	if console := strings.TrimSpace(f.App.OperatorConsole); console != "" {
 		origin, err := parseOrigin(console)
 		if err != nil {
-			return Resolved{}, fmt.Errorf("app.console: %w", err)
+			return Resolved{}, fmt.Errorf("app.operator_console: %w", err)
 		}
-		r.AppConsole = origin
+		r.AppOperatorConsole = origin
 	}
 	for _, k := range r.NeededVersions() {
 		if r.Versions[k] == "" && r.Source[k] == "" {
@@ -343,9 +340,6 @@ func (r Resolved) NeededVersions() []string {
 	}
 	if r.Modules[ModuleOperator] {
 		need = append(need, VersionOperator)
-		if r.AppConsole == "" {
-			need = append(need, VersionOperatorConsole)
-		}
 	}
 	return need
 }
@@ -382,17 +376,13 @@ func (r Resolved) AuthRedirectURIs() []string {
 	return uniq(append(out, r.Auth.RedirectURIs...))
 }
 
-// ConsoleURL is the local staff console: the project's own, or the image's.
-func (r Resolved) ConsoleURL() string {
-	if r.AppConsole != "" {
-		return r.AppConsole
-	}
-	return r.URL(ports.OperatorConsole)
-}
-
-// OperatorConsoleOrigins is the local console's origin, and any extra.
+// OperatorConsoleOrigins is the project's operator console origin, and any extra.
 func (r Resolved) OperatorConsoleOrigins() []string {
-	return uniq(append([]string{r.ConsoleURL()}, r.OperatorOrigins...))
+	var out []string
+	if r.AppOperatorConsole != "" {
+		out = append(out, r.AppOperatorConsole)
+	}
+	return uniq(append(out, r.OperatorOrigins...))
 }
 
 var unknownFieldRE = regexp.MustCompile(`^line (\d+): field (\S+) not found in type `)

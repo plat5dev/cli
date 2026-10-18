@@ -14,13 +14,14 @@ import (
 
 	"github.com/plat5dev/cli/internal/config"
 	"github.com/plat5dev/cli/internal/template"
+	"gopkg.in/yaml.v3"
 )
 
 // Project folders plat5 init writes beside the project files.
 const (
-	apiDir     = "api"
-	webDir     = "web"
-	consoleDir = "console"
+	apiDir             = "api"
+	customerConsoleDir = template.KindCustomerConsole
+	operatorConsoleDir = template.KindOperatorConsole
 
 	operatorRoutesFile = "operator.routes.yml"
 )
@@ -30,22 +31,31 @@ type layout struct {
 	// starter is the API starter. Nil: none (--template none).
 	starter *template.Template
 	// api is the folder the starter is in: "api", or "" for a starter copied to
-	// the project root (one from before the api/ web/ console/ layout).
+	// the project root (one from before the api/ and consoles layout).
 	api string
-	// web and console are the apps beside it. Nil: not added.
-	web, console *template.Template
+	// customerConsole and operatorConsole are the apps beside it. Nil: not added.
+	customerConsole, operatorConsole *template.Template
 	// operatorRoutes is whether operator.routes.yml was written.
 	operatorRoutes bool
 }
 
-// scaffold lays out a project from an API starter: the starter in api/, the
-// customer web app in web/, and the staff console in console/, each a starting
-// point the project owns. The project files (route files, roles.yml) move up to
-// the root, and a root docker-compose.yml includes each app's own.
+// scaffold lays out a project from an API starter: the starter in api/, and the
+// customer and operator consoles in folders named for them, each a starting point
+// the project owns. The project files (route files, roles.yml) move up to the
+// root, the starter's operator routes go into operator.routes.yml, and a root
+// docker-compose.yml includes each app's own.
 func scaffold(dir, projectID string, ch initChoices, versions map[string]string, opts template.ResolveOptions, starter *template.Template) (layout, error) {
 	lay := layout{starter: starter, api: apiDir}
 
+	// The starter's operator routes are read from the template, not copied.
+	apiOperatorRoutes, err := starterOperatorRoutes(starter)
+	if err != nil {
+		return lay, err
+	}
 	starter.Manifest.Exclude = append(starter.Manifest.Exclude, ".github")
+	if starter.Manifest.OperatorRoutes != "" {
+		starter.Manifest.Exclude = append(starter.Manifest.Exclude, filepath.Clean(starter.Manifest.OperatorRoutes))
+	}
 	if err := copyApp(starter, filepath.Join(dir, apiDir), projectID); err != nil {
 		return lay, err
 	}
@@ -62,7 +72,7 @@ func scaffold(dir, projectID string, ch initChoices, versions map[string]string,
 			return lay, err
 		}
 	}
-	fmt.Printf("  %-9s your API (%s), from %s\n", apiDir+"/", starter.Manifest.Name, starter.Origin)
+	fmt.Printf("  %-18s your API (%s), from %s\n", apiDir+"/", starter.Manifest.Name, starter.Origin)
 
 	add := func(kind, folder, what string) (*template.Template, error) {
 		app, err := template.ResolveApp(opts, kind)
@@ -74,17 +84,16 @@ func scaffold(dir, projectID string, ch initChoices, versions map[string]string,
 			app.Close()
 			return nil, err
 		}
-		fmt.Printf("  %-9s %s, from %s\n", folder+"/", what, app.Origin)
+		fmt.Printf("  %-18s %s, from %s\n", folder+"/", what, app.Origin)
 		return app, nil
 	}
-	var err error
-	if !ch.noWeb {
-		if lay.web, err = add(template.KindWeb, webDir, "your customers' web app"); err != nil {
+	if !ch.noCustomerConsole {
+		if lay.customerConsole, err = add(template.KindCustomerConsole, customerConsoleDir, "your customers' console"); err != nil {
 			return lay, err
 		}
 	}
-	if ch.modules[config.ModuleOperator] && !ch.noConsole {
-		if lay.console, err = add(template.KindConsole, consoleDir, "your staff console"); err != nil {
+	if ch.modules[config.ModuleOperator] && !ch.noOperatorConsole {
+		if lay.operatorConsole, err = add(template.KindOperatorConsole, operatorConsoleDir, "your staff's console"); err != nil {
 			return lay, err
 		}
 	}
@@ -93,7 +102,7 @@ func scaffold(dir, projectID string, ch initChoices, versions map[string]string,
 		return lay, err
 	}
 	if ch.modules[config.ModuleOperator] {
-		body, err := operatorRoutes(ch.sources[config.VersionOperator], versions[config.VersionOperator])
+		body, err := operatorRoutes(ch.sources[config.VersionOperator], versions[config.VersionOperator], apiOperatorRoutes)
 		if err != nil {
 			fmt.Printf("  note: no %s (%v); the operator gateway uses its image's list\n", operatorRoutesFile, err)
 		} else {
@@ -115,7 +124,7 @@ func scaffold(dir, projectID string, ch initChoices, versions map[string]string,
 
 // close removes the downloaded templates' temp dirs.
 func (l layout) close() {
-	for _, t := range []*template.Template{l.starter, l.web, l.console} {
+	for _, t := range []*template.Template{l.starter, l.customerConsole, l.operatorConsole} {
 		if t != nil {
 			t.Close()
 		}
@@ -150,7 +159,7 @@ func rootCompose(l layout) string {
 	for _, app := range []struct {
 		folder string
 		t      *template.Template
-	}{{apiDir, l.starter}, {webDir, l.web}, {consoleDir, l.console}} {
+	}{{apiDir, l.starter}, {customerConsoleDir, l.customerConsole}, {operatorConsoleDir, l.operatorConsole}} {
 		if app.t == nil {
 			continue
 		}
@@ -167,9 +176,10 @@ func rootCompose(l layout) string {
 var operatorRouteRef = "https://raw.githubusercontent.com/plat5dev/operator/%s/routes.yml"
 
 // operatorRoutes is the operator gateway's route list, as the pinned operator
-// version ships it (or the source: checkout's), with a commented place for the
-// project's API.
-func operatorRoutes(src, version string) ([]byte, error) {
+// version ships it (or the source: checkout's), with the starter's operator
+// routes (api, from starterOperatorRoutes) added under upstreams:, or a
+// commented place for them.
+func operatorRoutes(src, version string, api []byte) ([]byte, error) {
 	var data []byte
 	var from string
 	if src != "" {
@@ -199,7 +209,8 @@ func operatorRoutes(src, version string) ([]byte, error) {
 	if !bytes.HasSuffix(data, []byte("\n")) {
 		b.WriteString("\n")
 	}
-	b.WriteString(`
+	if api == nil {
+		b.WriteString(`
   # Your API, for staff. plat5.yml's upstreams.api says where it is. Staff paths
   # are your API's own (the listen paths), with the org or person in the path:
   # the operator gateway forwards them unchanged.
@@ -208,7 +219,55 @@ func operatorRoutes(src, version string) ([]byte, error) {
   #     - path: /organizations/{organization_id}/projects
   #       methods: [GET]
 `)
+		return b.Bytes(), nil
+	}
+	b.WriteString(`
+  # Your API, for staff, from the starter's routes.operator.yml. plat5.yml's
+  # upstreams.api says where it is. Staff paths are your API's own (the listen
+  # paths), with the org or person in the path: the operator gateway forwards them
+  # unchanged.
+`)
+	b.Write(api)
+	if !bytes.HasSuffix(api, []byte("\n")) {
+		b.WriteString("\n")
+	}
+	var doc map[string]map[string]any
+	if err := yaml.Unmarshal(b.Bytes(), &doc); err != nil {
+		return nil, fmt.Errorf("the starter's operator routes don't fit the operator's list: %w", err)
+	}
+	if len(doc) != 1 || doc["upstreams"] == nil {
+		return nil, fmt.Errorf("the starter's operator routes don't fit the operator's list: want upstreams: alone")
+	}
 	return b.Bytes(), nil
+}
+
+// starterOperatorRoutes is the upstreams a starter gives staff (its manifest's
+// operator_routes): the lines under its top-level upstreams:, indented to go
+// under operator.routes.yml's. Nil: the starter has none.
+func starterOperatorRoutes(t *template.Template) ([]byte, error) {
+	rel := filepath.Clean(t.Manifest.OperatorRoutes)
+	if t.Manifest.OperatorRoutes == "" {
+		return nil, nil
+	}
+	if rel == "." || filepath.IsAbs(rel) || strings.HasPrefix(rel, "..") {
+		return nil, fmt.Errorf("operator_routes: invalid path %s", t.Manifest.OperatorRoutes)
+	}
+	data, err := os.ReadFile(filepath.Join(t.Dir, rel))
+	if err != nil {
+		return nil, fmt.Errorf("operator_routes: %w", err)
+	}
+	var doc map[string]map[string]any
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, fmt.Errorf("operator_routes %s: %w", rel, err)
+	}
+	if len(doc) != 1 || len(doc["upstreams"]) == 0 {
+		return nil, fmt.Errorf("operator_routes %s: want an upstreams: block alone", rel)
+	}
+	_, after, ok := bytes.Cut(append([]byte("\n"), data...), []byte("\nupstreams:\n"))
+	if !ok {
+		return nil, fmt.Errorf("operator_routes %s: want a line upstreams: at the top level", rel)
+	}
+	return after, nil
 }
 
 func httpGet(url string) ([]byte, error) {
@@ -250,16 +309,16 @@ func projectReadme(projectID string, l layout, ch initChoices) (string, error) {
 	}
 	var b bytes.Buffer
 	err = t.Execute(&b, map[string]any{
-		"Project":        projectID,
-		"Starter":        l.starter.Manifest.Name,
-		"Web":            l.web != nil,
-		"Console":        l.console != nil,
-		"Auth":           ch.modules[config.ModuleAuth],
-		"Operator":       ch.modules[config.ModuleOperator],
-		"OperatorRoutes": l.operatorRoutes,
-		"DevEmail":       config.DevEmail,
-		"StaffEmail":     config.StaffEmail,
-		"Password":       config.DevPassword,
+		"Project":         projectID,
+		"Starter":         l.starter.Manifest.Name,
+		"CustomerConsole": l.customerConsole != nil,
+		"OperatorConsole": l.operatorConsole != nil,
+		"Auth":            ch.modules[config.ModuleAuth],
+		"Operator":        ch.modules[config.ModuleOperator],
+		"OperatorRoutes":  l.operatorRoutes,
+		"DevEmail":        config.DevEmail,
+		"StaffEmail":      config.StaffEmail,
+		"Password":        config.DevPassword,
 	})
 	return b.String(), err
 }

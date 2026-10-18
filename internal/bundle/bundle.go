@@ -24,10 +24,6 @@ var Files = map[string]string{
 	"observability": "observability.yml",
 }
 
-// ConsoleFile is the operator console image: with the operator module, unless the
-// project runs its own console (app.console).
-const ConsoleFile = "operator-console.yml"
-
 // Materialize writes the embedded stack under destDir, replacing what an older
 // CLI wrote there. A file an older CLI embedded and this one doesn't (a renamed
 // dashboard) is removed from the embedded subdirectories. destDir's top level
@@ -81,7 +77,7 @@ func Materialize(destDir string) error {
 // Services is every service name in the embedded compose files, all modules.
 func Services() ([]string, error) {
 	var names []string
-	files := []string{ConsoleFile}
+	var files []string
 	for _, f := range Files {
 		files = append(files, f)
 	}

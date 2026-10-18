@@ -31,7 +31,7 @@ var startCmd = &cobra.Command{
 
 Plat5 always runs. Beside it, the modules plat5.yml turns on (all by default):
   auth           Plat5 Auth, the customer IdP, in dev mode
-  operator       the staff front door: operator gateway, console, staff sign-in
+  operator       the staff front door: operator gateway, operator console, staff sign-in
   observability  Grafana with logs, traces, and metrics (grafana/otel-lgtm + Alloy)
 Then your app, from app.compose in plat5.yml.
 

@@ -21,19 +21,19 @@ import (
 const noTemplate = "none"
 
 var (
-	initTemplate        string
-	initTemplatesDir    string
-	initTemplateRef     string
-	initListTemplates   bool
-	initYes             bool
-	initForce           bool
-	initNoAuth          bool
-	initNoOperator      bool
-	initNoObservability bool
-	initNoWeb           bool
-	initNoConsole       bool
-	initSources         []string
-	initVersions        []string
+	initTemplate          string
+	initTemplatesDir      string
+	initTemplateRef       string
+	initListTemplates     bool
+	initYes               bool
+	initForce             bool
+	initNoAuth            bool
+	initNoOperator        bool
+	initNoObservability   bool
+	initNoCustomerConsole bool
+	initNoOperatorConsole bool
+	initSources           []string
+	initVersions          []string
 )
 
 var initCmd = &cobra.Command{
@@ -41,9 +41,10 @@ var initCmd = &cobra.Command{
 	Short: "Create a project from a starter",
 	Long: `Create a Plat5 project, then cd into it and run plat5 start:
 
-  api/         your API, from a starter
-  web/         a web app for your customers (--no-web: none)
-  console/     a console for your staff (--no-console, or --no-operator: none)
+  api/               your API, from a starter
+  customer-console/  a console for your customers (--no-customer-console: none)
+  operator-console/  a console for your staff (--no-operator-console, or
+                     --no-operator: none)
   plat5.yml, routes, roles, and a README that says how to extend each
 
 Each app is a starting point the project owns, not a dependency.
@@ -58,7 +59,7 @@ A starter is a first-party name (--list-templates), owner/repo on GitHub, or an
 archive URL. --template none is Plat5 alone, with sample routes.
 
 Contributors: --source plat5=../plat5 builds that module from a checkout instead
-of pulling its image (plat5, auth, operator, operator_console).`,
+of pulling its image (plat5, auth, operator).`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runInit,
 }
@@ -72,8 +73,8 @@ func init() {
 	f.BoolVar(&initNoAuth, "no-auth", false, "Turn the auth module off (then set idp: in plat5.yml)")
 	f.BoolVar(&initNoOperator, "no-operator", false, "Turn the operator module off")
 	f.BoolVar(&initNoObservability, "no-observability", false, "Turn the observability module off")
-	f.BoolVar(&initNoWeb, "no-web", false, "Don't add the web app (web/)")
-	f.BoolVar(&initNoConsole, "no-console", false, "Don't add the staff console (console/); the operator module runs its stock console")
+	f.BoolVar(&initNoCustomerConsole, "no-customer-console", false, "Don't add the customer console (customer-console/)")
+	f.BoolVar(&initNoOperatorConsole, "no-operator-console", false, "Don't add the operator console (operator-console/); staff call the operator gateway directly")
 	f.StringArrayVar(&initSources, "source", nil, "Build a module from a checkout: plat5=../plat5 (repeatable)")
 	f.StringArrayVar(&initVersions, "version", nil, "Pin an image: plat5=v0.7.1 (repeatable; default the latest tag)")
 	f.StringVar(&initTemplatesDir, "templates-dir", "", "Read starters from a local directory (or PLAT5_TEMPLATES)")
@@ -81,13 +82,13 @@ func init() {
 }
 
 type initChoices struct {
-	dir       string
-	starter   string
-	modules   map[string]bool
-	sources   map[string]string
-	versions  map[string]string
-	noWeb     bool
-	noConsole bool
+	dir               string
+	starter           string
+	modules           map[string]bool
+	sources           map[string]string
+	versions          map[string]string
+	noCustomerConsole bool
+	noOperatorConsole bool
 }
 
 func runInit(cmd *cobra.Command, args []string) error {
@@ -135,12 +136,8 @@ func runInit(cmd *cobra.Command, args []string) error {
 			if lay, err = scaffold(ch.dir, projectID, ch, versions, opts, tpl); err != nil {
 				return err
 			}
-			if lay.console != nil {
-				// The project's console replaces the image: no pin to keep.
-				delete(versions, config.VersionOperatorConsole)
-			}
 		} else {
-			// A starter from before api/ web/ console/: the project is the starter.
+			// A starter from before api/ and the consoles: the project is the starter.
 			if err := tpl.Copy(ch.dir); err != nil {
 				return err
 			}
@@ -200,10 +197,10 @@ func initChoose(cmd *cobra.Command, args []string) (initChoices, error) {
 			config.ModuleOperator:      !initNoOperator,
 			config.ModuleObservability: !initNoObservability,
 		},
-		sources:   map[string]string{},
-		versions:  map[string]string{},
-		noWeb:     initNoWeb,
-		noConsole: initNoConsole,
+		sources:           map[string]string{},
+		versions:          map[string]string{},
+		noCustomerConsole: initNoCustomerConsole,
+		noOperatorConsole: initNoOperatorConsole,
 	}
 	if err := parsePairs("--source", initSources, config.Sources, ch.sources); err != nil {
 		return ch, err
@@ -261,7 +258,7 @@ func initChoose(cmd *cobra.Command, args []string) (initChoices, error) {
 				Title("Modules (space toggles)").
 				Options(
 					huh.NewOption("auth           sign-in for your users (Plat5 Auth)", config.ModuleAuth).Selected(true),
-					huh.NewOption("operator       staff console and gateway", config.ModuleOperator).Selected(true),
+					huh.NewOption("operator       operator console and gateway", config.ModuleOperator).Selected(true),
 					huh.NewOption("observability  Grafana: logs, traces, metrics", config.ModuleObservability).Selected(true),
 				).
 				Value(&picked))
@@ -381,7 +378,7 @@ func renderPlat5YML(projectID string, ch initChoices, versions map[string]string
 	p("# What plat5 start runs beside Plat5. plat5 start -x <module> skips one for a run.\n")
 	p("modules:\n")
 	p("  %-20s # Plat5 Auth: sign-in for your users (dev mode)\n", fmt.Sprintf("auth: %t", ch.modules[config.ModuleAuth]))
-	p("  %-20s # staff console, operator gateway, staff sign-in\n", fmt.Sprintf("operator: %t", ch.modules[config.ModuleOperator]))
+	p("  %-20s # operator console, operator gateway, staff sign-in\n", fmt.Sprintf("operator: %t", ch.modules[config.ModuleOperator]))
 	p("  %-20s # Grafana with logs, traces, metrics\n\n", fmt.Sprintf("observability: %t", ch.modules[config.ModuleObservability]))
 
 	upstreams := map[string]string{"api": "3000"}
@@ -399,11 +396,11 @@ func renderPlat5YML(projectID string, ch initChoices, versions map[string]string
 		p("# Your apps: %s. plat5 start runs docker-compose.yml after Plat5\n", strings.Join(lay.folders(), ", "))
 		p("# (-x app to run them yourself).\n")
 		p("app:\n  compose: ./docker-compose.yml\n")
-		if lay.web != nil {
-			p("  web: %s  # web/: may sign in with local Auth\n", yamlString(appOrigin(lay.web, "http://localhost:3001")))
+		if lay.customerConsole != nil {
+			p("  web: %s  # customer-console/: may sign in with local Auth\n", yamlString(appOrigin(lay.customerConsole, "http://localhost:3001")))
 		}
-		if lay.console != nil {
-			p("  console: %s  # console/: may sign in as staff; no stock console runs\n", yamlString(appOrigin(lay.console, "http://localhost:5412")))
+		if lay.operatorConsole != nil {
+			p("  operator_console: %s  # operator-console/: may sign in as staff\n", yamlString(appOrigin(lay.operatorConsole, "http://localhost:5412")))
 		}
 		p("\n")
 	case tpl != nil && tpl.Manifest.App.Compose != "":
@@ -440,17 +437,17 @@ func renderPlat5YML(projectID string, ch initChoices, versions map[string]string
 	p("roles: ./roles.yml\n")
 	if lay.operatorRoutes {
 		p("\n# The staff plane. routes: what staff may call through the operator gateway.\n")
-		p("operator:\n  routes: ./%s\n  # origins: []         # more staff consoles\n", operatorRoutesFile)
+		p("operator:\n  routes: ./%s\n  # origins: []         # more operator consoles\n", operatorRoutesFile)
 	}
 
-	optionalOperator := "# operator:\n#   origins: []          # more staff consoles\n"
+	optionalOperator := "# operator:\n#   origins: []          # more operator consoles\n"
 	if lay.operatorRoutes {
 		optionalOperator = ""
 	}
 	p(`
 # --- Optional ---
 # ports:                 # host ports (defaults: gateway 5400, auth 5401, control_plane 5402,
-#   gateway: 5400        #   grafana 5403, operator 5410, staff_auth 5411, operator_console 5412,
+#   gateway: 5400        #   grafana 5403, operator 5410, staff_auth 5411,
 #                        #   otlp_grpc 4317, otlp_http 4318)
 # admin_token: dev-admin-token
 # apikey_brand: plat5    # keys are {brand}-k-2-…
@@ -479,7 +476,7 @@ func (l layout) folders() []string {
 	for _, f := range []struct {
 		name string
 		on   bool
-	}{{apiDir + "/", l.starter != nil}, {webDir + "/", l.web != nil}, {consoleDir + "/", l.console != nil}} {
+	}{{apiDir + "/", l.starter != nil}, {customerConsoleDir + "/", l.customerConsole != nil}, {operatorConsoleDir + "/", l.operatorConsole != nil}} {
 		if f.on {
 			out = append(out, f.name)
 		}

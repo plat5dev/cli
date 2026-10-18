@@ -12,7 +12,7 @@ func allModules() map[string]bool {
 	return map[string]bool{config.ModuleAuth: true, config.ModuleOperator: true, config.ModuleObservability: true}
 }
 
-var pins = map[string]string{"plat5": "v0.7.0", "auth": "v0.2.0", "operator": "v0.4.0", "operator_console": "v0.1.0"}
+var pins = map[string]string{"plat5": "v0.7.0", "auth": "v0.2.0", "operator": "v0.4.0"}
 
 // What init writes is what start reads.
 func TestRenderedPlat5YMLResolves(t *testing.T) {

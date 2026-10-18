@@ -9,7 +9,7 @@ import (
 	"github.com/plat5dev/cli/internal/config"
 )
 
-// A sign-in plane's look. The customer plane matches the starter web app (violet); the
+// A sign-in plane's look. The customer plane matches the customer console (violet); the
 // staff plane matches the operator console (amber), so nobody mistakes one for the other.
 type plane struct {
 	tag    string // beside the wordmark
