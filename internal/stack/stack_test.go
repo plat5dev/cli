@@ -7,22 +7,17 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/plat5dev/cli/internal/compose"
 	"github.com/plat5dev/cli/internal/config"
-	"github.com/plat5dev/cli/internal/state"
 )
 
 func resolved(t *testing.T, yml string) config.Resolved {
 	t.Helper()
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "roles.yml"), []byte("roles: {owner: [\"*\"]}\ncreator_role: owner\ndefault_role: owner\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	f, err := config.Parse([]byte(yml))
 	if err != nil {
 		t.Fatal(err)
 	}
-	r, err := config.Resolve(f, filepath.Join(dir, "plat5.yml"), config.Overrides{})
+	r, err := config.Resolve(f, filepath.Join(dir, config.FileName), config.Overrides{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,9 +25,8 @@ func resolved(t *testing.T, yml string) config.Resolved {
 }
 
 const allOn = `project_id: demo
-versions: {plat5: v0.7.0, auth: v0.2.0, operator: v0.4.0}
+versions: {plat5: v0.7.0, auth: v0.2.0}
 app: {web: "http://localhost:3001"}
-roles: ./roles.yml
 `
 
 func newStack(t *testing.T, yml string, exclude ...string) *Stack {
@@ -56,15 +50,19 @@ func env(s *Stack) map[string]string {
 
 func TestModulesAndExclude(t *testing.T) {
 	s := newStack(t, allOn)
-	if strings.Join(s.Modules, ",") != "auth,operator,observability" {
-		t.Fatalf("%v", s.Modules)
-	}
-	s = newStack(t, allOn, "operator")
-	if s.Has("operator") || !s.Has("auth") {
+	if strings.Join(s.Modules, ",") != "auth,observability" {
 		t.Fatalf("%v", s.Modules)
 	}
 	files := strings.Join(s.Runner().Files, ",")
 	if files != "core.yml,auth.yml,observability.yml,override.yml" {
+		t.Fatalf("files: %s", files)
+	}
+	s = newStack(t, allOn, "observability")
+	if s.Has("observability") || !s.Has("auth") {
+		t.Fatalf("%v", s.Modules)
+	}
+	files = strings.Join(s.Runner().Files, ",")
+	if files != "core.yml,auth.yml,override.yml" {
 		t.Fatalf("files: %s", files)
 	}
 	if _, err := New(s.Config, []string{"grafana"}); err == nil {
@@ -79,16 +77,15 @@ func TestEnvWiresLocalAuth(t *testing.T) {
 	e := env(newStack(t, allOn))
 	for k, want := range map[string]string{
 		"GATEWAY_PORT":                "5400",
-		"STAFF_AUTH_PORT":             "5411",
+		"CONTROL_PLANE_PORT":          "5402",
 		"PLAT5_VERSION":               "v0.7.0",
 		"IDP_ISSUER":                  "http://localhost:5401",
 		"IDP_JWKS_URI":                "http://auth:5000/.well-known/jwks.json",
 		"IDP_AUDIENCES":               "plat5",
 		"AUTH_REDIRECT_URIS":          "http://localhost:3001/callback",
-		"ROLES_ENABLED":               "true",
+		"IDP_SUBJECT_CLAIM":           "properties.user_id",
 		"OTEL_EXPORTER_OTLP_ENDPOINT": "http://alloy:4318",
 		"AUTH_DEV_USERS":              "dev@example.com:password",
-		"STAFF_DEV_USERS":             "staff@example.com:password",
 	} {
 		if e[k] != want {
 			t.Errorf("%s = %q, want %q", k, e[k], want)
@@ -97,26 +94,27 @@ func TestEnvWiresLocalAuth(t *testing.T) {
 }
 
 func TestEnvWithOwnIdP(t *testing.T) {
-	s := newStack(t, `versions: {plat5: v1}
-modules: {auth: false, operator: false, observability: false}
+	s := newStack(t, `versions: {plat5: v0.8.0}
+modules: {auth: false, observability: false}
 idp: {issuer: "https://idp.test", jwks_uri: "https://idp.test/jwks", audiences: [api]}
 `)
 	e := env(s)
-	if e["IDP_ISSUER"] != "https://idp.test" || e["IDP_USER_ID_CLAIM"] != "sub" || e["OTEL_EXPORTER_OTLP_ENDPOINT"] != "" || e["ROLES_ENABLED"] != "false" {
+	if e["IDP_ISSUER"] != "https://idp.test" || e["IDP_SUBJECT_CLAIM"] != "sub" || e["OTEL_EXPORTER_OTLP_ENDPOINT"] != "" {
 		t.Fatalf("%v", e)
 	}
 }
 
 func TestOverride(t *testing.T) {
-	s := newStack(t, allOn+"source: {plat5: ../plat5, operator: ../operator}\notel: {endpoint: \"http://host.docker.internal:4318\"}\n")
+	s := newStack(t, allOn+"source: {plat5: ../plat5, auth: ../auth}\notel: {endpoint: \"http://host.docker.internal:4318\"}\n")
+	s.OnHost = []string{"web", "api"}
 	o := s.override()
 	for _, want := range []string{
-		"SEED_ROLES_FILE: \"/seed-roles/roles.yml\"",
-		"/seed-roles/roles.yml:ro",
-		"staff-theme.json:/config/theme.json:ro",
+		"auth-theme.json:/config/theme.json:ro",
 		"image: plat5-source/gateway:demo",
-		"target: operator-audit",
+		"image: plat5-source/auth:demo",
+		"additional_contexts:\n        schema: \"" + filepath.Join(s.Config.Dir, "../plat5/schema") + "\"",
 		"host.docker.internal:host-gateway",
+		"      - \"api:host-gateway\"\n      - \"web:host-gateway\"\n",
 	} {
 		if !strings.Contains(o, want) {
 			t.Errorf("override missing %q:\n%s", want, o)
@@ -153,9 +151,8 @@ func TestComposeConfig(t *testing.T) {
 		t.Skip("docker compose not available")
 	}
 	for name, s := range map[string]*Stack{
-		"all":    newStack(t, allOn+"source: {plat5: ../plat5}\n"),
-		"core":   newStack(t, allOn, "operator", "observability"),
-		"no-ops": newStack(t, allOn, "operator"),
+		"all":  newStack(t, allOn+"source: {plat5: ../plat5}\n"),
+		"core": newStack(t, allOn, "observability"),
 	} {
 		if err := s.Prepare(); err != nil {
 			t.Fatal(err)
@@ -175,83 +172,24 @@ func TestComposeConfig(t *testing.T) {
 	}
 }
 
-func TestOperatorRoutesFile(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	cfg := resolved(t, allOn+"upstreams: {api: 3010}\noperator: {routes: ./operator-routes.yml}\n")
-	routes := `upstreams:
-  identity:
-    url: http://identity:3000
-    routes:
-      - path: /organizations
-        methods: [GET]
-  api:
-    routes:
-      - path: /organizations/{organization_id}/features
-        methods: [GET]
-`
-	if err := os.WriteFile(filepath.Join(cfg.ConfigDir, "operator-routes.yml"), []byte(routes), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	s, err := New(cfg, nil)
+func TestAppServices(t *testing.T) {
+	s := newStack(t, allOn)
+	networks := map[string][]string{"api": {"default"}, "db": {"default"}}
+	got, err := s.appServices(networks, []string{"api", "identity", "billing", "api"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Prepare(); err != nil {
-		t.Fatal(err)
+	if strings.Join(got, ",") != "api" {
+		t.Fatalf("joined: %v", got)
 	}
-	got, err := os.ReadFile(filepath.Join(s.Dir, "operator-routes.yml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{"url: http://host.docker.internal:3010", "url: http://identity:3000", "/organizations/{organization_id}/features"} {
-		if !strings.Contains(string(got), want) {
-			t.Errorf("operator routes missing %q:\n%s", want, got)
-		}
-	}
-	o := s.override()
-	for _, want := range []string{"ROUTES_FILE: \"/config/routes.yml\"", "operator-routes.yml:/config/routes.yml:ro", "PLAT5_ROUTES_SHA256: \"" + fileSHA256(filepath.Join(s.Dir, "operator-routes.yml")) + "\""} {
-		if !strings.Contains(o, want) {
-			t.Errorf("override missing %q:\n%s", want, o)
-		}
-	}
-	if !strings.Contains(o[strings.Index(o, "\n  operator:\n"):], "host.docker.internal:host-gateway") {
-		t.Errorf("operator needs the host gateway:\n%s", o)
-	}
-
-	// Without the operator module, nothing is written or mounted.
-	off, err := New(cfg, []string{"operator"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(off.override(), "ROUTES_FILE") {
-		t.Fatal("operator off: no routes override")
-	}
-}
-
-func TestInDocker(t *testing.T) {
-	published := map[int]compose.Published{3000: {Service: "api", Target: 8080, Networks: []string{"default"}}}
-	ups := map[string]string{"api": "3000", "billing": "4000", "other": "api:3000"}
-	joined, out, err := inDocker(ups, published, []string{"gateway", "identity"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(joined) != 1 || joined["api"] != (state.AppUpstream{From: "3000", To: "api:8080"}) {
-		t.Fatalf("joined: %+v", joined)
-	}
-	if out["api"] != "api:8080" || out["billing"] != "4000" || out["other"] != "api:3000" {
-		t.Fatalf("upstreams: %+v", out)
-	}
-	if _, _, err := inDocker(ups, published, []string{"api"}); err == nil {
+	if _, err := s.appServices(map[string][]string{"gateway": nil}, []string{"gateway"}); err == nil {
 		t.Fatal("a service named like a Plat5 one must not join")
 	}
 }
 
 func TestAppOverride(t *testing.T) {
-	published := map[int]compose.Published{
-		3000: {Service: "api", Target: 3000, Networks: []string{"backend", "default"}},
-		3001: {Service: "web", Target: 8080},
-	}
-	got := appOverride("plat5-demo", map[string]state.AppUpstream{"api": {From: "3000", To: "api:3000"}}, published)
+	networks := map[string][]string{"api": {"backend", "default"}, "web": nil}
+	got := appOverride("plat5-demo", []string{"api"}, networks)
 	for _, want := range []string{
 		"  api:\n    networks:\n      backend: {}\n      default: {}\n      plat5-stack: {}\n",
 		"networks:\n  plat5-stack:\n    name: plat5-demo_plat5\n    external: true\n",
@@ -261,31 +199,6 @@ func TestAppOverride(t *testing.T) {
 		}
 	}
 	if strings.Contains(got, "web:") {
-		t.Fatalf("web is no upstream and must not join:\n%s", got)
-	}
-}
-
-// The stack runs no console. Without app.operator_console, staff have no
-// console origin; with it, its origin is the staff plane's and the app learns
-// where the operator gateway and staff sign-in are.
-func TestAppOperatorConsole(t *testing.T) {
-	stock := env(newStack(t, allOn))
-	if stock["OPERATOR_ORIGINS"] != "" || stock["OPERATOR_REDIRECT_URIS"] != "" {
-		t.Fatalf("no app.operator_console: origins %q, redirects %q", stock["OPERATOR_ORIGINS"], stock["OPERATOR_REDIRECT_URIS"])
-	}
-
-	own := newStack(t, `project_id: demo
-versions: {plat5: v0.7.0, auth: v0.2.0, operator: v0.4.0}
-app: {web: "http://localhost:3001", operator_console: "http://localhost:5412"}
-roles: ./roles.yml
-`)
-	if got := env(own)["OPERATOR_ORIGINS"]; got != "http://localhost:5412" {
-		t.Fatalf("OPERATOR_ORIGINS %q", got)
-	}
-	app := strings.Join(own.AppEnv(), " ")
-	for _, want := range []string{"PLAT5_OPERATOR_URL=http://localhost:5410", "PLAT5_STAFF_AUTH_URL=http://localhost:5411", "PLAT5_STAFF_CLIENT_ID=operator-console"} {
-		if !strings.Contains(app, want) {
-			t.Errorf("app env missing %s: %s", want, app)
-		}
+		t.Fatalf("web is no url host and must not join:\n%s", got)
 	}
 }

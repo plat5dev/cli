@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// Name is a published port, as plat5.yml ports: names it.
+// Name is a published port, as plat5.dev.yml ports: names it.
 type Name string
 
 const (
@@ -18,21 +18,17 @@ const (
 	Auth         Name = "auth"
 	ControlPlane Name = "control_plane"
 	Grafana      Name = "grafana"
-	Operator     Name = "operator"
-	StaffAuth    Name = "staff_auth"
 	OTLPGRPC     Name = "otlp_grpc"
 	OTLPHTTP     Name = "otlp_http"
 )
 
-// Defaults is the block. Plat5 is 540x, the operator plane 541x. OTLP keeps its
-// conventional ports so SDK defaults work.
+// Defaults is the block: Plat5 is 540x. OTLP keeps its conventional ports so SDK
+// defaults work.
 var Defaults = Set{
 	Gateway:      5400,
 	Auth:         5401,
 	ControlPlane: 5402,
 	Grafana:      5403,
-	Operator:     5410,
-	StaffAuth:    5411,
 	OTLPGRPC:     4317,
 	OTLPHTTP:     4318,
 }

@@ -46,9 +46,9 @@ func TestDashboardsUseLGTMDatasources(t *testing.T) {
 	}
 }
 
-// Local Auth runs in dev mode, and both Auth instances are pinned to the same image.
+// Local Auth runs in dev mode, pinned by AUTH_VERSION.
 func TestAuthDevMode(t *testing.T) {
-	for _, f := range []string{"stack/auth.yml", "stack/operator.yml"} {
+	for _, f := range []string{"stack/auth.yml"} {
 		data, _ := content.ReadFile(f)
 		if !strings.Contains(string(data), `AUTH_DEV_MODE: "true"`) {
 			t.Fatalf("%s: local Auth must enable AUTH_DEV_MODE", f)
@@ -59,12 +59,31 @@ func TestAuthDevMode(t *testing.T) {
 	}
 }
 
+// Core wires the gateway to admit and identity's subject claim, and the control
+// plane to identity for plan counts. start applies the config, so nothing seeds it.
+func TestCoreEnv(t *testing.T) {
+	data, _ := content.ReadFile("stack/core.yml")
+	core := string(data)
+	for _, want := range []string{
+		"ADMIT_URL: http://identity:3001/internal/admit",
+		"AUTH_SUBJECT_CLAIM: ${IDP_SUBJECT_CLAIM:?}",
+		"IDENTITY_INTERNAL_URL: http://identity:3001",
+	} {
+		if !strings.Contains(core, want) {
+			t.Errorf("core.yml lacks %q", want)
+		}
+	}
+	if strings.Contains(core, "SEED_") {
+		t.Error("core.yml seeds the control plane; plat5 start applies plat5.yml instead")
+	}
+}
+
 func TestServices(t *testing.T) {
 	names, err := Services()
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"gateway", "identity", "auth", "operator", "lgtm"} {
+	for _, want := range []string{"gateway", "identity", "auth", "lgtm"} {
 		found := false
 		for _, n := range names {
 			found = found || n == want

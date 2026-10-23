@@ -1,5 +1,6 @@
-// Package config reads plat5.yml: what the project's local stack is, and how to
-// reach its control plane.
+// Package config reads plat5.dev.yml: how plat5 start runs the project on your
+// machine, and how to reach its control plane. A deployment never reads it; the
+// deployment's config is plat5.yml beside it (internal/plat5yml).
 package config
 
 import (
@@ -15,7 +16,6 @@ import (
 	"strings"
 
 	"github.com/plat5dev/cli/internal/ports"
-	"github.com/plat5dev/cli/internal/upstreams"
 	"gopkg.in/yaml.v3"
 )
 
@@ -29,46 +29,48 @@ const (
 // Local dev logins, seeded into the two Auth instances. Same class of local
 // default as admin_token: never a deployment's.
 const (
-	DevEmail      = "dev@example.com"
-	StaffEmail    = "staff@example.com"
-	DevPassword   = "password"
-	DevOrgName    = "Dev"
-	DevName       = "Dev User"
-	StaffClientID = "operator-console"
+	DevEmail    = "dev@example.com"
+	DevPassword = "password"
+	// DevNodeLabel is the label of the node start seeds of each root kind.
+	DevNodeLabel = "Dev"
+	DevName      = "Dev User"
 )
 
-// Modules run beside Plat5. All on unless plat5.yml turns one off.
+// Modules run beside Plat5. All on unless plat5.dev.yml turns one off.
 const (
 	ModuleAuth          = "auth"
-	ModuleOperator      = "operator"
 	ModuleObservability = "observability"
 )
 
 // Modules is every module, in start order.
-var Modules = []string{ModuleAuth, ModuleOperator, ModuleObservability}
+var Modules = []string{ModuleAuth, ModuleObservability}
 
 // Image pins: versions: keys, and the repos plat5 init reads the latest tag from.
 const (
-	VersionPlat5    = "plat5"
-	VersionAuth     = "auth"
-	VersionOperator = "operator"
+	VersionPlat5 = "plat5"
+	VersionAuth  = "auth"
 )
 
 // VersionRepos is each pin's GitHub repo.
 var VersionRepos = map[string]string{
-	VersionPlat5:    "plat5dev/plat5",
-	VersionAuth:     "plat5dev/auth",
-	VersionOperator: "plat5dev/operator",
+	VersionPlat5: "plat5dev/plat5",
+	VersionAuth:  "plat5dev/auth",
 }
 
 // Sources are the checkouts source: may build from, by the same keys as versions.
-var Sources = []string{VersionPlat5, VersionAuth, VersionOperator}
+var Sources = []string{VersionPlat5, VersionAuth}
+
+// FileName is the project file; ConfigFileName is the deployment's config beside it.
+const (
+	FileName       = "plat5.dev.yml"
+	ConfigFileName = "plat5.yml"
+)
 
 const maxAPIKeyBrandLen = 32
 
 var projectIDSanitizer = regexp.MustCompile(`[^a-zA-Z0-9_-]+`)
 
-// File is plat5.yml.
+// File is plat5.dev.yml.
 type File struct {
 	// CLI is the oldest CLI the project works with: ">=X.Y.Z" (plat5 init writes it).
 	CLI         string            `yaml:"cli"`
@@ -76,14 +78,10 @@ type File struct {
 	Versions    map[string]string `yaml:"versions"`
 	Modules     map[string]bool   `yaml:"modules"`
 	App         AppBlock          `yaml:"app"`
-	Upstreams   map[string]any    `yaml:"upstreams"`
-	Routes      []string          `yaml:"routes"`
-	Roles       string            `yaml:"roles"`
 	Ports       map[string]int    `yaml:"ports"`
 	AdminToken  string            `yaml:"admin_token"`
 	APIKeyBrand string            `yaml:"apikey_brand"`
 	Auth        AuthBlock         `yaml:"auth"`
-	Operator    OperatorBlock     `yaml:"operator"`
 	IdP         IdPBlock          `yaml:"idp"`
 	Otel        OtelBlock         `yaml:"otel"`
 	Source      map[string]string `yaml:"source"`
@@ -95,9 +93,6 @@ type AppBlock struct {
 	Compose string `yaml:"compose"`
 	// Web is the app's browser origin, allowed to sign in with local Auth.
 	Web string `yaml:"web"`
-	// OperatorConsole is the origin of the project's own operator console, run by
-	// Compose: allowed to sign in with staff Auth and call the operator gateway.
-	OperatorConsole string `yaml:"operator_console"`
 }
 
 // AuthBlock adds to local Auth's allowlists, beyond the app's web origin.
@@ -109,20 +104,13 @@ type AuthBlock struct {
 	ThemeFile string `yaml:"theme_file"`
 }
 
-// OperatorBlock is the operator module, beyond its defaults.
-type OperatorBlock struct {
-	// Origins are browser consoles beyond the local operator console.
-	Origins []string `yaml:"origins"`
-	// Routes is the operator gateway's route list, in place of the image's.
-	Routes string `yaml:"routes"`
-}
-
 // IdPBlock is the customer IdP when the auth module is off.
 type IdPBlock struct {
-	Issuer      string   `yaml:"issuer"`
-	JWKSURI     string   `yaml:"jwks_uri"`
-	Audiences   []string `yaml:"audiences"`
-	UserIDClaim string   `yaml:"user_id_claim"`
+	Issuer    string   `yaml:"issuer"`
+	JWKSURI   string   `yaml:"jwks_uri"`
+	Audiences []string `yaml:"audiences"`
+	// SubjectClaim is the dotted claim path for the person's IdP subject.
+	SubjectClaim string `yaml:"subject_claim"`
 }
 
 // OtelBlock sends telemetry to your own collector instead of the observability module.
@@ -131,32 +119,28 @@ type OtelBlock struct {
 }
 
 // Overrides are CLI flags for commands that may talk to a control plane that is
-// not the local one (routes, roles). PLAT5_CONTROL_PLANE_URL and PLAT5_ADMIN_TOKEN
+// not the local one. PLAT5_CONTROL_PLANE_URL and PLAT5_ADMIN_TOKEN
 // do the same from the environment.
 type Overrides struct {
 	ControlPlaneURL string
 	AdminToken      string
 }
 
-// Resolved is plat5.yml with defaults applied and paths made absolute.
+// Resolved is plat5.dev.yml with defaults applied and paths made absolute.
 type Resolved struct {
-	ProjectID  string
+	ProjectID string
+	// Path is plat5.dev.yml's; Dir is the project directory.
+	Path string
+	Dir  string
+	// ConfigPath is the deployment's config, plat5.yml beside it.
 	ConfigPath string
-	ConfigDir  string
 
 	Versions map[string]string
-	// Modules is each module's on/off from plat5.yml (before start -x).
+	// Modules is each module's on/off from plat5.dev.yml (before start -x).
 	Modules map[string]bool
 
 	AppCompose string // absolute; empty = no app
 	AppWeb     string // origin, no trailing slash
-	// AppOperatorConsole is the project's own operator console origin. Empty: none.
-	AppOperatorConsole string
-
-	Upstreams  map[string]string
-	RouteFiles []string
-	// RolesFile is absolute. Empty = roles off: every member holds every label.
-	RolesFile string
 
 	Ports    ports.Set
 	PortPins ports.Set
@@ -165,12 +149,9 @@ type Resolved struct {
 	ControlPlaneURL string
 	APIKeyBrand     string
 
-	Auth            AuthBlock
-	OperatorOrigins []string
-	// OperatorRoutesFile is absolute. Empty = the operator image's own list.
-	OperatorRoutesFile string
-	IdP                IdPBlock
-	OtelEndpoint       string
+	Auth         AuthBlock
+	IdP          IdPBlock
+	OtelEndpoint string
 
 	// Source is checkouts to build images from, by version key. Absolute.
 	Source map[string]string
@@ -179,12 +160,12 @@ type Resolved struct {
 	ComposeProject string
 }
 
-// ErrNoProject means no plat5.yml was found.
+// ErrNoProject means no plat5.dev.yml was found.
 type ErrNoProject struct{}
 
-func (ErrNoProject) Error() string { return "no plat5.yml found; run plat5 init" }
+func (ErrNoProject) Error() string { return "no " + FileName + " found; run plat5 init" }
 
-// Load finds plat5.yml (walking up from the working directory) and resolves it.
+// Load finds plat5.dev.yml (walking up from the working directory) and resolves it.
 func Load(o Overrides) (Resolved, error) {
 	file, path, err := find()
 	if err != nil {
@@ -200,12 +181,13 @@ func Load(o Overrides) (Resolved, error) {
 	return r, nil
 }
 
-// Resolve applies defaults and checks a parsed plat5.yml found at path.
+// Resolve applies defaults and checks a parsed plat5.dev.yml found at path.
 func Resolve(f *File, path string, o Overrides) (Resolved, error) {
 	dir := filepath.Dir(path)
 	r := Resolved{
-		ConfigPath: path,
-		ConfigDir:  dir,
+		Path:       path,
+		Dir:        dir,
+		ConfigPath: filepath.Join(dir, ConfigFileName),
 		Versions:   map[string]string{},
 		Modules:    map[string]bool{},
 		Source:     map[string]string{},
@@ -253,31 +235,11 @@ func Resolve(f *File, path string, o Overrides) (Resolved, error) {
 		}
 		r.AppWeb = origin
 	}
-	if console := strings.TrimSpace(f.App.OperatorConsole); console != "" {
-		origin, err := parseOrigin(console)
-		if err != nil {
-			return Resolved{}, fmt.Errorf("app.operator_console: %w", err)
-		}
-		r.AppOperatorConsole = origin
-	}
 	for _, k := range r.NeededVersions() {
 		if r.Versions[k] == "" && r.Source[k] == "" {
 			return Resolved{}, fmt.Errorf("versions.%s is required (plat5 init writes the latest tag)", k)
 		}
 	}
-
-	ups, err := upstreams.ParseMap(f.Upstreams)
-	if err != nil {
-		return Resolved{}, err
-	}
-	r.Upstreams = ups
-	if len(f.Routes) == 0 {
-		r.RouteFiles = []string{filepath.Join(dir, "routes.yml")}
-	}
-	for _, p := range f.Routes {
-		r.RouteFiles = append(r.RouteFiles, resolveAgainst(dir, p))
-	}
-	r.RolesFile = resolveAgainst(dir, strings.TrimSpace(f.Roles))
 
 	r.PortPins = ports.Set{}
 	for k, v := range f.Ports {
@@ -303,6 +265,7 @@ func Resolve(f *File, path string, o Overrides) (Resolved, error) {
 		r.AdminToken = v
 	}
 
+	var err error
 	if r.APIKeyBrand, err = parseAPIKeyBrand(firstNonEmpty(f.APIKeyBrand, DefaultAPIKeyBrand)); err != nil {
 		return Resolved{}, err
 	}
@@ -313,13 +276,11 @@ func Resolve(f *File, path string, o Overrides) (Resolved, error) {
 		Origins:      trimOrigins(f.Auth.Origins),
 		ThemeFile:    resolveAgainst(dir, strings.TrimSpace(f.Auth.ThemeFile)),
 	}
-	r.OperatorOrigins = trimOrigins(f.Operator.Origins)
-	r.OperatorRoutesFile = resolveAgainst(dir, strings.TrimSpace(f.Operator.Routes))
 	r.IdP = IdPBlock{
-		Issuer:      strings.TrimSpace(f.IdP.Issuer),
-		JWKSURI:     strings.TrimSpace(f.IdP.JWKSURI),
-		Audiences:   trimNonEmpty(f.IdP.Audiences),
-		UserIDClaim: strings.TrimSpace(f.IdP.UserIDClaim),
+		Issuer:       strings.TrimSpace(f.IdP.Issuer),
+		JWKSURI:      strings.TrimSpace(f.IdP.JWKSURI),
+		Audiences:    trimNonEmpty(f.IdP.Audiences),
+		SubjectClaim: strings.TrimSpace(f.IdP.SubjectClaim),
 	}
 	if !r.Modules[ModuleAuth] && (r.IdP.Issuer == "" || r.IdP.JWKSURI == "" || len(r.IdP.Audiences) == 0) {
 		return Resolved{}, fmt.Errorf("modules.auth is off: set idp.issuer, idp.jwks_uri, and idp.audiences to your IdP")
@@ -332,14 +293,10 @@ func Resolve(f *File, path string, o Overrides) (Resolved, error) {
 }
 
 // NeededVersions is the image pins the enabled modules need.
-// The operator module's staff IdP is Plat5 Auth, so it needs the auth pin too.
 func (r Resolved) NeededVersions() []string {
 	need := []string{VersionPlat5}
-	if r.Modules[ModuleAuth] || r.Modules[ModuleOperator] {
+	if r.Modules[ModuleAuth] {
 		need = append(need, VersionAuth)
-	}
-	if r.Modules[ModuleOperator] {
-		need = append(need, VersionOperator)
 	}
 	return need
 }
@@ -376,18 +333,9 @@ func (r Resolved) AuthRedirectURIs() []string {
 	return uniq(append(out, r.Auth.RedirectURIs...))
 }
 
-// OperatorConsoleOrigins is the project's operator console origin, and any extra.
-func (r Resolved) OperatorConsoleOrigins() []string {
-	var out []string
-	if r.AppOperatorConsole != "" {
-		out = append(out, r.AppOperatorConsole)
-	}
-	return uniq(append(out, r.OperatorOrigins...))
-}
-
 var unknownFieldRE = regexp.MustCompile(`^line (\d+): field (\S+) not found in type `)
 
-// Parse decodes plat5.yml strictly: an unknown key is an error naming the key.
+// Parse decodes plat5.dev.yml strictly: an unknown key is an error naming the key.
 func Parse(data []byte) (*File, error) {
 	if err := checkCLI(data); err != nil {
 		return nil, err
@@ -425,7 +373,7 @@ func find() (*File, string, error) {
 		return nil, "", err
 	}
 	for {
-		for _, name := range []string{"plat5.yml", "plat5.yaml"} {
+		for _, name := range []string{FileName} {
 			p := filepath.Join(dir, name)
 			data, err := os.ReadFile(p)
 			if err != nil {

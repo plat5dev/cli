@@ -3,23 +3,26 @@ package cmd
 import (
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestWarnUngrantedLabels(t *testing.T) {
-	routes := `services:
-  api:
-    organization:
-      routes:
-        - path: /org/stats
-          methods: [GET]
-          required_labels: [stats:read]
-        - path: /org
-          methods:
-            DELETE:
-              required_labels: [org:delete]
+	services := `
+api:
+  url: http://api:3000
+  routes:
+    - path: /orgs/{organization}/stats
+      scope: organization
+      methods: [GET]
+      required_labels: [stats:read]
+    - path: /orgs/{organization}
+      scope: organization
+      methods:
+        DELETE:
+          required_labels: [org:delete]
 `
 	cases := []struct {
 		name, roles string
@@ -27,35 +30,31 @@ func TestWarnUngrantedLabels(t *testing.T) {
 	}{
 		{
 			name:  "typo in a role",
-			roles: "roles:\n  owner: [\"*\"]\n  member: [stats:raed]\n",
-			want:  []string{"A typo?", "stats:read (/org/stats) and stats:raed (role member)", "owner only (no role grants these by name): org:delete (DELETE /org)"},
-			not:   []string{"owner only (no role grants these by name): org:delete (DELETE /org); stats:read"},
+			roles: "owner: {labels: [\"*\"]}\nmember: {labels: [stats:raed]}\n",
+			want:  []string{"A typo?", "stats:read (/orgs/{organization}/stats) and stats:raed (role member)", "owner only (no role grants these by name): org:delete (DELETE /orgs/{organization})"},
+			not:   []string{"org:delete (DELETE /orgs/{organization}); stats:read"},
 		},
 		{
 			name:  "typo in a route",
-			roles: "roles:\n  owner: [\"*\"]\n  member: [stats:rade]\n",
-			want:  []string{"stats:read (/org/stats) and stats:rade (role member)"},
+			roles: "owner: {labels: [\"*\"]}\nmember: {labels: [stats:rade]}\n",
+			want:  []string{"stats:read (/orgs/{organization}/stats) and stats:rade (role member)"},
 		},
 		{
 			name:  "owner-only is a note, not a typo",
-			roles: "roles:\n  owner: [\"*\"]\n  member: [stats:read, notes:write]\n",
-			want:  []string{"owner only (no role grants these by name): org:delete (DELETE /org)\n"},
+			roles: "owner: {labels: [\"*\"]}\nmember: {labels: [stats:read, notes:write]}\n",
+			want:  []string{"owner only (no role grants these by name): org:delete (DELETE /orgs/{organization})\n"},
 			not:   []string{"warning", "typo", "notes:write"},
 		},
 		{
 			name:  "nobody holds every label",
-			roles: "roles:\n  member: [stats:read]\n",
-			want:  []string{"warning: labels no role grants, so no member can call these routes: org:delete (DELETE /org)"},
+			roles: "member: {labels: [stats:read]}\n",
+			want:  []string{"warning: labels no role grants, so no member can call these routes: org:delete (DELETE /orgs/{organization})", "Add them to a role in plat5.yml."},
 		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			dir := t.TempDir()
-			rolesPath := filepath.Join(dir, "roles.yml")
-			routesPath := filepath.Join(dir, "routes.yml")
-			_ = os.WriteFile(rolesPath, []byte(c.roles), 0o644)
-			_ = os.WriteFile(routesPath, []byte(routes), 0o644)
-			out := captureStdout(t, func() { warnUngrantedLabels(rolesPath, []string{routesPath}) })
+			flat := map[string]any{"roles": yamlMap(t, c.roles), "services": yamlMap(t, services)}
+			out := captureStdout(t, func() { warnUngrantedLabels(flat, "plat5.yml") })
 			for _, w := range c.want {
 				if !strings.Contains(out, w) {
 					t.Errorf("missing %q in:\n%s", w, out)
@@ -68,13 +67,15 @@ func TestWarnUngrantedLabels(t *testing.T) {
 			}
 		})
 	}
+}
 
-	dir := t.TempDir()
-	routesPath := filepath.Join(dir, "routes.yml")
-	_ = os.WriteFile(routesPath, []byte(routes), 0o644)
-	if out := captureStdout(t, func() { warnUngrantedLabels("", []string{routesPath}) }); out != "" {
-		t.Fatalf("roles off must not warn: %s", out)
+func yamlMap(t *testing.T, s string) map[string]any {
+	t.Helper()
+	var m map[string]any
+	if err := yaml.Unmarshal([]byte(s), &m); err != nil {
+		t.Fatal(err)
 	}
+	return m
 }
 
 func TestLabelDistance(t *testing.T) {

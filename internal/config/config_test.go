@@ -12,15 +12,9 @@ const fullYML = `project_id: My App
 versions:
   plat5: v0.7.0
   auth: v0.2.0
-  operator: v0.4.0
 app:
   compose: ./docker-compose.yml
   web: http://localhost:3001/
-upstreams:
-  api: 3000
-routes:
-  - ./routes.yml
-roles: ./roles.yml
 `
 
 func resolve(t *testing.T, yml string) (Resolved, error) {
@@ -29,7 +23,7 @@ func resolve(t *testing.T, yml string) (Resolved, error) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return Resolve(f, "/proj/plat5.yml", Overrides{})
+	return Resolve(f, "/proj/plat5.dev.yml", Overrides{})
 }
 
 func TestResolveDefaults(t *testing.T) {
@@ -54,8 +48,8 @@ func TestResolveDefaults(t *testing.T) {
 	if r.AppCompose != filepath.Clean("/proj/docker-compose.yml") || r.AppWeb != "http://localhost:3001" {
 		t.Fatalf("app: %q %q", r.AppCompose, r.AppWeb)
 	}
-	if r.RolesFile != filepath.Clean("/proj/roles.yml") {
-		t.Fatalf("roles: %q", r.RolesFile)
+	if r.Path != filepath.Clean("/proj/plat5.dev.yml") || r.ConfigPath != filepath.Clean("/proj/plat5.yml") {
+		t.Fatalf("paths: %q %q", r.Path, r.ConfigPath)
 	}
 	if got := strings.Join(r.AuthRedirectURIs(), ","); got != "http://localhost:3001/callback" {
 		t.Fatalf("redirects: %s", got)
@@ -63,27 +57,29 @@ func TestResolveDefaults(t *testing.T) {
 	if got := strings.Join(r.AuthClients(), ","); got != "plat5" {
 		t.Fatalf("clients: %s", got)
 	}
-	if got := strings.Join(r.OperatorConsoleOrigins(), ","); got != "" {
-		t.Fatalf("console origins without app.operator_console: %s", got)
-	}
 }
 
 func TestUnknownKeysAreErrors(t *testing.T) {
-	if _, err := Parse([]byte("plat5_version: v1\n")); err == nil || !strings.Contains(err.Error(), `unknown key "plat5_version"`) {
+	for _, key := range []string{"routes", "roles", "upstreams", "operator"} {
+		if _, err := Parse([]byte(key + ": x\n")); err == nil || !strings.Contains(err.Error(), `unknown key "`+key+`"`) {
+			t.Errorf("%s: want unknown key error, got %v", key, err)
+		}
+	}
+	if _, err := Parse([]byte("plat5_version: v0.8.0\n")); err == nil || !strings.Contains(err.Error(), `unknown key "plat5_version"`) {
 		t.Fatalf("want unknown key error, got %v", err)
 	}
 	for yml, want := range map[string]string{
-		fullYML + "modules: {grafana: true}\n":                                        "modules.grafana",
-		fullYML + "ports: {registry: 5000}\n":                                         "ports.registry",
-		fullYML + "source: {web: ../web}\n":                                           "source.web",
-		fullYML + "ports: {gateway: 5401}\n":                                          "both 5401",
-		"versions: {auth: v1}\n":                                                      "versions.plat5 is required",
-		"versions: {plat5: v1, auth: v2, operator: v3}\napp: {web: localhost:3001}\n": "app.web",
-		fullYML + "idp: {issuer: https://x.test}\n":                                   "turn modules.auth off",
+		fullYML + "modules: {operator: true}\n":                                 "modules.operator",
+		fullYML + "ports: {staff_auth: 5411}\n":                                 "ports.staff_auth",
+		fullYML + "source: {operator: ../operator}\n":                           "source.operator",
+		fullYML + "ports: {gateway: 5401}\n":                                    "both 5401",
+		"versions: {auth: v0.2.2}\n":                                            "versions.plat5 is required",
+		"versions: {plat5: v0.8.0, auth: v0.2.2}\napp: {web: localhost:3001}\n": "app.web",
+		fullYML + "idp: {issuer: https://x.test}\n":                             "turn modules.auth off",
 	} {
 		f, err := Parse([]byte(yml))
 		if err == nil {
-			_, err = Resolve(f, "/proj/plat5.yml", Overrides{})
+			_, err = Resolve(f, "/proj/plat5.dev.yml", Overrides{})
 		}
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q: want error containing %q, got %v", yml, want, err)
@@ -92,13 +88,13 @@ func TestUnknownKeysAreErrors(t *testing.T) {
 }
 
 func TestModulesOffNeedFewerPins(t *testing.T) {
-	r, err := resolve(t, `versions: {plat5: v1, auth: v2}
-modules: {operator: false, observability: false}
+	r, err := resolve(t, `versions: {plat5: v0.8.0, auth: v0.2.2}
+modules: {observability: false}
 `)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Modules[ModuleOperator] || !r.Modules[ModuleAuth] {
+	if r.Modules[ModuleObservability] || !r.Modules[ModuleAuth] {
 		t.Fatalf("modules: %v", r.Modules)
 	}
 	if strings.Join(r.NeededVersions(), ",") != "plat5,auth" {
@@ -107,27 +103,28 @@ modules: {operator: false, observability: false}
 }
 
 func TestAuthOffNeedsAnIdP(t *testing.T) {
-	_, err := resolve(t, "versions: {plat5: v1}\nmodules: {auth: false, operator: false}\n")
+	_, err := resolve(t, "versions: {plat5: v0.8.0}\nmodules: {auth: false}\n")
 	if err == nil || !strings.Contains(err.Error(), "idp.issuer") {
 		t.Fatalf("want idp error, got %v", err)
 	}
-	r, err := resolve(t, `versions: {plat5: v1}
-modules: {auth: false, operator: false}
+	r, err := resolve(t, `versions: {plat5: v0.8.0}
+modules: {auth: false}
 idp:
   issuer: https://idp.test
   jwks_uri: https://idp.test/jwks
   audiences: [api]
+  subject_claim: sub
 `)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.IdP.Issuer != "https://idp.test" {
+	if r.IdP.Issuer != "https://idp.test" || r.IdP.SubjectClaim != "sub" || strings.Join(r.NeededVersions(), ",") != "plat5" {
 		t.Fatalf("%+v", r.IdP)
 	}
 }
 
 func TestSourceReplacesAVersion(t *testing.T) {
-	r, err := resolve(t, `versions: {auth: v2, operator: v3}
+	r, err := resolve(t, `versions: {auth: v0.2.2}
 source: {plat5: ../plat5}
 `)
 	if err != nil {
@@ -141,7 +138,7 @@ source: {plat5: ../plat5}
 func TestOverrides(t *testing.T) {
 	t.Setenv("PLAT5_ADMIN_TOKEN", "from-env")
 	f, _ := Parse([]byte(fullYML))
-	r, err := Resolve(f, "/proj/plat5.yml", Overrides{ControlPlaneURL: "https://cp.example.com/"})
+	r, err := Resolve(f, "/proj/plat5.dev.yml", Overrides{ControlPlaneURL: "https://cp.example.com/"})
 	if err != nil {
 		t.Fatal(err)
 	}

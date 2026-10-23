@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/plat5dev/cli/internal/compose"
@@ -34,7 +33,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		fmt.Printf("%s is not running. Start it: plat5 start\n", cfg.ProjectID)
 		return nil
 	}
-	// What the last start ran, not what plat5.yml says now.
+	// What the last start ran, not what plat5.dev.yml says now.
 	var exclude []string
 	for _, m := range config.Modules {
 		if cfg.Modules[m] && !contains(st.Modules, m) {
@@ -67,17 +66,8 @@ func printSummary(stk *stack.Stack, st state.State) {
 	if st.AppCompose != "" && c.AppWeb != "" {
 		w.section("Your app")
 		w.row("Web", c.AppWeb, loginHint(stk, config.DevEmail))
-		if len(st.AppUpstreams) == 0 {
-			w.row("API", "through the gateway", "")
-		}
-		names := make([]string, 0, len(st.AppUpstreams))
-		for n := range st.AppUpstreams {
-			names = append(names, n)
-		}
-		sort.Strings(names)
-		for _, n := range names {
-			u := st.AppUpstreams[n]
-			w.row("API ("+n+")", "through the gateway → http://"+u.To, "localhost:"+u.From+" skips the gateway: no auth, this machine only")
+		for _, svc := range st.AppJoined {
+			w.row("API ("+svc+")", "through the gateway", "its own port skips the gateway: no auth, this machine only")
 		}
 	}
 
@@ -91,14 +81,6 @@ func printSummary(stk *stack.Stack, st state.State) {
 	}
 	w.row("Control plane", c.ControlPlaneURL, "admin token "+c.AdminToken)
 
-	if stk.Has(config.ModuleOperator) {
-		w.section("Operator (staff)")
-		if c.AppOperatorConsole != "" {
-			w.row("Console", c.AppOperatorConsole, config.StaffEmail+" / "+config.DevPassword)
-		}
-		w.row("Gateway", c.URL(ports.Operator), "")
-		w.row("Staff auth", c.URL(ports.StaffAuth), "")
-	}
 	if stk.Has(config.ModuleObservability) {
 		w.section("Observability")
 		w.row("Grafana", c.URL(ports.Grafana), "Plat5 folder: Service Health, Auth, Debug")
@@ -106,20 +88,20 @@ func printSummary(stk *stack.Stack, st state.State) {
 	}
 
 	if d := st.Dev; d != nil {
-		w.section(fmt.Sprintf("Dev keys (%s, owner of %q)", d.Email, config.DevOrgName))
-		if d.UserKey != "" {
-			w.row("User key", d.UserKey, "user routes")
+		w.section(fmt.Sprintf("Dev (%s)", d.Email))
+		for _, n := range d.Nodes {
+			w.row(n.Kind, n.Path, fmt.Sprintf("%q, which they own", config.DevNodeLabel))
 		}
-		w.row("Member key", d.MemberKey, "org and member routes")
+		w.row("Personal key", d.Key, "acts as them in every tree")
 	}
 	w.print()
 
 	if d := st.Dev; d != nil {
-		path := "/org"
-		if st.AppCompose != "" {
-			path = "/org/projects"
+		path := "/me"
+		if len(d.Nodes) > 0 {
+			path = d.Nodes[0].Path
 		}
-		fmt.Printf("\nTry it:\n  curl %s%s -H \"X-API-Key: %s\"\n", c.GatewayURL(), path, d.MemberKey)
+		fmt.Printf("\nTry it:\n  curl %s%s -H \"X-API-Key: %s\"\n", c.GatewayURL(), path, d.Key)
 	}
 	fmt.Println()
 }
@@ -187,23 +169,18 @@ func contains(list []string, s string) bool {
 // each pointing at where to see it.
 func printWhatYouGot(stk *stack.Stack, st state.State) {
 	c := stk.Config
+	file := relPath(c.Dir, c.ConfigPath)
 	fmt.Println("What Plat5 does for your API")
 	if stk.Has(config.ModuleAuth) {
 		fmt.Println("  Sign-in        Auth signs people in; the gateway checks every token and key. Your API never sees one.")
 	} else {
 		fmt.Println("  Sign-in        The gateway checks every token and key. Your API never sees one.")
 	}
-	fmt.Println("  Tenancy        The gateway writes the caller's org into the path: /org/projects reaches your API as")
-	fmt.Println("                 /organizations/{organization_id}/projects. Your handler reads the param; no membership checks.")
-	if c.RolesFile != "" {
-		fmt.Printf("  Permissions    required_labels in your routes, granted by roles in %s, are checked before your code runs.\n", relPath(c.ConfigDir, c.RolesFile))
-	}
-	fmt.Println("  Rate limits    Per route, per caller, shared by every gateway replica.")
-	if stk.Has(config.ModuleOperator) && c.AppOperatorConsole != "" {
-		fmt.Printf("  Audit          Every write is recorded: who, where, and what changed. See it in the operator console, %s.\n", c.AppOperatorConsole)
-	} else {
-		fmt.Println("  Audit          Every write is recorded: who, where, and what changed (GET /org/audit-events).")
-	}
+	fmt.Println("  Tenancy        The path names the node: /orgs/acme/projects/web reaches your API with the org's and")
+	fmt.Println("                 project's ids and the caller's member id. Your handler reads them; no membership checks.")
+	fmt.Printf("  Permissions    required_labels in your routes, granted by roles in %s, are checked before your code runs.\n", file)
+	fmt.Println("  Rate limits    Per route, counted at the node you choose, shared by every gateway replica.")
+	fmt.Println("  Audit          Every write is recorded: who, where, and what changed (GET /orgs/{org}/audit-events).")
 	if stk.Has(config.ModuleObservability) {
 		fmt.Printf("  Traces         One request, gateway to your SQL, in Grafana, %s.\n", c.URL(ports.Grafana))
 	}

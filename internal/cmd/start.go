@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -29,29 +30,31 @@ var startCmd = &cobra.Command{
 	Short: "Run Plat5, its modules, and your app in Docker",
 	Long: `Run the project's local stack in Docker, then print its links, logins, and keys.
 
-Plat5 always runs. Beside it, the modules plat5.yml turns on (all by default):
+Plat5 always runs. Beside it, the modules plat5.dev.yml turns on (all by default):
   auth           Plat5 Auth, the customer IdP, in dev mode
-  operator       the staff front door: operator gateway, operator console, staff sign-in
   observability  Grafana with logs, traces, and metrics (grafana/otel-lgtm + Alloy)
-Then your app, from app.compose in plat5.yml.
+Then your app, from app.compose in plat5.dev.yml.
 
-start applies roles.yml and the routes files, and seeds a dev person, an org they
-own, and a key for each. Running it again updates the stack in place.
+start applies plat5.yml as plat5 apply does. A plan that destroys nothing
+applies without a prompt; a destructive one is refused, so run plat5 apply,
+which asks to confirm. Then it seeds the dev person, a node labelled Dev of
+each root kind, and a personal key. Running it again updates the stack in place.
 
-A bare-port upstream (api: 3000) that your app's compose file publishes is
-reached in Docker: start puts that container on the Plat5 network and binds the
-upstream to it by service name (http://api:3000). The port on your machine is
-then only for you, and can be bound to 127.0.0.1. With -x app there is no
-container, so the upstream is a process on your machine (host.docker.internal).
+A routes file's url is what the gateway reaches, as in any deployment. When
+its host is a service in your app's compose file (http://api:3000), start puts
+that service on the Plat5 network, so the gateway reaches it by name and its
+port on your machine can be bound to 127.0.0.1. With -x app there is no
+container: start maps the name to your machine instead, so the app must listen
+there on the url's port (beyond loopback on Linux).
 
-  plat5 start -x operator         skip a module for this run
+  plat5 start -x observability    skip a module for this run
   plat5 start -x app              run your app yourself`,
 	Args: cobra.NoArgs,
 	RunE: runStart,
 }
 
 func init() {
-	startCmd.Flags().StringSliceVarP(&startExclude, "exclude", "x", nil, "Skip modules for this run: auth, operator, observability, app")
+	startCmd.Flags().StringSliceVarP(&startExclude, "exclude", "x", nil, "Skip modules for this run: auth, observability, app")
 	startCmd.Flags().DurationVar(&startWait, "wait", 10*time.Minute, "How long to wait for the stack to be healthy")
 	startCmd.Flags().BoolVarP(&startVerbose, "verbose", "v", false, "Show docker compose's pull, build, and container output (otherwise it goes to a log file)")
 }
@@ -64,6 +67,13 @@ func runStart(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	// Offline first: a config that can't apply stops start before Docker does anything.
+	conf, err := loadValid(cfg.ConfigPath)
+	if err != nil {
+		return err
+	}
+	hosts := urlHosts(conf.Flat)
+
 	skipApp := false
 	var exclude []string
 	for _, x := range startExclude {
@@ -78,18 +88,19 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	app := stk.AppRunner()
-	if skipApp {
-		app = nil
-	}
-	var joined map[string]state.AppUpstream
+	var joined []string
 	if app != nil {
 		if err := config.CheckFile("app.compose", cfg.AppCompose); err != nil {
 			return err
 		}
-		if joined, err = stk.JoinApp(app); err != nil {
+		if skipApp {
+			if _, err := stk.AppOnHost(app, hosts); err != nil {
+				return err
+			}
+			app = nil
+		} else if joined, err = stk.JoinApp(app, hosts); err != nil {
 			return err
 		}
-		cfg = stk.Config
 	}
 
 	prev, err := state.Load(cfg.ProjectID)
@@ -133,25 +144,34 @@ func runStart(cmd *cobra.Command, args []string) error {
 	if stk.Builds() {
 		fmt.Println("  Building from source: checkouts (the first build takes a while)…")
 	}
-	fmt.Println("  Waiting for every container to be healthy…")
-	if err := runner.Up(compose.UpOptions{Build: stk.Builds(), Wait: startWait, RemoveOrphans: true}); err != nil {
+	// Identity and the gateway are ready only once they have a config, so the
+	// stack starts, the config is applied, and then start waits for health.
+	if err := runner.Up(compose.UpOptions{Build: stk.Builds(), RemoveOrphans: true}); err != nil {
 		return out.failed(err, "plat5 logs")
 	}
-
 	cp := controlplane.New(cfg.ControlPlaneURL, cfg.AdminToken)
 	if err := cp.WaitReady(time.Minute); err != nil {
 		return err
 	}
-	fmt.Println("Applying roles and routes…")
-	printAppUpstreams(joined, "")
-	if err := applyRolesFile(cp, cfg.RolesFile); err != nil {
+	fmt.Printf("Applying %s…\n", relPath(cfg.Dir, cfg.ConfigPath))
+	for _, svc := range joined {
+		fmt.Printf("  %s: your app's container, on the Plat5 network\n", svc)
+	}
+	for _, svc := range stk.OnHost {
+		fmt.Printf("  %s: your machine (-x app)\n", svc)
+	}
+	applied, err := applyForStart(cp, cfg.ConfigPath, os.Stdout)
+	if err != nil {
 		return err
 	}
-	if err := applyFiles(cp, cfg, cfg.RouteFiles, true); err != nil {
-		return err
+	warnUngrantedLabels(applied.Flat, relPath(cfg.Dir, cfg.ConfigPath))
+
+	fmt.Println("  Waiting for every container to be healthy…")
+	if err := runner.Up(compose.UpOptions{Wait: startWait}); err != nil {
+		return out.failed(err, "plat5 logs")
 	}
 
-	st := state.State{ProjectID: cfg.ProjectID, ConfigPath: cfg.ConfigPath, Modules: stk.Modules, StartedAt: time.Now().UTC()}
+	st := state.State{ProjectID: cfg.ProjectID, Path: cfg.Path, Modules: stk.Modules, StartedAt: time.Now().UTC()}
 
 	if stk.Has(config.ModuleAuth) {
 		dev, err := devseed.Ensure(devseed.Client{
@@ -160,16 +180,21 @@ func runStart(cmd *cobra.Command, args []string) error {
 			ClientID:   config.DefaultAuthClient,
 			Email:      config.DevEmail,
 			Name:       config.DevName,
-			OrgName:    config.DevOrgName,
+			NodeLabel:  config.DevNodeLabel,
+			Roots:      rootKinds(applied.Flat),
 		}, prev.Dev)
 		if err != nil {
-			fmt.Printf("warning: could not seed dev keys: %v\n  (The identity routes may not be applied: check routes: in plat5.yml.)\n", err)
+			hint := ""
+			if devseed.IsNotFound(err) {
+				hint = "\n  (A route the dev seed uses isn't in the config: plat5 routes generate writes them.)"
+			}
+			fmt.Printf("warning: could not seed dev data: %v%s\n", err, hint)
 		}
 		st.Dev = dev
 	}
 
 	if app != nil {
-		fmt.Printf("Starting your app (%s)…\n", relPath(cfg.ConfigDir, cfg.AppCompose))
+		fmt.Printf("Starting your app (%s)…\n", relPath(cfg.Dir, cfg.AppCompose))
 		app.Output = out.w
 		if err := pullMissing(*app, out); err != nil {
 			return err
@@ -179,7 +204,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 			return out.failed(fmt.Errorf("your app: %w", err), "plat5 logs --app")
 		}
 		st.AppCompose = cfg.AppCompose
-		st.AppUpstreams = joined
+		st.AppJoined = joined
 	}
 
 	if err := state.Save(st); err != nil {

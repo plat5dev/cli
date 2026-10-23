@@ -19,7 +19,7 @@ var rootCmd = &cobra.Command{
 	Short: "Run Plat5 locally, and manage a deployment's config",
 	Long: `Run Plat5 locally, and manage a deployment's config.
 
-  plat5 init my-app      create a project from a starter
+  plat5 init my-app      create a project: plat5.yml, routes/, plat5.dev.yml
   cd my-app
   plat5 start            run Plat5, its modules, and your app in Docker
   plat5 status           links, logins, and keys

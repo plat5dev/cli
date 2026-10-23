@@ -51,24 +51,16 @@ func TestParsePublished(t *testing.T) {
 	}
 }
 
-func TestParseConfigPorts(t *testing.T) {
+func TestParseConfigNetworks(t *testing.T) {
 	data := []byte(`{"services":{
-		"api":{"networks":{"default":null,"backend":null},"ports":[{"target":3000,"published":"3000","host_ip":"127.0.0.1"}]},
-		"web":{"ports":[{"target":8080,"published":3001}]},
-		"db":{"ports":[{"target":5432}]}}}`)
-	got, err := parseConfigPorts(data)
+		"api":{"networks":{"default":null,"backend":null},"ports":[{"target":3000,"published":"3000"}]},
+		"db":{}}}`)
+	got, err := parseConfigNetworks(data)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 2 {
-		t.Fatalf("want 2 published ports, got %+v", got)
-	}
-	api := got[3000]
-	if api.Service != "api" || api.Target != 3000 || strings.Join(api.Networks, ",") != "backend,default" {
-		t.Fatalf("api: %+v", api)
-	}
-	if web := got[3001]; web.Service != "web" || web.Target != 8080 {
-		t.Fatalf("web: %+v", web)
+	if len(got) != 2 || strings.Join(got["api"], ",") != "backend,default" || len(got["db"]) != 0 {
+		t.Fatalf("%+v", got)
 	}
 }
 

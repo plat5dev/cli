@@ -9,31 +9,20 @@ import (
 	"github.com/plat5dev/cli/internal/config"
 )
 
-// A sign-in plane's look. The customer plane matches the customer console (violet); the
-// staff plane matches the operator console (amber), so nobody mistakes one for the other.
+// A sign-in plane's look. The customer plane matches the customer console (violet).
 type plane struct {
 	tag    string // beside the wordmark
 	banner string // across the top: which sign-in this is, and the seeded login
 	light  string // accent on paper
 	dark   string // accent on ink
-	staff  bool   // the banner takes the accent; the customer's is quiet
 }
 
-var (
-	customerPlane = plane{
-		tag:    "starter",
-		banner: "local stack · customer sign-in · " + config.DevEmail + " / " + config.DevPassword,
-		light:  "#6d28d9",
-		dark:   "#9b7bff",
-	}
-	staffPlane = plane{
-		tag:    "operator",
-		banner: "staff sign-in · operator plane · " + config.StaffEmail + " / " + config.DevPassword,
-		light:  "#b45309",
-		dark:   "#f59e0b",
-		staff:  true,
-	}
-)
+var customerPlane = plane{
+	tag:    "starter",
+	banner: "local stack · customer sign-in · " + config.DevEmail + " / " + config.DevPassword,
+	light:  "#6d28d9",
+	dark:   "#9b7bff",
+}
 
 const (
 	paper = "#f2f2ef"
@@ -64,10 +53,6 @@ func writeTheme(path, title string, p plane) error {
 func themeCSS(p plane) string {
 	banner := `color: color-mix(in oklch, var(--color-high) 70%, transparent);
   border-bottom: 1px solid color-mix(in oklch, var(--color-high) 14%, transparent);`
-	if p.staff {
-		banner = `background: var(--color-primary);
-  color: oklch(from var(--color-primary) clamp(0, calc((l - 0.714) * -1000), 1) 0 0);`
-	}
 	// Auth v0.2.2+ serves Inter at /static/inter-latin.woff2; older images fall back to the system face.
 	return fmt.Sprintf(`@font-face { font-family: "Inter Variable"; src: url("/static/inter-latin.woff2") format("woff2-variations");
   font-weight: 100 900; font-display: swap; }

@@ -125,7 +125,7 @@ func (c *Client) Catalog(kinds any) (map[string]any, error) {
 	var out struct {
 		Services map[string]any `json:"services"`
 	}
-	if err := c.do(http.MethodPost, "/catalog", map[string]any{"version": 2, "kinds": kinds}, &out); err != nil {
+	if err := c.do(http.MethodPost, "/catalog", map[string]any{"kinds": kinds}, &out); err != nil {
 		return nil, err
 	}
 	return out.Services, nil
