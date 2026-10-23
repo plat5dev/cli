@@ -42,6 +42,17 @@ func applyFiles(client *controlplane.Client, cfg config.Resolved, files []string
 	return nil
 }
 
+func printApplyResult(r controlplane.ApplyResult) {
+	switch {
+	case r.Error != "":
+		fmt.Printf("  %s: %s (%s)\n", r.Service, r.Status, r.Error)
+	case r.Revision > 0:
+		fmt.Printf("  %s: %s (revision %d)\n", r.Service, r.Status, r.Revision)
+	default:
+		fmt.Printf("  %s: %s\n", r.Service, r.Status)
+	}
+}
+
 // operatorUpstreams is the upstreams names the operator route list binds. A file
 // that does not bind is reported where the stack writes it, not here.
 func operatorUpstreams(cfg config.Resolved) map[string]bool {
@@ -76,7 +87,7 @@ func applyRolesFile(client *controlplane.Client, path string) error {
 
 // withAppUpstreams binds the upstreams the last start pointed at the app's
 // containers the same way, while plat5.yml still names the same port. Without
-// it, routes apply would point them back at the host.
+// it, applying routes would point them back at the host.
 func withAppUpstreams(cfg config.Resolved, st state.State) (config.Resolved, map[string]state.AppUpstream) {
 	if st.AppCompose == "" || len(st.AppUpstreams) == 0 {
 		return cfg, nil

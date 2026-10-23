@@ -83,12 +83,14 @@ Local Auth runs in dev mode: `POST /dev/token` mints a token for any email, and 
 | `plat5 stop` | Stop everything. Data (volumes) is kept |
 | `plat5 logs [service…]` | Container logs. Follows on a terminal; piped, prints and exits. `--app` for your app; `-f` / `-f=false` to choose |
 | `plat5 doctor` | Check Docker, `plat5.yml`, files, and ports (naming the Plat5 project that holds a busy one) |
-| `plat5 routes apply [file…]` | `POST /apply` (default: the `routes:` files, with `upstreams:` bound) |
-| `plat5 routes list` / `get <name>` / `rm <name>` | The control plane's services |
-| `plat5 roles apply [file]` / `roles show` | `PUT /roles` (default: `roles:`), and the current document |
+| `plat5 validate [plat5.yml]` | Check a deployment's config against the schema, offline |
+| `plat5 plan [plat5.yml] [-out plan.json] [--detailed-exitcode]` | Dry run: the diff applying it would make |
+| `plat5 apply [plat5.yml \| plan.json] [--auto-approve] [--confirm kind=n]` | Plan, confirm, apply; or apply a saved plan |
+| `plat5 routes generate [plat5.yml]` | Write `routes/identity.yml` and `routes/audit.yml` from the config's kinds |
+| `plat5 config pull [--revision n] [dir]` | Write an applied revision as `plat5.yml` and `routes/<service>.yml` |
 | `plat5 version` / `--version` | The CLI version, and the image versions `plat5.yml` pins |
 
-`routes` and `roles` talk to the local control plane unless `--control-plane-url` / `--admin-token` (or `PLAT5_CONTROL_PLANE_URL` / `PLAT5_ADMIN_TOKEN`) point elsewhere.
+`validate`, `plan`, `apply`, `routes generate` and `config pull` work on a Plat5 v2 deployment's config: a `plat5.yml` with `version: 2` and the routes files it lists ([plat5 `docs/reference/cli.md`](https://github.com/plat5dev/plat5/blob/v2/docs/reference/cli.md)). They talk to the local control plane (`http://localhost:5402`, `dev-admin-token`) unless `--control-plane-url` / `--admin-token` (or `PLAT5_CONTROL_PLANE_URL` / `PLAT5_ADMIN_TOKEN`) point elsewhere. `init` and `start` still write and run a v1 project until they move to the v2 config.
 
 ## `plat5.yml`
 
@@ -169,11 +171,11 @@ The url written into the route config is always exactly `http://host:port`. An `
 
 Unknown keys in `plat5.yml` are also a config error naming the key.
 
-Keys must match service names in the routes file(s). `plat5 routes apply` and `plat5 start` bind upstreams before `POST /apply`. A key that matches no service in any applied file prints `warning: upstreams.<name> matches no service …` (the apply still succeeds). A service with no `url` and no `upstreams` entry fails before upload: `service "<name>" has no url: add it under upstreams: in plat5.yml, or set url in the routes file`.
+Keys must match service names in the routes file(s). `plat5 start` binds upstreams before `POST /apply`. A key that matches no service in any applied file prints `warning: upstreams.<name> matches no service …` (the apply still succeeds). A service with no `url` and no `upstreams` entry fails before upload: `service "<name>" has no url: add it under upstreams: in plat5.yml, or set url in the routes file`.
 
 You can still set `url` directly in `routes.yml`; an `upstreams` entry for that service wins.
 
-A bare port is your app, wherever it runs. When `plat5 start` runs `app.compose` and a service in it publishes that port, the upstream is that container by service name, at the port it listens on inside (`"127.0.0.1:3000:3000"` on `api` → `http://api:3000`). start puts the service on the Plat5 network with a generated override (`app-override.yml` in the stack dir), and prints `upstreams.api: 3000 → http://api:3000`. The gateway reaches your app the same way on every OS, so the host port can be bound to `127.0.0.1`: only the gateway may reach a Plat5 service, and the host port is for your own curls. `plat5 routes apply` binds it the same way while the app runs. With `plat5 start -x app` there is no container, and a bare port is a process on your machine (`host.docker.internal`), which must listen beyond loopback on Linux. A service named like a Plat5 service (`gateway`, `postgres`, …) can't join; rename it.
+A bare port is your app, wherever it runs. When `plat5 start` runs `app.compose` and a service in it publishes that port, the upstream is that container by service name, at the port it listens on inside (`"127.0.0.1:3000:3000"` on `api` → `http://api:3000`). start puts the service on the Plat5 network with a generated override (`app-override.yml` in the stack dir), and prints `upstreams.api: 3000 → http://api:3000`. The gateway reaches your app the same way on every OS, so the host port can be bound to `127.0.0.1`: only the gateway may reach a Plat5 service, and the host port is for your own curls. With `plat5 start -x app` there is no container, and a bare port is a process on your machine (`host.docker.internal`), which must listen beyond loopback on Linux. A service named like a Plat5 service (`gateway`, `postgres`, …) can't join; rename it.
 
 `upstreams` binds the operator gateway's route list (`operator.routes`) the same way, by its `upstreams:` names, so a staff route can reach your app on the host.
 
@@ -196,16 +198,11 @@ upstreams:
 
 ## Routes
 
-```bash
-plat5 routes apply              # all files in plat5.yml routes: + upstream bind
-plat5 routes apply ./other.yml
-```
-
 `routes.yml` holds the HTTP surface (paths, scopes). Keep deployment topology in `upstreams` so the same contract can point at different origins later.
 
 `plat5 start` applies the roles file and the configured route files after the control plane is ready.
 
-With roles on, `start`, `routes apply`, and `roles apply` compare the labels routes require with the labels roles grant. A label on one side only, a letter or two from one on the other, is warned as a likely typo, whichever side it is on: `stats:read (GET /org/stats) and stats:raed (role member)`. A required label no role grants by name is how an owner-only route is written, so it is a quiet note: `owner only (no role grants these by name): org:delete (DELETE /org)`. With no role holding `"*"`, that note is a warning: nobody can call the route.
+With roles on, `start` compares the labels routes require with the labels roles grant. A label on one side only, a letter or two from one on the other, is warned as a likely typo, whichever side it is on: `stats:read (GET /org/stats) and stats:raed (role member)`. A required label no role grants by name is how an owner-only route is written, so it is a quiet note: `owner only (no role grants these by name): org:delete (DELETE /org)`. With no role holding `"*"`, that note is a warning: nobody can call the route.
 
 ### Audit
 
@@ -224,7 +221,7 @@ creator_role: owner
 default_role: member
 ```
 
-Roles live in the control plane. `plat5 start` writes the file there (it also seeds the first roles document, so identity can start), and `plat5 roles apply` writes it without a restart. Identity picks up a change within a second or two. The gateway caches credentials for `APIKEY_CACHE_TTL_SECS`, so a role change reaches keys and sessions already in use when that expires: 5s on the local stack, the gateway's default of 300s unless a deployment sets it. Remove `roles:` from `plat5.yml` to turn roles off (`ROLES_ENABLED=false` on identity): no member has a role, every member holds every label, and authorization is left to something else. Turning roles on or off recreates identity (`ROLES_ENABLED` is a boot switch).
+Roles live in the control plane. `plat5 start` writes the file there (it also seeds the first roles document, so identity can start). Identity picks up a change within a second or two. The gateway caches credentials for `APIKEY_CACHE_TTL_SECS`, so a role change reaches keys and sessions already in use when that expires: 5s on the local stack, the gateway's default of 300s unless a deployment sets it. Remove `roles:` from `plat5.yml` to turn roles off (`ROLES_ENABLED=false` on identity): no member has a role, every member holds every label, and authorization is left to something else. Turning roles on or off recreates identity (`ROLES_ENABLED` is a boot switch).
 
 ## Starters
 

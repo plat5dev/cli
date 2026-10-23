@@ -62,7 +62,7 @@ The org in the path comes from the caller's credential, never from the client, s
 1. Write the handler in `api/`, on the path your API gets (`/organizations/:organization_id/…`). `api/README.md`, "Build your first feature", has a worked example.
 2. Add the route to `routes.yml`: the `path` clients call, and the `upstream` your API gets.
 3. To limit who may call it, set `required_labels` on the route, and grant the label to roles in `roles.yml`.
-4. `plat5 routes apply && plat5 roles apply`. Nothing restarts.
+4. `plat5 start` again. It applies both; nothing restarts.
 {{if .CustomerConsole}}
 ### Add a page to the customer console
 

@@ -428,11 +428,11 @@ func renderPlat5YML(projectID string, ch initChoices, versions map[string]string
 	for _, k := range keys {
 		p("  %s: %s\n", k, yamlString(upstreams[k]))
 	}
-	p("\n# Route files, applied in order on start (or: plat5 routes apply).\nroutes:\n")
+	p("\n# Route files, applied in order on start (plat5 start).\nroutes:\n")
 	for _, r := range routes {
 		p("  - %s\n", yamlString(r))
 	}
-	p("\n# Roles grant labels; routes require them. Applied on start (or: plat5 roles apply).\n")
+	p("\n# Roles grant labels; routes require them. Applied on start.\n")
 	p("# Remove the line to turn roles off: every member holds every label.\n")
 	p("roles: ./roles.yml\n")
 	if lay.operatorRoutes {
