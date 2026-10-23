@@ -15,35 +15,35 @@ import (
 
 // State records what plat5 start did for one project.
 type State struct {
-	ProjectID  string `json:"project_id"`
-	ConfigPath string `json:"config_path,omitempty"`
+	ProjectID string `json:"project_id"`
+	// Path is the project's plat5.dev.yml.
+	Path string `json:"path,omitempty"`
 	// Modules is the modules the last start ran (core is implied).
 	Modules []string `json:"modules,omitempty"`
 	// AppCompose is the app compose file the last start ran. Empty: none.
 	AppCompose string `json:"app_compose,omitempty"`
-	// AppUpstreams is the upstreams the last start pointed at the app's
-	// containers, by name. start's routes apply binds them the same way.
-	AppUpstreams map[string]AppUpstream `json:"app_upstreams,omitempty"`
-	Dev          *Dev                   `json:"dev,omitempty"`
-	StartedAt    time.Time              `json:"started_at"`
+	// AppJoined is the app's services the last start put on the Plat5 network.
+	AppJoined []string  `json:"app_joined,omitempty"`
+	Dev       *Dev      `json:"dev,omitempty"`
+	StartedAt time.Time `json:"started_at"`
 }
 
-// AppUpstream is one plat5.yml upstream that the app's own container serves:
-// From is plat5.yml's value (a port), To is the container on the Plat5 network.
-type AppUpstream struct {
-	From string `json:"from"`
-	To   string `json:"to"`
-}
-
-// Dev is the seeded dev person, their org, and a key for each. Reused while
-// the keys still work.
+// Dev is the seeded dev person, their Dev nodes, and a personal key. Reused while
+// the key still works.
 type Dev struct {
-	Email          string `json:"email"`
-	UserID         string `json:"user_id"`
-	OrganizationID string `json:"organization_id"`
-	MemberID       string `json:"member_id"`
-	UserKey        string `json:"user_key"`
-	MemberKey      string `json:"member_key"`
+	Email string `json:"email"`
+	// MemberID is the dev person's directory member: their user id.
+	MemberID string    `json:"member_id"`
+	Nodes    []DevNode `json:"nodes,omitempty"`
+	Key      string    `json:"key"`
+}
+
+// DevNode is a seeded root: its kind, id, slug, and path at the gateway.
+type DevNode struct {
+	Kind string `json:"kind"`
+	ID   string `json:"id"`
+	Slug string `json:"slug"`
+	Path string `json:"path"`
 }
 
 // Dir is the project's state directory.

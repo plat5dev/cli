@@ -1,21 +1,14 @@
 package controlplane
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/plat5dev/cli/internal/upstreams"
 )
 
-// Client talks to the control plane's admin API. The v1 calls (Apply, List,
-// PutDocument) are plat5 start's until it moves to the config API (config.go).
+// Client talks to the control plane's admin API (config.go has the calls).
 type Client struct {
 	BaseURL    string
 	AdminToken string
@@ -52,146 +45,20 @@ type errorEnvelope struct {
 	} `json:"error"`
 }
 
-// ApplyResult is one service from POST /apply.
-type ApplyResult struct {
-	Service  string `json:"service"`
-	Status   string `json:"status"`
-	Revision int64  `json:"revision,omitempty"`
-	Error    string `json:"error,omitempty"`
-}
-
-type applyResponse struct {
-	Results []ApplyResult `json:"results"`
-}
-
-// Apply posts a routes file to /apply.
-// upstreams injects service URLs (see internal/upstreams) before upload.
-// It also returns the upstreams names bound into the file.
-func (c *Client) Apply(path string, upstreams map[string]string) ([]ApplyResult, []string, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, nil, err
-	}
-	ct := "application/json"
-	ext := strings.ToLower(filepath.Ext(path))
-	if ext == ".yml" || ext == ".yaml" {
-		ct = "application/yaml"
-	}
-	return c.ApplyBody(data, ct, upstreams)
-}
-
-// ApplyBody posts routes bytes to /apply after the upstream bind.
-// It also returns the upstreams names the bind used.
-func (c *Client) ApplyBody(data []byte, contentType string, ups map[string]string) ([]ApplyResult, []string, error) {
-	bound, used, err := upstreams.Bind(data, ups)
-	if err != nil {
-		return nil, nil, err
-	}
-	if !bytes.Equal(bound, data) {
-		data = bound
-		contentType = "application/yaml"
-	}
-	results, err := c.post(data, contentType)
-	return results, used, err
-}
-
-func (c *Client) post(data []byte, contentType string) ([]ApplyResult, error) {
-	if contentType == "" {
-		contentType = "application/yaml"
-	}
-	req, err := http.NewRequest(http.MethodPost, c.BaseURL+"/apply", bytes.NewReader(data))
-	if err != nil {
-		return nil, err
-	}
-	c.auth(req)
-	req.Header.Set("Content-Type", contentType)
-
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	var out applyResponse
-	if err := json.Unmarshal(body, &out); err == nil && len(out.Results) > 0 {
-		if resp.StatusCode == http.StatusOK {
-			return out.Results, nil
-		}
-	}
-	if resp.StatusCode >= 400 {
-		return nil, parseErr(resp.StatusCode, body)
-	}
-	if err := json.Unmarshal(body, &out); err != nil {
-		return nil, fmt.Errorf("decode apply response: %w", err)
-	}
-	return out.Results, nil
-}
-
-// List returns registered services map (raw JSON object under services).
-func (c *Client) List() (map[string]json.RawMessage, error) {
-	req, err := http.NewRequest(http.MethodGet, c.BaseURL+"/services", nil)
-	if err != nil {
-		return nil, err
-	}
-	c.auth(req)
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode >= 400 {
-		return nil, parseErr(resp.StatusCode, body)
-	}
-	var wrap struct {
-		Services map[string]json.RawMessage `json:"services"`
-	}
-	if err := json.Unmarshal(body, &wrap); err != nil {
-		return nil, fmt.Errorf("decode list: %w", err)
-	}
-	return wrap.Services, nil
-}
-
-// PutDocument replaces a document (`roles`, `cors`) with the file at path,
-// sent as YAML or JSON by its extension. It returns the document's new revision.
-func (c *Client) PutDocument(kind, path string) (int64, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return 0, err
-	}
-	ct := "application/json"
-	ext := strings.ToLower(filepath.Ext(path))
-	if ext == ".yml" || ext == ".yaml" {
-		ct = "application/yaml"
-	}
-	req, err := http.NewRequest(http.MethodPut, c.BaseURL+"/"+kind, bytes.NewReader(data))
-	if err != nil {
-		return 0, err
-	}
-	c.auth(req)
-	req.Header.Set("Content-Type", ct)
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode >= 400 {
-		return 0, parseErr(resp.StatusCode, body)
-	}
-	var out struct {
-		Revision int64 `json:"revision"`
-	}
-	if err := json.Unmarshal(body, &out); err != nil {
-		return 0, fmt.Errorf("decode %s response: %w", kind, err)
-	}
-	return out.Revision, nil
-}
-
-// Ready returns true if list succeeds.
+// Ready reports whether the admin API answers with this token: GET /revisions,
+// which answers before the first apply too.
 func (c *Client) Ready() bool {
-	_, err := c.List()
-	return err == nil
+	req, err := http.NewRequest(http.MethodGet, c.BaseURL+"/revisions", nil)
+	if err != nil {
+		return false
+	}
+	c.auth(req)
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
 }
 
 func (c *Client) auth(req *http.Request) {
@@ -209,16 +76,11 @@ func parseErr(code int, body []byte) error {
 // WaitReady polls until Ready or timeout.
 func (c *Client) WaitReady(timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
-	var last error
 	for time.Now().Before(deadline) {
 		if c.Ready() {
 			return nil
 		}
-		last = fmt.Errorf("control plane not ready")
 		time.Sleep(2 * time.Second)
 	}
-	if last != nil {
-		return fmt.Errorf("timeout waiting for the control plane at %s", c.BaseURL)
-	}
-	return nil
+	return fmt.Errorf("timeout waiting for the control plane at %s", c.BaseURL)
 }

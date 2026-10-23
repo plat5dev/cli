@@ -1,5 +1,5 @@
-// Package schema is Plat5's config schema, schema/v2/ in the plat5 repo, copied
-// into v2/ so plat5 validate needs no deployment. It tracks plat5 HEAD: copy it
+// Package schema is Plat5's config schema, schema/ in the plat5 repo, copied
+// into files/ so plat5 validate needs no deployment. It tracks plat5 HEAD: copy it
 // again when plat5's changes (TestMatchesPlat5 checks a sibling checkout).
 package schema
 
@@ -17,10 +17,10 @@ import (
 	"golang.org/x/text/message"
 )
 
-//go:embed v2/*.json
+//go:embed files/*.json
 var files embed.FS
 
-const base = "https://plat5.com/schema/v2/"
+const base = "https://plat5.com/schema/"
 
 // FieldError is one problem at a field path, such as services.e10s.routes[2].scope.
 type FieldError struct {
@@ -44,13 +44,13 @@ var (
 func compiled() (*jsonschema.Schema, error) {
 	compileOnce.Do(func() {
 		c := jsonschema.NewCompiler()
-		entries, err := files.ReadDir("v2")
+		entries, err := files.ReadDir("files")
 		if err != nil {
 			compileErr = err
 			return
 		}
 		for _, e := range entries {
-			data, err := files.ReadFile("v2/" + e.Name())
+			data, err := files.ReadFile("files/" + e.Name())
 			if err != nil {
 				compileErr = err
 				return
@@ -139,13 +139,13 @@ func FieldPath(instance any, location []string) string {
 
 // Files is each schema file's bytes, by name.
 func Files() (map[string][]byte, error) {
-	entries, err := files.ReadDir("v2")
+	entries, err := files.ReadDir("files")
 	if err != nil {
 		return nil, err
 	}
 	out := map[string][]byte{}
 	for _, e := range entries {
-		data, err := files.ReadFile("v2/" + e.Name())
+		data, err := files.ReadFile("files/" + e.Name())
 		if err != nil {
 			return nil, err
 		}

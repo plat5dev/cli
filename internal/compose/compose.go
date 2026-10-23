@@ -201,58 +201,35 @@ func PublishedPorts(project string) map[int]bool {
 	return parsePublished(string(out))
 }
 
-// Published is one host port a compose file publishes: the service, the port it
-// listens on inside its container, and the networks it is on.
-type Published struct {
-	Service  string
-	Target   int
-	Networks []string
-}
-
-// HostPorts is the host ports the project's files publish, from docker compose
-// config. Nothing has to be running.
-func (r Runner) HostPorts() (map[int]Published, error) {
+// ServiceNetworks is each service in the project's files, with the networks it
+// is on, from docker compose config. Nothing has to be running.
+func (r Runner) ServiceNetworks() (map[string][]string, error) {
 	c := r.cmd("config", "--format", "json")
 	c.Stdout, c.Stderr = nil, nil
 	out, err := c.Output()
 	if err != nil {
 		return nil, fmt.Errorf("docker compose config: %w", err)
 	}
-	return parseConfigPorts(out)
+	return parseConfigNetworks(out)
 }
 
-func parseConfigPorts(data []byte) (map[int]Published, error) {
+func parseConfigNetworks(data []byte) (map[string][]string, error) {
 	var cfg struct {
 		Services map[string]struct {
 			Networks map[string]any `json:"networks"`
-			Ports    []struct {
-				Target    int             `json:"target"`
-				Published json.RawMessage `json:"published"`
-			} `json:"ports"`
 		} `json:"services"`
 	}
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("docker compose config: %w", err)
 	}
-	out := map[int]Published{}
+	out := make(map[string][]string, len(cfg.Services))
 	for name, svc := range cfg.Services {
 		nets := make([]string, 0, len(svc.Networks))
 		for n := range svc.Networks {
 			nets = append(nets, n)
 		}
 		sort.Strings(nets)
-		for _, p := range svc.Ports {
-			// A string ("3000") in compose v2, a number in older versions.
-			var s string
-			if json.Unmarshal(p.Published, &s) != nil {
-				s = string(p.Published)
-			}
-			host, err := strconv.Atoi(strings.TrimSpace(s))
-			if err != nil || host == 0 {
-				continue
-			}
-			out[host] = Published{Service: name, Target: p.Target, Networks: nets}
-		}
+		out[name] = nets
 	}
 	return out, nil
 }

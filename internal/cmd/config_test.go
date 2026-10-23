@@ -100,7 +100,7 @@ func TestNormalizeArgsTakesTerraformsOut(t *testing.T) {
 // A saved plan is exactly the apply body.
 func TestSavedPlanIsTheApplyBody(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "plan.json")
-	flat := map[string]any{"version": 2, "kinds": map[string]any{}}
+	flat := map[string]any{"kinds": map[string]any{}}
 	if err := writeSavedPlan(path, flat, destructivePlan()); err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func TestSavedPlanIsTheApplyBody(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]any{
-		"version": 2.0, "kinds": map[string]any{},
+		"kinds":   map[string]any{},
 		"expect":  map[string]any{"revision": 41.0},
 		"confirm": map[string]any{"folder": map[string]any{"nodes": 14.0}},
 	}
@@ -129,8 +129,7 @@ func TestExplainNamesTheFile(t *testing.T) {
 	}))
 	defer srv.Close()
 	dir := t.TempDir()
-	plat5 := `version: 2
-kinds: { directory: { sign_in: idp }, organization: {} }
+	plat5 := `kinds: { directory: { sign_in: idp }, organization: {} }
 roles: { admin: { labels: ["*"], bindable_at: [organization] } }
 default_role: admin
 creator_role: admin

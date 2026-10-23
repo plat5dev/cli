@@ -32,8 +32,8 @@ func portHolders(want map[ports.Name]int, self string) string {
 		id := strings.TrimPrefix(project, "plat5-")
 		sort.Strings(held[project])
 		fmt.Fprintf(&b, "\n  Plat5 project %q holds %s.", id, strings.Join(held[project], ", "))
-		if st, err := state.Load(id); err == nil && st.ConfigPath != "" {
-			fmt.Fprintf(&b, " Stop it: cd %s && plat5 stop", dirOf(st.ConfigPath))
+		if st, err := state.Load(id); err == nil && st.Path != "" {
+			fmt.Fprintf(&b, " Stop it: cd %s && plat5 stop", dirOf(st.Path))
 		} else {
 			fmt.Fprintf(&b, " Stop it: docker compose -p %s down", project)
 		}

@@ -180,7 +180,7 @@ func Write(dir string, flat map[string]any) ([]string, error) {
 // keyOrder puts a config's own keys in the order the docs write them. Names
 // (kinds, roles, services, policies) sort after, alphabetically.
 var keyOrder = []string{
-	"version", "deletion_grace", "reserved_slugs", "kinds", "roles", "default_role", "creator_role", "cors", "services",
+	"deletion_grace", "reserved_slugs", "kinds", "roles", "default_role", "creator_role", "cors", "services",
 	"sign_in", "name_claim", "label", "segment", "parent",
 	"labels", "bindable_at", "max_duration",
 	"url", "rate_limits", "timeouts", "route_prefix", "routes",

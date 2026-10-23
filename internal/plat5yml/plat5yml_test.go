@@ -10,8 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const plat5 = `version: 2
-kinds:
+const plat5 = `kinds:
   directory: { sign_in: idp }
   organization: { label: Organization, segment: orgs }
 roles:
@@ -20,7 +19,7 @@ default_role: admin
 creator_role: admin
 services:
   - routes/e10s.yml
-  - routes/api.v2.yml
+  - routes/api.billing.yml
 `
 
 const e10s = `e10s:
@@ -33,7 +32,7 @@ const e10s = `e10s:
         GET: { required_labels: [plans:read] }
 `
 
-const apiV2 = `api.v2:
+const apiBilling = `api.billing:
   url: http://api:3000
   routes:
     - { path: /health, scope: public, methods: [GET] }
@@ -55,13 +54,13 @@ func write(t *testing.T, files map[string]string) string {
 }
 
 func TestLoadAssemblesOneFlatConfig(t *testing.T) {
-	dir := write(t, map[string]string{"plat5.yml": plat5, "routes/e10s.yml": e10s, "routes/api.v2.yml": apiV2})
+	dir := write(t, map[string]string{"plat5.yml": plat5, "routes/e10s.yml": e10s, "routes/api.billing.yml": apiBilling})
 	c, err := Load(filepath.Join(dir, "plat5.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	services := c.Flat["services"].(map[string]any)
-	if len(services) != 2 || services["e10s"] == nil || services["api.v2"] == nil {
+	if len(services) != 2 || services["e10s"] == nil || services["api.billing"] == nil {
 		t.Fatalf("services: %v", services)
 	}
 	if problems, err := c.Validate(); err != nil || len(problems) != 0 {
@@ -72,9 +71,9 @@ func TestLoadAssemblesOneFlatConfig(t *testing.T) {
 func TestErrorsNameTheirFile(t *testing.T) {
 	bad := strings.Replace(e10s, "scope: organization", "scope: 7", 1)
 	dir := write(t, map[string]string{
-		"plat5.yml":         strings.Replace(plat5, "default_role: admin", "default_role: Admin", 1),
-		"routes/e10s.yml":   bad,
-		"routes/api.v2.yml": apiV2,
+		"plat5.yml":              strings.Replace(plat5, "default_role: admin", "default_role: Admin", 1),
+		"routes/e10s.yml":        bad,
+		"routes/api.billing.yml": apiBilling,
 	})
 	c, err := Load(filepath.Join(dir, "plat5.yml"))
 	if err != nil {
@@ -90,7 +89,7 @@ func TestErrorsNameTheirFile(t *testing.T) {
 			t.Errorf("want %q in:\n%s", want, joined)
 		}
 	}
-	if got := c.FileOf("services.api.v2.routes[0]"); got != "routes/api.v2.yml" {
+	if got := c.FileOf("services.api.billing.routes[0]"); got != "routes/api.billing.yml" {
 		t.Errorf("FileOf dotted name: %s", got)
 	}
 	if got := c.FileOf("services.nope"); got != "plat5.yml" {
@@ -99,11 +98,11 @@ func TestErrorsNameTheirFile(t *testing.T) {
 }
 
 func TestRoutesFilesHoldOneServiceEach(t *testing.T) {
-	dir := write(t, map[string]string{"plat5.yml": plat5, "routes/e10s.yml": e10s + apiV2, "routes/api.v2.yml": apiV2})
+	dir := write(t, map[string]string{"plat5.yml": plat5, "routes/e10s.yml": e10s + apiBilling, "routes/api.billing.yml": apiBilling})
 	if _, err := Load(filepath.Join(dir, "plat5.yml")); err == nil || !strings.Contains(err.Error(), "exactly one service") {
 		t.Fatalf("got %v", err)
 	}
-	dir = write(t, map[string]string{"plat5.yml": plat5, "routes/e10s.yml": apiV2, "routes/api.v2.yml": apiV2})
+	dir = write(t, map[string]string{"plat5.yml": plat5, "routes/e10s.yml": apiBilling, "routes/api.billing.yml": apiBilling})
 	if _, err := Load(filepath.Join(dir, "plat5.yml")); err == nil || !strings.Contains(err.Error(), "already in routes/e10s.yml") {
 		t.Fatalf("got %v", err)
 	}
@@ -111,7 +110,7 @@ func TestRoutesFilesHoldOneServiceEach(t *testing.T) {
 
 // What config pull writes loads back to the same config.
 func TestWriteRoundTrips(t *testing.T) {
-	src := write(t, map[string]string{"plat5.yml": plat5, "routes/e10s.yml": e10s, "routes/api.v2.yml": apiV2})
+	src := write(t, map[string]string{"plat5.yml": plat5, "routes/e10s.yml": e10s, "routes/api.billing.yml": apiBilling})
 	c, err := Load(filepath.Join(src, "plat5.yml"))
 	if err != nil {
 		t.Fatal(err)
@@ -121,7 +120,7 @@ func TestWriteRoundTrips(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(written, []string{"plat5.yml", "routes/api.v2.yml", "routes/e10s.yml"}) {
+	if !reflect.DeepEqual(written, []string{"plat5.yml", "routes/api.billing.yml", "routes/e10s.yml"}) {
 		t.Fatalf("wrote %v", written)
 	}
 	back, err := Load(filepath.Join(out, "plat5.yml"))
@@ -132,7 +131,7 @@ func TestWriteRoundTrips(t *testing.T) {
 		t.Fatalf("round trip differs:\n%v\n%v", back.Flat, c.Flat)
 	}
 	text, _ := os.ReadFile(filepath.Join(out, "plat5.yml"))
-	if !strings.HasPrefix(string(text), "version: 2\nkinds:") {
+	if !strings.HasPrefix(string(text), "kinds:") {
 		t.Errorf("keys out of order:\n%s", text)
 	}
 }

@@ -1,8 +1,8 @@
-// Package devseed gives a fresh local stack something to call with: the dev person,
-// an org they own, a member key in it, and a user key when the project publishes
-// that route. It goes through the gateway's public routes
-// like any client, with a token from local Auth's dev mode. Nothing here reaches
-// past the gateway.
+// Package devseed gives a fresh local stack something to call with: the dev
+// person, a node labelled Dev of each root kind, and a personal key, which
+// reaches every tree its person can. It goes through the gateway's generated
+// routes like any client, with a token from local Auth's dev mode. Nothing here
+// reaches past the gateway (plat5 docs/reference/cli.md#the-local-stack).
 package devseed
 
 import (
@@ -12,11 +12,19 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
 	"github.com/plat5dev/cli/internal/state"
 )
+
+// RootKind is a root kind of the config, other than the sign-in kind, and its
+// path segment at the gateway.
+type RootKind struct {
+	Kind    string
+	Segment string
+}
 
 // Client reaches the local stack.
 type Client struct {
@@ -25,10 +33,12 @@ type Client struct {
 	// ClientID is the Auth client the dev token is minted for (the gateway's audience).
 	ClientID string
 	Email    string
-	// Name is the dev person's display name, set when they have none.
-	Name    string
-	OrgName string
-	HTTP    *http.Client
+	// Name is the dev person's name. A person's name comes only from the IdP, so
+	// it goes in the dev token as its name claim.
+	Name      string
+	NodeLabel string
+	Roots     []RootKind
+	HTTP      *http.Client
 }
 
 func (c Client) http() *http.Client {
@@ -38,8 +48,8 @@ func (c Client) http() *http.Client {
 	return &http.Client{Timeout: 15 * time.Second}
 }
 
-// Ensure returns working dev keys: prev's while they still work, else new ones.
-// The org is reused by name, so a lost state file does not make a second one.
+// Ensure returns working dev data: prev's while its key still works, else new.
+// Nodes are reused by label, so a lost state file does not make a second one.
 func Ensure(c Client, prev *state.Dev) (*state.Dev, error) {
 	if prev != nil && prev.Email == c.Email && c.works(prev) {
 		return prev, nil
@@ -51,162 +61,74 @@ func Ensure(c Client, prev *state.Dev) (*state.Dev, error) {
 	bearer := header{"Authorization", "Bearer " + token}
 
 	var me struct {
-		ID          string  `json:"id"`
-		DisplayName *string `json:"display_name"`
+		ID string `json:"id"`
 	}
-	if err := c.call("GET", "/user", bearer, nil, &me); err != nil {
+	if err := c.call("GET", "/me", bearer, nil, &me); err != nil {
 		return nil, err
 	}
-	// A name, so screens show "Dev User" and not an id. Left alone once set.
-	if c.Name != "" && (me.DisplayName == nil || *me.DisplayName == "") {
-		if err := c.call("PATCH", "/user", bearer, map[string]string{"display_name": c.Name}, nil); err != nil && !isNotFound(err) {
+	dev := &state.Dev{Email: c.Email, MemberID: me.ID}
+	for _, root := range c.Roots {
+		n, err := c.ensureRoot(bearer, root)
+		if err != nil {
 			return nil, err
 		}
+		dev.Nodes = append(dev.Nodes, n)
 	}
-
-	orgID, err := c.findOrg(bearer)
-	if err != nil {
-		return nil, err
-	}
-	if orgID == "" {
-		var org struct {
-			ID string `json:"id"`
-		}
-		if err := c.call("POST", "/user/organizations", bearer, map[string]string{"name": c.OrgName}, &org); err != nil {
-			return nil, err
-		}
-		orgID = org.ID
-	}
-
-	var session struct {
-		Token    string `json:"token"`
-		MemberID string `json:"member_id"`
-	}
-	if err := c.call("POST", "/user/organizations/"+orgID+"/session", bearer, nil, &session); err != nil {
-		return nil, err
-	}
-	member := header{"X-API-Key", session.Token}
-	memberKey, err := c.memberKey(member)
-	if err != nil {
-		return nil, err
-	}
-	// A project may leave user keys out of its routes; the dev person then has none.
-	var userKey struct {
+	var key struct {
 		Key string `json:"key"`
 	}
-	if err := c.call("POST", "/user/api-keys", bearer, map[string]string{"name": keyName}, &userKey); err != nil && !isNotFound(err) {
+	if err := c.call("POST", "/me/keys", bearer, map[string]string{"name": keyName}, &key); err != nil {
 		return nil, err
 	}
-	return &state.Dev{
-		Email:          c.Email,
-		UserID:         me.ID,
-		OrganizationID: orgID,
-		MemberID:       session.MemberID,
-		UserKey:        userKey.Key,
-		MemberKey:      memberKey,
-	}, nil
+	dev.Key = key.Key
+	return dev, nil
 }
 
 const keyName = "plat5 dev"
 
-// memberKey mints a key in the dev org with the session: the dev member's own, or,
-// when the project leaves member keys out of its routes, a service account's. The
-// service account holds the creator role, so the key can call what the owner can.
-func (c Client) memberKey(session header) (string, error) {
-	var out struct {
-		Key string `json:"key"`
-	}
-	name := map[string]string{"name": keyName}
-	err := c.call("POST", "/member/api-keys", session, name, &out)
-	if !isNotFound(err) {
-		return out.Key, err
-	}
-	saID, err := c.serviceAccount(session)
-	if err != nil {
-		return "", err
-	}
-	if err := c.call("POST", "/org/service-accounts/"+saID+"/api-keys", session, name, &out); err != nil {
-		return "", err
-	}
-	return out.Key, nil
+type node struct {
+	ID       string  `json:"id"`
+	Slug     string  `json:"slug"`
+	Label    string  `json:"label"`
+	ParentID *string `json:"parent_id"`
 }
 
-// serviceAccount is the dev org's "plat5 dev" service account, made on first use.
-func (c Client) serviceAccount(session header) (string, error) {
-	var list struct {
-		ServiceAccounts []struct {
-			ID   string `json:"id"`
-			Name string `json:"name"`
-		} `json:"service_accounts"`
-	}
-	if err := c.call("GET", "/org/service-accounts", session, nil, &list); err != nil {
-		return "", err
-	}
-	for _, sa := range list.ServiceAccounts {
-		if sa.Name == keyName {
-			return sa.ID, nil
+// ensureRoot is the dev person's root of this kind labelled NodeLabel, made on
+// first use.
+func (c Client) ensureRoot(bearer header, root RootKind) (state.DevNode, error) {
+	path := "/me/nodes?kind=" + url.QueryEscape(root.Kind)
+	for {
+		var page struct {
+			Nodes   []node `json:"nodes"`
+			HasMore bool   `json:"has_more"`
 		}
+		if err := c.call("GET", path, bearer, nil, &page); err != nil {
+			return state.DevNode{}, err
+		}
+		for _, n := range page.Nodes {
+			if n.ParentID == nil && n.Label == c.NodeLabel {
+				return state.DevNode{Kind: root.Kind, ID: n.ID, Slug: n.Slug, Path: "/" + root.Segment + "/" + n.Slug}, nil
+			}
+		}
+		if !page.HasMore || len(page.Nodes) == 0 {
+			break
+		}
+		path = "/me/nodes?kind=" + url.QueryEscape(root.Kind) + "&starting_after=" + url.QueryEscape(page.Nodes[len(page.Nodes)-1].ID)
 	}
-	var roles struct {
-		CreatorRole *string `json:"creator_role"`
+	var n node
+	if err := c.call("POST", "/"+root.Segment, bearer, map[string]string{"label": c.NodeLabel}, &n); err != nil {
+		return state.DevNode{}, err
 	}
-	if err := c.call("GET", "/org/roles", session, nil, &roles); err != nil {
-		return "", err
-	}
-	body := map[string]any{"name": keyName}
-	if roles.CreatorRole != nil {
-		body["role"] = *roles.CreatorRole
-	}
-	var sa struct {
-		ID string `json:"id"`
-	}
-	if err := c.call("POST", "/org/service-accounts", session, body, &sa); err != nil {
-		return "", err
-	}
-	return sa.ID, nil
+	return state.DevNode{Kind: root.Kind, ID: n.ID, Slug: n.Slug, Path: "/" + root.Segment + "/" + n.Slug}, nil
 }
 
-// works reports whether the keys still authenticate (the data may have been reset).
-// A probe route the project does not publish is 404 before any key is checked, so
-// the member key tries the next one. 403 still means the key authenticated.
+// works reports whether the key still authenticates (the data may have been reset).
 func (c Client) works(d *state.Dev) bool {
-	if d.MemberKey == "" {
-		return false
-	}
-	if d.UserKey != "" && c.call("GET", "/user", header{"X-API-Key", d.UserKey}, nil, nil) != nil {
-		return false
-	}
-	for _, path := range []string{"/member", "/org/roles", "/org"} {
-		err := c.call("GET", path, header{"X-API-Key", d.MemberKey}, nil, nil)
-		if !isNotFound(err) {
-			return err == nil || isStatus(err, http.StatusForbidden)
-		}
-	}
-	return false
-}
-
-func (c Client) findOrg(bearer header) (string, error) {
-	var list struct {
-		Memberships []struct {
-			Organization struct {
-				ID   string `json:"id"`
-				Name string `json:"name"`
-			} `json:"organization"`
-		} `json:"memberships"`
-	}
-	if err := c.call("GET", "/user/memberships", bearer, nil, &list); err != nil {
-		return "", err
-	}
-	for _, m := range list.Memberships {
-		if m.Organization.Name == c.OrgName {
-			return m.Organization.ID, nil
-		}
-	}
-	return "", nil
+	return d.Key != "" && c.call("GET", "/me", header{"X-API-Key", d.Key}, nil, nil) == nil
 }
 
 func (c Client) devToken() (string, error) {
-	body, _ := json.Marshal(map[string]string{"email": c.Email, "client_id": c.ClientID})
+	body, _ := json.Marshal(map[string]string{"email": c.Email, "client_id": c.ClientID, "name": c.Name})
 	resp, err := c.http().Post(strings.TrimRight(c.AuthURL, "/")+"/dev/token", "application/json", bytes.NewReader(body))
 	if err != nil {
 		return "", fmt.Errorf("dev token: %w", err)
@@ -274,5 +196,5 @@ func isStatus(err error, code int) bool {
 	return errors.As(err, &se) && se.code == code
 }
 
-// isNotFound is the gateway's answer for a route the project does not publish.
-func isNotFound(err error) bool { return isStatus(err, http.StatusNotFound) }
+// IsNotFound is the gateway's answer for a route the config leaves out.
+func IsNotFound(err error) bool { return isStatus(err, http.StatusNotFound) }

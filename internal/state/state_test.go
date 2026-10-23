@@ -13,12 +13,12 @@ func TestRoundTrip(t *testing.T) {
 		t.Fatalf("empty load: %+v %v", s, err)
 	}
 	s.Modules = []string{"auth"}
-	s.Dev = &Dev{Email: "dev@example.com", UserKey: "plat5-k-2-x"}
+	s.Dev = &Dev{Email: "dev@example.com", Key: "plat5-k-2-x"}
 	if err := Save(s); err != nil {
 		t.Fatal(err)
 	}
 	got, err := Load("demo")
-	if err != nil || got.Dev == nil || got.Dev.UserKey != "plat5-k-2-x" || got.Modules[0] != "auth" {
+	if err != nil || got.Dev == nil || got.Dev.Key != "plat5-k-2-x" || got.Modules[0] != "auth" {
 		t.Fatalf("%+v %v", got, err)
 	}
 	dir, _ := Dir("demo")

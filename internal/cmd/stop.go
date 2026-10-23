@@ -35,7 +35,7 @@ func runStop(cmd *cobra.Command, args []string) error {
 	}
 
 	// The app first: it calls Plat5, not the other way round. The last start's
-	// app, else plat5.yml's (state may be gone).
+	// app, else plat5.dev.yml's (state may be gone).
 	appFile := firstNonEmpty(st.AppCompose, cfg.AppCompose)
 	if appFile != "" {
 		if _, err := os.Stat(appFile); err == nil {

@@ -80,7 +80,8 @@ services:
       ADMIN_TOKEN: ${ADMIN_TOKEN:?}
       INTERNAL_AUTH_TOKEN: dev-internal-token
       DATABASE_URL: postgres://plat5:plat5@postgres:5432/plat5?sslmode=disable
-      # The CLI override mounts the project's roles file and sets SEED_ROLES_FILE.
+      # Plan counts when a kind is removed. plat5 start applies plat5.yml; no seed.
+      IDENTITY_INTERNAL_URL: http://identity:3001
       RUST_LOG: info
       OTEL_SERVICE_NAME: control-plane
       OTEL_SERVICE_NAMESPACE: edge
@@ -112,16 +113,16 @@ services:
       AUTH_ISSUER: ${IDP_ISSUER:?}
       AUTH_JWKS_URI: ${IDP_JWKS_URI:?}
       AUTH_ALLOWED_AUDIENCES: ${IDP_AUDIENCES:?}
-      AUTH_USER_ID_CLAIM: ${IDP_USER_ID_CLAIM:?}
-      CREDENTIAL_VALIDATE_URL: http://identity:3001/internal/credentials/validate
+      AUTH_SUBJECT_CLAIM: ${IDP_SUBJECT_CLAIM:?}
+      ADMIT_URL: http://identity:3001/internal/admit
       AUDIT_ENABLED: "true"
       AUDIT_URL: http://audit:3003
       INTERNAL_AUTH_TOKEN: dev-internal-token
       RUST_LOG: info
-      # How long the gateway trusts a validated key, session, or IdP subject. It is
-      # how long a revoke, suspend, or role change takes to reach the edge. Short
-      # here, so a roles.yml edit shows on the next call; a deployment picks its
-      # own (the gateway's default is 300).
+      # How long the gateway trusts an admit answer. It is how long a revoke,
+      # suspend, or role change takes to reach the edge. Short here, so a role
+      # change in plat5.yml shows on the next call; a deployment picks its own
+      # (the gateway's default is 300).
       APIKEY_CACHE_TTL_SECS: "5"
       RATE_LIMIT_REQUESTS: "60"
       RATE_LIMIT_WINDOW_SECONDS: "60"
@@ -165,7 +166,6 @@ services:
       INTERNAL_AUTH_TOKEN: dev-internal-token
       APIKEY_BRAND: ${APIKEY_BRAND:?}
       DATABASE_URL: postgres://plat5:plat5@postgres:5432/plat5?sslmode=disable
-      ROLES_ENABLED: ${ROLES_ENABLED:?}
       CONTROL_PLANE_URL: http://control-plane:5003
       OTEL_SERVICE_NAME: identity
       OTEL_SERVICE_NAMESPACE: identity

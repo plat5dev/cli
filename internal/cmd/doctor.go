@@ -8,6 +8,7 @@ import (
 	"github.com/plat5dev/cli/internal/compose"
 	"github.com/plat5dev/cli/internal/config"
 	"github.com/plat5dev/cli/internal/controlplane"
+	"github.com/plat5dev/cli/internal/plat5yml"
 	"github.com/plat5dev/cli/internal/ports"
 	"github.com/plat5dev/cli/internal/stack"
 	"github.com/spf13/cobra"
@@ -15,7 +16,7 @@ import (
 
 var doctorCmd = &cobra.Command{
 	Use:   "doctor",
-	Short: "Check Docker, plat5.yml, and ports",
+	Short: "Check Docker, plat5.dev.yml, plat5.yml, and ports",
 	Args:  cobra.NoArgs,
 	RunE:  runDoctor,
 }
@@ -35,10 +36,10 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 
 	cfg, err := loadConfig()
 	if err != nil {
-		check("plat5.yml", err)
+		check(config.FileName, err)
 		return doctorExit(failed)
 	}
-	check("plat5.yml "+cfg.ConfigPath, nil)
+	check(config.FileName+" "+cfg.Path, nil)
 
 	stk, err := stack.New(cfg, nil)
 	if err != nil {
@@ -53,13 +54,16 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		}
 		fmt.Printf("· %s: %s\n", k, cfg.Versions[k])
 	}
-	check("roles", config.CheckFile("roles", cfg.RolesFile))
 	check("app.compose", config.CheckFile("app.compose", cfg.AppCompose))
-	for _, f := range cfg.RouteFiles {
-		check("routes "+relPath(cfg.ConfigDir, f), config.CheckFile("routes", f))
-	}
-	if cfg.OperatorRoutesFile != "" {
-		check("operator.routes", config.CheckFile("operator.routes", cfg.OperatorRoutesFile))
+	if conf, err := plat5yml.Load(cfg.ConfigPath); err != nil {
+		check(config.ConfigFileName, err)
+	} else if problems, err := conf.Validate(); err != nil || len(problems) > 0 {
+		if err == nil {
+			err = errors.New(strings.Join(problems, "; "))
+		}
+		check(config.ConfigFileName, err)
+	} else {
+		check(fmt.Sprintf("%s: %d services", config.ConfigFileName, len(conf.Files)), nil)
 	}
 
 	running := compose.Running(cfg.ComposeProject)

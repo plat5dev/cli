@@ -2,20 +2,15 @@ package cmd
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
-
-	"gopkg.in/yaml.v3"
 )
 
 // everyLabel is the label that grants every label.
 const everyLabel = "*"
 
-// warnUngrantedLabels checks the labels routes require against the labels roles
-// grant. Roles off (no roles file): every member holds every label, nothing to
-// check.
+// warnUngrantedLabels checks the labels the config's routes require against the
+// labels its roles grant.
 //
 // A label on one side only, a letter or two from a label on the other, is
 // likely a typo, on either side: it passes apply, and the route is then
@@ -23,31 +18,15 @@ const everyLabel = "*"
 // required label that no role grants by name, and that is near nothing, is how
 // an owner-only route is written ("*" roles call it): that is a quiet note. A
 // granted label no route requires yet is fine.
-func warnUngrantedLabels(rolesFile string, routeFiles []string) {
-	if rolesFile == "" {
-		return
-	}
-	granted, every, err := grantedLabels(rolesFile)
-	if err != nil {
-		return
-	}
+func warnUngrantedLabels(flat map[string]any, configFile string) {
+	granted, every := grantedLabels(flat)
 	required := map[string][]string{}
-	for _, f := range routeFiles {
-		data, err := os.ReadFile(f)
-		if err != nil {
-			continue
+	requiredLabels(flat["services"], "", "", func(label, path, method string) {
+		at := strings.TrimSpace(method + " " + path)
+		if !contains(required[label], at) {
+			required[label] = append(required[label], at)
 		}
-		var doc any
-		if yaml.Unmarshal(data, &doc) != nil {
-			continue
-		}
-		requiredLabels(doc, "", "", func(label, path, method string) {
-			at := strings.TrimSpace(method + " " + path)
-			if !contains(required[label], at) {
-				required[label] = append(required[label], at)
-			}
-		})
-	}
+	})
 	where := func(label string) string {
 		if at, ok := required[label]; ok {
 			return strings.Join(at, ", ")
@@ -73,7 +52,7 @@ func warnUngrantedLabels(rolesFile string, routeFiles []string) {
 		}
 	}
 	if len(typos) > 0 {
-		fmt.Printf("  warning: labels a letter or two apart, one in routes and one in %s. A typo?\n", filepath.Base(rolesFile))
+		fmt.Printf("  warning: labels a letter or two apart, one in routes and one in %s's roles. A typo?\n", configFile)
 		for _, t := range typos {
 			fmt.Printf("    %s\n", t)
 		}
@@ -91,7 +70,7 @@ func warnUngrantedLabels(rolesFile string, routeFiles []string) {
 	}
 	if len(every) == 0 {
 		fmt.Printf("  warning: labels no role grants, so no member can call these routes: %s\n", strings.Join(only, "; "))
-		fmt.Printf("    Add them to a role in %s.\n", filepath.Base(rolesFile))
+		fmt.Printf("    Add them to a role in %s.\n", configFile)
 		return
 	}
 	fmt.Printf("  %s only (no role grants these by name): %s\n", strings.Join(every, ", "), strings.Join(only, "; "))
@@ -133,31 +112,26 @@ func sortedKeys[V any](m map[string]V) []string {
 	return out
 }
 
-// grantedLabels is every label some role in the roles file grants by name, with
-// the roles that grant it, and the roles that hold "*".
-func grantedLabels(path string) (map[string][]string, []string, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, nil, err
-	}
-	var doc struct {
-		Roles map[string][]string `yaml:"roles"`
-	}
-	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return nil, nil, err
-	}
+// grantedLabels is every label some role in the config grants by name, with the
+// roles that grant it, and the roles that hold "*".
+func grantedLabels(flat map[string]any) (map[string][]string, []string) {
+	roles, _ := flat["roles"].(map[string]any)
 	out := map[string][]string{}
 	var every []string
-	for _, role := range sortedKeys(doc.Roles) {
-		for _, l := range doc.Roles[role] {
-			if l == everyLabel {
-				every = append(every, role)
-			} else {
-				out[l] = append(out[l], role)
+	for _, name := range sortedKeys(roles) {
+		role, _ := roles[name].(map[string]any)
+		labels, _ := role["labels"].([]any)
+		for _, l := range labels {
+			s, _ := l.(string)
+			switch {
+			case s == everyLabel:
+				every = append(every, name)
+			case s != "":
+				out[s] = append(out[s], name)
 			}
 		}
 	}
-	return out, every, nil
+	return out, every
 }
 
 // requiredLabels calls found for each required_labels entry in a routes

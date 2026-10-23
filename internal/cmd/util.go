@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 )
 
-var errNoApp = errors.New("no app: set app.compose in plat5.yml")
+var errNoApp = errors.New("no app: set app.compose in plat5.dev.yml")
 
 func dirOf(p string) string { return filepath.Dir(p) }
 

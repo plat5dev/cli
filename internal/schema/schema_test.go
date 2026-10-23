@@ -9,7 +9,6 @@ import (
 
 func sample() map[string]any {
 	return map[string]any{
-		"version": 2,
 		"kinds": map[string]any{
 			"directory":    map[string]any{"sign_in": "idp"},
 			"organization": map[string]any{"segment": "orgs"},
@@ -62,10 +61,10 @@ func TestDurationsAndUnknownKeys(t *testing.T) {
 	}
 }
 
-// The copy tracks plat5's schema/v2/. Checked when plat5 is checked out beside
+// The copy tracks plat5's schema/. Checked when plat5 is checked out beside
 // the CLI, as in plat5dev.
 func TestMatchesPlat5(t *testing.T) {
-	dir := filepath.Join("..", "..", "..", "plat5", "schema", "v2")
+	dir := filepath.Join("..", "..", "..", "plat5", "schema")
 	if _, err := os.Stat(dir); err != nil {
 		t.Skip("no plat5 checkout beside the CLI")
 	}
@@ -75,7 +74,7 @@ func TestMatchesPlat5(t *testing.T) {
 	}
 	theirs, _ := filepath.Glob(filepath.Join(dir, "*.json"))
 	if len(theirs) != len(ours) {
-		t.Fatalf("plat5 has %d schema files, the CLI %d: copy plat5/schema/v2/*.json into internal/schema/v2/", len(theirs), len(ours))
+		t.Fatalf("plat5 has %d schema files, the CLI %d: copy plat5/schema/*.json into internal/schema/files/", len(theirs), len(ours))
 	}
 	for _, path := range theirs {
 		data, err := os.ReadFile(path)
@@ -83,7 +82,7 @@ func TestMatchesPlat5(t *testing.T) {
 			t.Fatal(err)
 		}
 		if !bytes.Equal(data, ours[filepath.Base(path)]) {
-			t.Errorf("%s differs from plat5's: copy plat5/schema/v2/*.json into internal/schema/v2/", filepath.Base(path))
+			t.Errorf("%s differs from plat5's: copy plat5/schema/*.json into internal/schema/files/", filepath.Base(path))
 		}
 	}
 }

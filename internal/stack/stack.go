@@ -1,16 +1,13 @@
 // Package stack is a project's local stack as one compose project: Plat5 (core)
-// and the modules plat5.yml turns on, from the compose files embedded in the CLI.
+// and the modules plat5.dev.yml turns on, from the compose files embedded in the CLI.
 // It owns the compose env, the generated override, and the app's own compose.
 package stack
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/plat5dev/cli/internal/bundle"
@@ -18,23 +15,22 @@ import (
 	"github.com/plat5dev/cli/internal/config"
 	"github.com/plat5dev/cli/internal/ports"
 	"github.com/plat5dev/cli/internal/state"
-	"github.com/plat5dev/cli/internal/upstreams"
 )
 
-// Container paths for files the override mounts.
-const (
-	rolesContainerPath          = "/seed-roles/roles.yml"
-	themeContainerPath          = "/config/theme.json"
-	operatorRoutesContainerPath = "/config/routes.yml"
-)
+// themeContainerPath is where the override mounts the sign-in theme.
+const themeContainerPath = "/config/theme.json"
 
 // Stack is one project's local stack.
 type Stack struct {
 	Config config.Resolved
-	// Modules is what this stack runs beside core: plat5.yml's, minus start -x.
+	// Modules is what this stack runs beside core: plat5.dev.yml's, minus start -x.
 	Modules []string
 	// Dir is where the compose files are written (the project's state dir).
 	Dir string
+	// OnHost is the app's service names the gateway reaches on your machine:
+	// with plat5 start -x app, each maps to host-gateway, so a routes file's
+	// url (http://api:3000) works whether the app runs in Docker or not.
+	OnHost []string
 }
 
 // New is the stack for cfg, without the excluded modules.
@@ -51,7 +47,7 @@ func New(cfg config.Resolved, exclude []string) (*Stack, error) {
 		}
 	}
 	if !contains(mods, config.ModuleAuth) && cfg.IdP.Issuer == "" {
-		return nil, fmt.Errorf("-x auth: the gateway needs an IdP; set idp: in plat5.yml and turn modules.auth off")
+		return nil, fmt.Errorf("-x auth: the gateway needs an IdP; set idp: in plat5.dev.yml and turn modules.auth off")
 	}
 	dir, err := state.Dir(cfg.ProjectID)
 	if err != nil {
@@ -68,9 +64,6 @@ func (s *Stack) Prepare() error {
 	if err := bundle.Materialize(s.Dir); err != nil {
 		return fmt.Errorf("write compose files: %w", err)
 	}
-	if err := config.CheckFile("roles", s.Config.RolesFile); err != nil {
-		return err
-	}
 	if err := config.CheckFile("auth.theme_file", s.Config.Auth.ThemeFile); err != nil {
 		return err
 	}
@@ -79,43 +72,7 @@ func (s *Stack) Prepare() error {
 			return err
 		}
 	}
-	if s.Has(config.ModuleOperator) {
-		if err := writeTheme(filepath.Join(s.Dir, "staff-theme.json"), s.staffTitle(), staffPlane); err != nil {
-			return err
-		}
-		if err := s.writeOperatorRoutes(); err != nil {
-			return err
-		}
-	}
 	return os.WriteFile(filepath.Join(s.Dir, "override.yml"), []byte(s.override()), 0o644)
-}
-
-// writeOperatorRoutes writes the project's operator route list with plat5.yml's
-// upstreams bound into it, as the customer routes are at apply.
-func (s *Stack) writeOperatorRoutes() error {
-	path := s.Config.OperatorRoutesFile
-	if err := config.CheckFile("operator.routes", path); err != nil || path == "" {
-		return err
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	bound, _, err := upstreams.BindOperator(data, s.Config.Upstreams)
-	if err != nil {
-		return fmt.Errorf("operator.routes: %w", err)
-	}
-	return os.WriteFile(filepath.Join(s.Dir, "operator-routes.yml"), bound, 0o644)
-}
-
-// fileSHA256 is the hex digest of a file, or empty when it can't be read.
-func fileSHA256(path string) string {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])
 }
 
 // Runner is docker compose for the stack.
@@ -156,9 +113,6 @@ func (s *Stack) Ports() map[ports.Name]int {
 	if s.Has(config.ModuleAuth) {
 		add(ports.Auth)
 	}
-	if s.Has(config.ModuleOperator) {
-		add(ports.Operator, ports.StaffAuth)
-	}
 	if s.Has(config.ModuleObservability) {
 		add(ports.Grafana, ports.OTLPGRPC, ports.OTLPHTTP)
 	}
@@ -183,42 +137,31 @@ func (s *Stack) Env() []string {
 	env := map[string]string{
 		"ADMIN_TOKEN":                 c.AdminToken,
 		"APIKEY_BRAND":                c.APIKeyBrand,
-		"ROLES_ENABLED":               fmt.Sprint(c.RolesFile != ""),
 		"OTEL_EXPORTER_OTLP_ENDPOINT": s.OtelEndpoint(),
 
 		"AUTH_DISPLAY_NAME": s.authTitle(),
 		"AUTH_CLIENTS":      strings.Join(c.AuthClients(), ","),
 		"AUTH_ORIGINS":      strings.Join(c.AuthOrigins(), ","),
 		"AUTH_DEV_USERS":    config.DevEmail + ":" + config.DevPassword,
-
-		"STAFF_AUTH_DISPLAY_NAME": s.staffTitle(),
-		"OPERATOR_ORIGINS":        strings.Join(c.OperatorConsoleOrigins(), ","),
-		"STAFF_DEV_USERS":         config.StaffEmail + ":" + config.DevPassword,
 	}
 	env["AUTH_REDIRECT_URIS"] = strings.Join(c.AuthRedirectURIs(), ",")
-	var staffRedirects []string
-	for _, o := range c.OperatorConsoleOrigins() {
-		staffRedirects = append(staffRedirects, o+"/callback")
-	}
-	env["OPERATOR_REDIRECT_URIS"] = strings.Join(staffRedirects, ",")
 
 	// The gateway's IdP: local Auth, or the project's own.
 	if s.Has(config.ModuleAuth) {
 		env["IDP_ISSUER"] = c.URL(ports.Auth)
 		env["IDP_JWKS_URI"] = "http://auth:5000/.well-known/jwks.json"
 		env["IDP_AUDIENCES"] = strings.Join(c.AuthClients(), ",")
-		env["IDP_USER_ID_CLAIM"] = "properties.user_id"
+		env["IDP_SUBJECT_CLAIM"] = "properties.user_id"
 	} else {
 		env["IDP_ISSUER"] = c.IdP.Issuer
 		env["IDP_JWKS_URI"] = c.IdP.JWKSURI
 		env["IDP_AUDIENCES"] = strings.Join(c.IdP.Audiences, ",")
-		env["IDP_USER_ID_CLAIM"] = firstNonEmpty(c.IdP.UserIDClaim, "sub")
+		env["IDP_SUBJECT_CLAIM"] = firstNonEmpty(c.IdP.SubjectClaim, "sub")
 	}
 
 	for key, name := range map[string]string{
-		config.VersionPlat5:    "PLAT5_VERSION",
-		config.VersionAuth:     "AUTH_VERSION",
-		config.VersionOperator: "OPERATOR_VERSION",
+		config.VersionPlat5: "PLAT5_VERSION",
+		config.VersionAuth:  "AUTH_VERSION",
 	} {
 		v := c.Versions[key]
 		if c.Source[key] != "" {
@@ -253,25 +196,20 @@ func (s *Stack) AppEnv() []string {
 	} else {
 		env["PLAT5_AUTH_URL"] = c.IdP.Issuer
 	}
-	// The staff plane, for the project's own operator console.
-	if s.Has(config.ModuleOperator) {
-		env["PLAT5_OPERATOR_URL"] = c.URL(ports.Operator)
-		env["PLAT5_STAFF_AUTH_URL"] = c.URL(ports.StaffAuth)
-		env["PLAT5_STAFF_CLIENT_ID"] = config.StaffClientID
-	}
 	return sortedEnv(env)
 }
 
-// Sign-in page titles: the project's, and its staff's.
-func (s *Stack) authTitle() string  { return s.Config.ProjectID }
-func (s *Stack) staffTitle() string { return s.Config.ProjectID + " staff" }
+// authTitle is the sign-in page's title: the project's.
+func (s *Stack) authTitle() string { return s.Config.ProjectID }
 
 // svcOverride is what the override sets on one service.
 type svcOverride struct {
 	env        map[string]string
 	volumes    []string
 	extraHosts bool
-	build      *sourceBuild
+	// hostAliases are more names for host-gateway.
+	hostAliases []string
+	build       *sourceBuild
 }
 
 // override is the compose override for this run: what the embedded files can't
@@ -290,12 +228,6 @@ func (s *Stack) override() string {
 		o.volumes = append(o.volumes, host+":"+container+":ro")
 	}
 
-	// Roles on: the project's file seeds the first roles document, so identity can
-	// start. start then applies it with PUT /roles, so later edits land too.
-	if c.RolesFile != "" {
-		get("control-plane").env["SEED_ROLES_FILE"] = rolesContainerPath
-		mount("control-plane", c.RolesFile, rolesContainerPath)
-	}
 	if s.Has(config.ModuleAuth) {
 		theme := c.Auth.ThemeFile
 		if theme == "" {
@@ -304,17 +236,10 @@ func (s *Stack) override() string {
 		get("auth").env["AUTH_THEME_FILE"] = themeContainerPath
 		mount("auth", theme, themeContainerPath)
 	}
-	if s.Has(config.ModuleOperator) {
-		get("staff-auth").env["AUTH_THEME_FILE"] = themeContainerPath
-		mount("staff-auth", filepath.Join(s.Dir, "staff-theme.json"), themeContainerPath)
-		// The project's route list. Its upstreams may be on the host, like the gateway's.
-		if c.OperatorRoutesFile != "" {
-			get("operator").env["ROUTES_FILE"] = operatorRoutesContainerPath
-			// The gateway reads the file at boot. A changed hash recreates it.
-			get("operator").env["PLAT5_ROUTES_SHA256"] = fileSHA256(filepath.Join(s.Dir, "operator-routes.yml"))
-			mount("operator", filepath.Join(s.Dir, "operator-routes.yml"), operatorRoutesContainerPath)
-			get("operator").extraHosts = true
-		}
+	// The app on your machine (-x app): its compose service names reach the host.
+	if len(s.OnHost) > 0 {
+		get("gateway").hostAliases = append([]string(nil), s.OnHost...)
+		sort.Strings(get("gateway").hostAliases)
 	}
 	// A collector on the host: containers need host.docker.internal.
 	if config.NeedsHostGateway(c.OtelEndpoint) {
@@ -356,14 +281,20 @@ func (s *Stack) override() string {
 				fmt.Fprintf(&b, "      - %q\n", v)
 			}
 		}
-		if o.extraHosts {
+		if o.extraHosts || len(o.hostAliases) > 0 {
 			b.WriteString("    extra_hosts:\n      - \"host.docker.internal:host-gateway\"\n")
+			for _, h := range o.hostAliases {
+				fmt.Fprintf(&b, "      - \"%s:host-gateway\"\n", h)
+			}
 		}
 		if sb := o.build; sb != nil {
 			fmt.Fprintf(&b, "    image: plat5-source/%s:%s\n", sb.service, c.ProjectID)
 			fmt.Fprintf(&b, "    build:\n      context: %q\n", sb.context)
 			if sb.target != "" {
 				fmt.Fprintf(&b, "      target: %s\n", sb.target)
+			}
+			if sb.schema != "" {
+				fmt.Fprintf(&b, "      additional_contexts:\n        schema: %q\n", sb.schema)
 			}
 			b.WriteString("    pull_policy: build\n")
 		}
@@ -377,9 +308,6 @@ func (s *Stack) services() []string {
 	if s.Has(config.ModuleAuth) {
 		out = append(out, "auth")
 	}
-	if s.Has(config.ModuleOperator) {
-		out = append(out, "operator", "operator-audit", "staff-auth")
-	}
 	return out
 }
 
@@ -387,6 +315,9 @@ func (s *Stack) services() []string {
 // image tag: two services building one tag at once is a build error.
 type sourceBuild struct {
 	service, context, target string
+	// schema is the config schema the service compiles in, as the build's
+	// named schema context. Empty: none.
+	schema string
 }
 
 // sourceBuilds is the services built from source: checkouts. Prod targets: what ships.
@@ -395,23 +326,15 @@ func (s *Stack) sourceBuilds() []sourceBuild {
 	var out []sourceBuild
 	if dir := src[config.VersionPlat5]; dir != "" {
 		for _, svc := range []string{"control-plane", "gateway", "identity", "audit"} {
-			out = append(out, sourceBuild{svc, filepath.Join(dir, "services", svc), "prod"})
+			sb := sourceBuild{service: svc, context: filepath.Join(dir, "services", svc), target: "prod"}
+			if svc == "control-plane" || svc == "gateway" {
+				sb.schema = filepath.Join(dir, "schema")
+			}
+			out = append(out, sb)
 		}
 	}
-	if dir := src[config.VersionAuth]; dir != "" {
-		if s.Has(config.ModuleAuth) {
-			out = append(out, sourceBuild{"auth", filepath.Join(dir, "issuer"), "prod"})
-		}
-		if s.Has(config.ModuleOperator) {
-			out = append(out, sourceBuild{"staff-auth", filepath.Join(dir, "issuer"), "prod"})
-		}
-	}
-	if dir := src[config.VersionOperator]; dir != "" && s.Has(config.ModuleOperator) {
-		out = append(out,
-			sourceBuild{"operator", dir, "prod"},
-			sourceBuild{"operator-audit", dir, "operator-audit"},
-			sourceBuild{"operator-audit-migrate", dir, "operator-audit"},
-		)
+	if dir := src[config.VersionAuth]; dir != "" && s.Has(config.ModuleAuth) {
+		out = append(out, sourceBuild{service: "auth", context: filepath.Join(dir, "issuer"), target: "prod"})
 	}
 	return out
 }
@@ -448,102 +371,85 @@ func firstNonEmpty(vals ...string) string {
 	return ""
 }
 
-// plat5Network is the core compose file's network that the gateways are on.
+// plat5Network is the core compose file's network that the gateway is on.
 // appNetworkKey is what the app's override calls it, unlikely to be the app's own.
 const (
 	plat5Network  = "plat5"
 	appNetworkKey = "plat5-stack"
 )
 
-// JoinApp points each bare-port upstream at the app's own container when the
-// app's compose file publishes that port: "3000" becomes "api:3000", on the
-// Plat5 network. The gateways then reach the app the same way on every OS, so
-// the app can publish its port on 127.0.0.1 only. JoinApp writes an override
-// that puts those services on the network, adds it to app, and sets
-// s.Config.Upstreams. It returns what it pointed where, by upstream name.
-//
-// plat5 start -x app runs no container, so a bare port stays a process on
-// your machine (host.docker.internal).
-func (s *Stack) JoinApp(app *compose.Runner) (map[string]state.AppUpstream, error) {
-	published, err := app.HostPorts()
+// JoinApp puts the app's services that a routes file names as its url host
+// (http://api:3000) on the Plat5 network, so the gateway reaches them by service
+// name, the same way on every OS. The app can then publish its ports on
+// 127.0.0.1 only. It writes an override, adds it to app, and returns the
+// services it joined.
+func (s *Stack) JoinApp(app *compose.Runner, hosts []string) ([]string, error) {
+	networks, err := app.ServiceNetworks()
 	if err != nil {
 		return nil, fmt.Errorf("your app: %w", err)
 	}
-	taken, err := bundle.Services()
-	if err != nil {
+	joined, err := s.appServices(networks, hosts)
+	if err != nil || len(joined) == 0 {
 		return nil, err
-	}
-	joined, ups, err := inDocker(s.Config.Upstreams, published, taken)
-	if err != nil {
-		return nil, err
-	}
-	if len(joined) == 0 {
-		return nil, nil
 	}
 	path := filepath.Join(s.Dir, "app-override.yml")
 	if err := os.MkdirAll(s.Dir, 0o755); err != nil {
 		return nil, err
 	}
-	if err := os.WriteFile(path, []byte(appOverride(s.Config.ComposeProject, joined, published)), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(appOverride(s.Config.ComposeProject, joined, networks)), 0o644); err != nil {
 		return nil, err
 	}
 	app.Files = append(app.Files, path)
-	s.Config.Upstreams = ups
 	return joined, nil
 }
 
-// inDocker is JoinApp's choice: which upstreams an app container serves, and
-// the upstreams with those pointed at it. A service named like a Plat5 one
-// can't join: its name would shadow Plat5's on the network.
-func inDocker(ups map[string]string, published map[int]compose.Published, taken []string) (map[string]state.AppUpstream, map[string]string, error) {
-	joined := map[string]state.AppUpstream{}
-	out := make(map[string]string, len(ups))
-	for name, raw := range ups {
-		out[name] = raw
-		port, err := strconv.Atoi(strings.TrimSpace(raw))
-		if err != nil {
-			continue
-		}
-		p, ok := published[port]
-		if !ok {
-			continue
-		}
-		if contains(taken, p.Service) {
-			return nil, nil, fmt.Errorf("your app's service %q publishes upstreams.%s (%d), but Plat5 has a service by that name; rename it in your compose file", p.Service, name, port)
-		}
-		to := fmt.Sprintf("%s:%d", p.Service, p.Target)
-		joined[name] = state.AppUpstream{From: raw, To: to}
-		out[name] = to
+// AppOnHost is JoinApp for plat5 start -x app: the same services, run on your
+// machine, so the gateway maps their names to it.
+func (s *Stack) AppOnHost(app *compose.Runner, hosts []string) ([]string, error) {
+	networks, err := app.ServiceNetworks()
+	if err != nil {
+		return nil, fmt.Errorf("your app: %w", err)
 	}
-	return joined, out, nil
+	onHost, err := s.appServices(networks, hosts)
+	if err != nil {
+		return nil, err
+	}
+	s.OnHost = onHost
+	return onHost, nil
+}
+
+// appServices is the url hosts that are services in the app's compose file. A
+// service named like a Plat5 one can't join: its name would shadow Plat5's on
+// the network.
+func (s *Stack) appServices(networks map[string][]string, hosts []string) ([]string, error) {
+	taken, err := bundle.Services()
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, h := range hosts {
+		if _, ok := networks[h]; !ok || contains(out, h) {
+			continue
+		}
+		if contains(taken, h) {
+			return nil, fmt.Errorf("a routes file's url names your app's service %q, but Plat5 has a service by that name; rename it in your compose file and the url", h)
+		}
+		out = append(out, h)
+	}
+	sort.Strings(out)
+	return out, nil
 }
 
 // appOverride puts each joined service on the Plat5 network, beside its own.
-func appOverride(project string, joined map[string]state.AppUpstream, published map[int]compose.Published) string {
-	own := map[string][]string{}
-	for _, j := range joined {
-		svc, _, _ := strings.Cut(j.To, ":")
-		own[svc] = nil
-	}
-	for _, p := range published {
-		if _, ok := own[p.Service]; ok {
-			own[p.Service] = p.Networks
-		}
-	}
-	names := make([]string, 0, len(own))
-	for n := range own {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-
+func appOverride(project string, joined []string, networks map[string][]string) string {
 	var b strings.Builder
 	b.WriteString("# Generated by plat5 start. Do not edit.\n")
-	b.WriteString("# Puts the services plat5.yml's upstreams name on the Plat5 network, so the\n")
-	b.WriteString("# gateways reach them by service name. plat5 start -x app does not use it.\n")
+	b.WriteString("# Puts the services your routes files' urls name on the Plat5 network, so the\n")
+	b.WriteString("# gateway reaches them by service name. plat5 start -x app does not use it.\n")
 	b.WriteString("services:\n")
-	for _, n := range names {
+	for _, n := range joined {
 		fmt.Fprintf(&b, "  %s:\n    networks:\n", n)
-		nets := own[n]
+		nets := networks[n]
 		if len(nets) == 0 {
 			nets = []string{"default"}
 		}
