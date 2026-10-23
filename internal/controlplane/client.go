@@ -14,7 +14,8 @@ import (
 	"github.com/plat5dev/cli/internal/upstreams"
 )
 
-// Client talks to the control plane's admin API: routes, roles, and CORS origins.
+// Client talks to the control plane's admin API. The v1 calls (Apply, List,
+// PutDocument) are plat5 start's until it moves to the config API (config.go).
 type Client struct {
 	BaseURL    string
 	AdminToken string
@@ -151,45 +152,6 @@ func (c *Client) List() (map[string]json.RawMessage, error) {
 	return wrap.Services, nil
 }
 
-// Get returns one service config JSON.
-func (c *Client) Get(name string) (json.RawMessage, error) {
-	req, err := http.NewRequest(http.MethodGet, c.BaseURL+"/services/"+name, nil)
-	if err != nil {
-		return nil, err
-	}
-	c.auth(req)
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode >= 400 {
-		return nil, parseErr(resp.StatusCode, body)
-	}
-	return json.RawMessage(body), nil
-}
-
-// Delete removes a service.
-func (c *Client) Delete(name string) error {
-	u := c.BaseURL + "/services/" + name
-	req, err := http.NewRequest(http.MethodDelete, u, nil)
-	if err != nil {
-		return err
-	}
-	c.auth(req)
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode >= 400 {
-		return parseErr(resp.StatusCode, body)
-	}
-	return nil
-}
-
 // PutDocument replaces a document (`roles`, `cors`) with the file at path,
 // sent as YAML or JSON by its extension. It returns the document's new revision.
 func (c *Client) PutDocument(kind, path string) (int64, error) {
@@ -224,26 +186,6 @@ func (c *Client) PutDocument(kind, path string) (int64, error) {
 		return 0, fmt.Errorf("decode %s response: %w", kind, err)
 	}
 	return out.Revision, nil
-}
-
-// GetDocument returns a document (`roles`, `cors`) as JSON, with its revision.
-// A document never written is an *APIError with StatusCode 404.
-func (c *Client) GetDocument(kind string) (json.RawMessage, error) {
-	req, err := http.NewRequest(http.MethodGet, c.BaseURL+"/"+kind, nil)
-	if err != nil {
-		return nil, err
-	}
-	c.auth(req)
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode >= 400 {
-		return nil, parseErr(resp.StatusCode, body)
-	}
-	return json.RawMessage(body), nil
 }
 
 // Ready returns true if list succeeds.

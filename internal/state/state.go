@@ -22,7 +22,7 @@ type State struct {
 	// AppCompose is the app compose file the last start ran. Empty: none.
 	AppCompose string `json:"app_compose,omitempty"`
 	// AppUpstreams is the upstreams the last start pointed at the app's
-	// containers, by name. routes apply binds them the same way.
+	// containers, by name. start's routes apply binds them the same way.
 	AppUpstreams map[string]AppUpstream `json:"app_upstreams,omitempty"`
 	Dev          *Dev                   `json:"dev,omitempty"`
 	StartedAt    time.Time              `json:"started_at"`

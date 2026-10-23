@@ -145,8 +145,8 @@ services:
 // starterRoles is a starting point, not Plat5's: Plat5 names no roles (docs/roles.md).
 const starterRoles = `# Your roles. Each grants labels; routes require them (required_labels).
 # ["*"] grants every label. The org:* labels match routes.identity.yml and
-# routes.audit.yml. Add your own services' labels here. plat5 start (or
-# plat5 roles apply) writes this file to the control plane; identity picks it up.
+# routes.audit.yml. Add your own services' labels here. plat5 start writes this
+# file to the control plane; identity picks it up.
 roles:
   owner: ["*"]
   admin: [org:write, org:members:write, org:service-accounts:write, org:audit:read]
