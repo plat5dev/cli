@@ -3,7 +3,7 @@
 Run Plat5 locally, and manage a deployment's config. Everything runs in Docker: the CLI is one binary and needs nothing else.
 
 ```bash
-plat5 init my-app       # a project: the config, its generated routes, and how to run it
+plat5 init my-app       # a project: the config, its service files, and how to run it
 cd my-app
 plat5 start             # Plat5 and its modules; applies the config; prints links, logins, a key
 ```
@@ -12,13 +12,13 @@ plat5 start             # Plat5 and its modules; applies the config; prints link
 
 ```
 my-app/
-  plat5.yml             the deployment's config: organization and project kinds, roles
-  routes/identity.yml   identity's routes for those kinds (plat5 routes generate)
-  routes/audit.yml      audit's
-  plat5.dev.yml         how plat5 start runs it on your machine
+  plat5.yml               the deployment's config: organization and project kinds, roles
+  services/identity.yml   identity's service file: its url, and overrides of its resources
+  services/audit.yml      audit's
+  plat5.dev.yml           how plat5 start runs it on your machine
 ```
 
-Starters (an API and consoles to copy into the project) aren't available yet: `--template none`, the default, is the only one. Add your own API as a routes file in `routes/`, list it in `plat5.yml`'s `services`, and point `app.compose` in `plat5.dev.yml` at its compose file.
+Starters (an API and consoles to copy into the project) aren't available yet: `--template none`, the default, is the only one. Add your own API as a service file in `services/`, list it in `plat5.yml`'s `services`, and point `app.compose` in `plat5.dev.yml` at its compose file.
 
 Self-hosting a deployment is compose, not this CLI: [plat5 `docs/guides/deploy.md`](https://github.com/plat5dev/plat5/blob/master/docs/guides/deploy.md).
 
@@ -86,10 +86,10 @@ Local Auth runs in dev mode: `POST /dev/token` mints a token for any email, and 
 | `plat5 plan [plat5.yml] [-out plan.json] [--detailed-exitcode]` | Dry run: the diff applying it would make |
 | `plat5 apply [plat5.yml \| plan.json] [--auto-approve] [--confirm kind=n]` | Plan, confirm, apply; or apply a saved plan |
 | `plat5 routes generate [plat5.yml]` | Write `routes/identity.yml` and `routes/audit.yml` from the config's kinds |
-| `plat5 config pull [--revision n] [dir]` | Write an applied revision as `plat5.yml` and `routes/<service>.yml` |
+| `plat5 config pull [--revision n] [dir]` | Write an applied revision as `plat5.yml` and `services/<service>.yml` |
 | `plat5 version` / `--version` | The CLI version, and the image versions `plat5.dev.yml` pins |
 
-`validate`, `plan`, `apply`, `routes generate` and `config pull` work on a deployment's config: `plat5.yml` and the routes files it lists ([plat5 `docs/reference/cli.md`](https://github.com/plat5dev/plat5/blob/master/docs/reference/cli.md)). They talk to the local control plane (`http://localhost:5402`, `dev-admin-token`) unless `--control-plane-url` / `--admin-token` (or `PLAT5_CONTROL_PLANE_URL` / `PLAT5_ADMIN_TOKEN`) point elsewhere.
+`validate`, `plan`, `apply`, `routes generate` and `config pull` work on a deployment's config: `plat5.yml` and the service files it lists ([plat5 `docs/reference/cli.md`](https://github.com/plat5dev/plat5/blob/master/docs/reference/cli.md)). They talk to the local control plane (`http://localhost:5402`, `dev-admin-token`) unless `--control-plane-url` / `--admin-token` (or `PLAT5_CONTROL_PLANE_URL` / `PLAT5_ADMIN_TOKEN`) point elsewhere.
 
 ## `plat5.dev.yml`
 
@@ -141,7 +141,7 @@ source:                            # contributors: build from checkouts (see bel
 
 ### Your app and its url
 
-A routes file's `url` is the address the gateway reaches, in the local stack as in any deployment, so `plat5 start` and `plat5 apply` send the same config. Write it with your app's compose service name: `url: http://api:3000`.
+A service file's `url` is the address the gateway reaches, in the local stack as in any deployment, so `plat5 start` and `plat5 apply` send the same config. Write it with your app's compose service name: `url: http://api:3000`.
 
 When `plat5 start` runs `app.compose`, each service a `url` names is put on the Plat5 network with a generated override (`app-override.yml` in the stack dir), so the gateway reaches it by name, the same way on every OS. Its host port can then be bound to `127.0.0.1`: only the gateway may reach a Plat5 service, and the host port is for your own curls. With `plat5 start -x app` there is no container: `start` maps the name to your machine on the gateway (`extra_hosts: api:host-gateway`), so the app must listen there on the url's port, beyond loopback on Linux. A service named like a Plat5 service (`gateway`, `postgres`, …) can't join; rename it.
 

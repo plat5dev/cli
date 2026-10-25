@@ -17,12 +17,11 @@ import (
 )
 
 // noTemplate is --template none: Plat5 alone, with organization and project kinds.
-// It is the only starter until the starter repos ship plat5.yml and routes/.
+// It is the only starter until the starter repos ship plat5.yml and services/.
 const noTemplate = "none"
 
-// initFiles is the config init writes: plat5's compose seed (organization and
-// project kinds, roles for the generated labels, and the routes generated for
-// them), kept equal to it by TestInitFilesMatchPlat5.
+// initFiles is the config init writes: organization and project kinds, the
+// example roles, and identity's and audit's service files at their defaults.
 //
 //go:embed initfiles
 var initFiles embed.FS
@@ -43,14 +42,14 @@ var initCmd = &cobra.Command{
 	Long: `Create a Plat5 project, then cd into it and run plat5 start:
 
   plat5.yml          the deployment's config: organization and project kinds, roles
-  routes/            identity's and audit's routes for those kinds
+  services/          identity's and audit's service files
   plat5.dev.yml      how plat5 start runs it on your machine
 
   plat5 init my-app
   plat5 init my-app -y            take the defaults (every module)
 
 Without a directory, the project is the current directory. An existing
-plat5.yml or routes file is kept.
+plat5.yml or service file is kept.
 
 Starters (an API and consoles to copy) aren't available yet: --template none,
 the default, is the only one.
@@ -123,7 +122,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// writeInitFiles writes plat5.yml and routes/, keeping any that exist.
+// writeInitFiles writes plat5.yml and services/, keeping any that exist.
 func writeInitFiles(dir string) error {
 	return fs.WalkDir(initFiles, "initfiles", func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -314,7 +313,7 @@ func renderDevYML(projectID string, ch initChoices, versions map[string]string) 
 	p("  %-20s # Grafana with logs, traces, metrics\n\n", fmt.Sprintf("observability: %t", ch.modules[config.ModuleObservability]))
 
 	p("# Your app. Set compose: and plat5 start runs it after Plat5 (-x app to run it\n")
-	p("# yourself). A routes file's url names its compose service (http://api:3000).\n")
+	p("# yourself). A service file's url names its compose service (http://api:3000).\n")
 	p("# app:\n#   compose: ./docker-compose.yml\n#   web: http://localhost:3001\n")
 
 	p(`

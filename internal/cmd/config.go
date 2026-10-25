@@ -19,7 +19,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// The deployment's config: plat5.yml and its routes files, planned and applied
+// The deployment's config: plat5.yml and its service files, planned and applied
 // as a whole (plat5 docs/reference/cli.md).
 
 const (
@@ -52,7 +52,7 @@ func ExitCode(err error) int {
 
 var validateCmd = &cobra.Command{
 	Use:   "validate [plat5.yml]",
-	Short: "Check plat5.yml and its routes files against the schema, offline",
+	Short: "Check plat5.yml and its service files against the schema, offline",
 	Args:  cobra.MaximumNArgs(1),
 	RunE:  runValidate,
 }
@@ -87,7 +87,7 @@ var configCmd = &cobra.Command{
 
 var configPullCmd = &cobra.Command{
 	Use:   "pull [dir]",
-	Short: "Write an applied revision out as plat5.yml and routes/<service>.yml",
+	Short: "Write an applied revision out as plat5.yml and services/<service>.yml",
 	Args:  cobra.MaximumNArgs(1),
 	RunE:  runConfigPull,
 }
@@ -419,10 +419,10 @@ func runConfigPull(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// yamlFiles is every .yml or .yaml file in dir and dir/routes.
+// yamlFiles is every .yml or .yaml file in dir and dir/services.
 func yamlFiles(dir string) []string {
 	var out []string
-	for _, d := range []string{dir, filepath.Join(dir, "routes")} {
+	for _, d := range []string{dir, filepath.Join(dir, "services")} {
 		entries, _ := os.ReadDir(d)
 		for _, e := range entries {
 			ext := strings.ToLower(filepath.Ext(e.Name()))

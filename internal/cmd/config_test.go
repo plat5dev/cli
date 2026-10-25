@@ -124,21 +124,20 @@ func TestExplainNamesTheFile(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnprocessableEntity)
 		_, _ = w.Write([]byte(`{"error":{"code":"VALIDATION_ERROR","message":"x","details":{"fields":[
-			{"path":"services.e10s.routes[0].scope","message":"\"team\" is not a kind or public"},
-			{"path":"default_role","message":"\"x\" is not a role"}]}}}`))
+			{"path":"services.e10s.scopes.team","message":"\"team\" is not a kind, user or public"},
+			{"path":"creator_role","message":"\"x\" is not a role"}]}}}`))
 	}))
 	defer srv.Close()
 	dir := t.TempDir()
-	plat5 := `kinds: { directory: { sign_in: idp }, organization: {} }
-roles: { admin: { labels: ["*"], bindable_at: [organization] } }
-default_role: admin
+	plat5 := `kinds: { organization: { path: "/orgs/{organization}", list_permission: organization:read } }
+roles: { admin: { permissions: ["*"], bindable_at: [organization] } }
 creator_role: admin
-services: [routes/e10s.yml]
+services: [services/e10s.yml]
 `
-	e10s := "e10s:\n  url: http://e10s:3000\n  routes:\n    - { path: /h, scope: team, methods: [GET] }\n"
-	_ = os.MkdirAll(filepath.Join(dir, "routes"), 0o755)
+	e10s := "e10s:\n  url: http://e10s:3000\n  scopes:\n    team:\n      routes:\n        - { path: /h, methods: [GET] }\n"
+	_ = os.MkdirAll(filepath.Join(dir, "services"), 0o755)
 	_ = os.WriteFile(filepath.Join(dir, "plat5.yml"), []byte(plat5), 0o644)
-	_ = os.WriteFile(filepath.Join(dir, "routes/e10s.yml"), []byte(e10s), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "services/e10s.yml"), []byte(e10s), 0o644)
 
 	cfg, err := loadValid(filepath.Join(dir, "plat5.yml"))
 	if err != nil {
@@ -150,12 +149,56 @@ services: [routes/e10s.yml]
 		t.Fatalf("got %v", err)
 	}
 	for _, want := range []string{
-		"routes/e10s.yml: services.e10s.routes[0].scope:",
-		"plat5.yml: default_role:",
+		"services/e10s.yml: services.e10s.scopes.team:",
+		"plat5.yml: creator_role:",
 	} {
 		if !strings.Contains(stderr, want) {
 			t.Errorf("want %q in:\n%s", want, stderr)
 		}
+	}
+}
+
+// config pull writes plat5.yml and one service file per service, and won't
+// write over a config.
+func TestConfigPullWritesServiceFiles(t *testing.T) {
+	flat := map[string]any{
+		"kinds":        map[string]any{"organization": map[string]any{"path": "/orgs/{organization}", "list_permission": "organization:read"}},
+		"roles":        map[string]any{"admin": map[string]any{"permissions": []any{"*"}, "bindable_at": []any{"organization"}}},
+		"creator_role": "admin",
+		"services": map[string]any{
+			"identity": map[string]any{"url": "http://identity:3000"},
+			"audit":    map[string]any{"url": "http://audit:3002"},
+		},
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"revision": 3, "created_at": "now", "config": flat})
+	}))
+	defer srv.Close()
+	flagControlPlaneURL = srv.URL
+	defer func() { flagControlPlaneURL = "" }()
+
+	dir := t.TempDir()
+	captureStdout(t, func() {
+		if err := runConfigPull(configPullCmd, []string{dir}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	cfg, err := loadValid(filepath.Join(dir, "plat5.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Files["identity"] != "services/identity.yml" || cfg.Files["audit"] != "services/audit.yml" {
+		t.Fatalf("files: %v", cfg.Files)
+	}
+	if !reflect.DeepEqual(cfg.Flat, flat) {
+		t.Fatalf("pulled %v", cfg.Flat)
+	}
+
+	again := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(again, "services"), 0o755)
+	_ = os.WriteFile(filepath.Join(again, "services", "e10s.yml"), []byte("e10s: {}\n"), 0o644)
+	if err := runConfigPull(configPullCmd, []string{again}); err == nil || !strings.Contains(err.Error(), "services/e10s.yml") {
+		t.Fatalf("want a refusal naming services/e10s.yml, got %v", err)
 	}
 }
 

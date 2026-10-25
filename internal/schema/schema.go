@@ -22,7 +22,7 @@ var files embed.FS
 
 const base = "https://plat5.com/schema/"
 
-// FieldError is one problem at a field path, such as services.e10s.routes[2].scope.
+// FieldError is one problem at a field path, such as services.e10s.scopes.project.routes[2].path.
 type FieldError struct {
 	Path    string `json:"path"`
 	Message string `json:"message"`
@@ -108,8 +108,8 @@ func ValidateConfig(instance any) ([]FieldError, error) {
 	return out, nil
 }
 
-// FieldPath writes an instance location as a field path: [services e10s routes 2]
-// is services.e10s.routes[2]. Index segments are those under an array.
+// FieldPath writes an instance location as a field path: [services e10s scopes project routes 2]
+// is services.e10s.scopes.project.routes[2]. Index segments are those under an array.
 func FieldPath(instance any, location []string) string {
 	var b strings.Builder
 	at := instance

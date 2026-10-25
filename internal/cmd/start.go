@@ -40,7 +40,7 @@ applies without a prompt; a destructive one is refused, so run plat5 apply,
 which asks to confirm. Then it seeds the dev person, a node labelled Dev of
 each root kind, and a personal key. Running it again updates the stack in place.
 
-A routes file's url is what the gateway reaches, as in any deployment. When
+A service file's url is what the gateway reaches, as in any deployment. When
 its host is a service in your app's compose file (http://api:3000), start puts
 that service on the Plat5 network, so the gateway reaches it by name and its
 port on your machine can be bound to 127.0.0.1. With -x app there is no

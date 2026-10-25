@@ -11,31 +11,32 @@ import (
 )
 
 const plat5 = `kinds:
-  directory: { sign_in: idp }
-  organization: { label: Organization, segment: orgs }
+  organization: { path: "/orgs/{organization}", list_permission: organization:read }
 roles:
-  admin: { labels: ["*"], bindable_at: [organization] }
-default_role: admin
+  admin: { permissions: ["*"], bindable_at: [organization] }
 creator_role: admin
 services:
-  - routes/e10s.yml
-  - routes/api.billing.yml
+  - services/e10s.yml
+  - services/api.billing.yml
 `
 
 const e10s = `e10s:
   url: http://e10s:3000
-  routes:
-    - path: /orgs/{organization}/plans
-      scope: organization
-      upstream: /orgs/{subject.organization_id}/plans
-      methods:
-        GET: { required_labels: [plans:read] }
+  scopes:
+    organization:
+      upstream_prefix: /orgs/{organization.id}
+      routes:
+        - path: /plans
+          methods:
+            GET: { required_permissions: [plans:read] }
 `
 
 const apiBilling = `api.billing:
   url: http://api:3000
-  routes:
-    - { path: /health, scope: public, methods: [GET] }
+  scopes:
+    public:
+      routes:
+        - { path: /health, methods: [GET] }
 `
 
 func write(t *testing.T, files map[string]string) string {
@@ -54,7 +55,7 @@ func write(t *testing.T, files map[string]string) string {
 }
 
 func TestLoadAssemblesOneFlatConfig(t *testing.T) {
-	dir := write(t, map[string]string{"plat5.yml": plat5, "routes/e10s.yml": e10s, "routes/api.billing.yml": apiBilling})
+	dir := write(t, map[string]string{"plat5.yml": plat5, "services/e10s.yml": e10s, "services/api.billing.yml": apiBilling})
 	c, err := Load(filepath.Join(dir, "plat5.yml"))
 	if err != nil {
 		t.Fatal(err)
@@ -69,11 +70,11 @@ func TestLoadAssemblesOneFlatConfig(t *testing.T) {
 }
 
 func TestErrorsNameTheirFile(t *testing.T) {
-	bad := strings.Replace(e10s, "scope: organization", "scope: 7", 1)
+	bad := strings.Replace(e10s, "upstream_prefix: /orgs/{organization.id}", "upstream_prefix: 7", 1)
 	dir := write(t, map[string]string{
-		"plat5.yml":              strings.Replace(plat5, "default_role: admin", "default_role: Admin", 1),
-		"routes/e10s.yml":        bad,
-		"routes/api.billing.yml": apiBilling,
+		"plat5.yml":                strings.Replace(plat5, "creator_role: admin", "creator_role: Admin", 1),
+		"services/e10s.yml":        bad,
+		"services/api.billing.yml": apiBilling,
 	})
 	c, err := Load(filepath.Join(dir, "plat5.yml"))
 	if err != nil {
@@ -84,12 +85,12 @@ func TestErrorsNameTheirFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	joined := strings.Join(problems, "\n")
-	for _, want := range []string{"plat5.yml: default_role:", "routes/e10s.yml: services.e10s.routes[0].scope:"} {
+	for _, want := range []string{"plat5.yml: creator_role:", "services/e10s.yml: services.e10s.scopes.organization.upstream_prefix:"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("want %q in:\n%s", want, joined)
 		}
 	}
-	if got := c.FileOf("services.api.billing.routes[0]"); got != "routes/api.billing.yml" {
+	if got := c.FileOf("services.api.billing.routes[0]"); got != "services/api.billing.yml" {
 		t.Errorf("FileOf dotted name: %s", got)
 	}
 	if got := c.FileOf("services.nope"); got != "plat5.yml" {
@@ -97,20 +98,20 @@ func TestErrorsNameTheirFile(t *testing.T) {
 	}
 }
 
-func TestRoutesFilesHoldOneServiceEach(t *testing.T) {
-	dir := write(t, map[string]string{"plat5.yml": plat5, "routes/e10s.yml": e10s + apiBilling, "routes/api.billing.yml": apiBilling})
+func TestServiceFilesHoldOneServiceEach(t *testing.T) {
+	dir := write(t, map[string]string{"plat5.yml": plat5, "services/e10s.yml": e10s + apiBilling, "services/api.billing.yml": apiBilling})
 	if _, err := Load(filepath.Join(dir, "plat5.yml")); err == nil || !strings.Contains(err.Error(), "exactly one service") {
 		t.Fatalf("got %v", err)
 	}
-	dir = write(t, map[string]string{"plat5.yml": plat5, "routes/e10s.yml": apiBilling, "routes/api.billing.yml": apiBilling})
-	if _, err := Load(filepath.Join(dir, "plat5.yml")); err == nil || !strings.Contains(err.Error(), "already in routes/e10s.yml") {
+	dir = write(t, map[string]string{"plat5.yml": plat5, "services/e10s.yml": apiBilling, "services/api.billing.yml": apiBilling})
+	if _, err := Load(filepath.Join(dir, "plat5.yml")); err == nil || !strings.Contains(err.Error(), "already in services/e10s.yml") {
 		t.Fatalf("got %v", err)
 	}
 }
 
 // What config pull writes loads back to the same config.
 func TestWriteRoundTrips(t *testing.T) {
-	src := write(t, map[string]string{"plat5.yml": plat5, "routes/e10s.yml": e10s, "routes/api.billing.yml": apiBilling})
+	src := write(t, map[string]string{"plat5.yml": plat5, "services/e10s.yml": e10s, "services/api.billing.yml": apiBilling})
 	c, err := Load(filepath.Join(src, "plat5.yml"))
 	if err != nil {
 		t.Fatal(err)
@@ -120,7 +121,7 @@ func TestWriteRoundTrips(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(written, []string{"plat5.yml", "routes/api.billing.yml", "routes/e10s.yml"}) {
+	if !reflect.DeepEqual(written, []string{"plat5.yml", "services/api.billing.yml", "services/e10s.yml"}) {
 		t.Fatalf("wrote %v", written)
 	}
 	back, err := Load(filepath.Join(out, "plat5.yml"))
@@ -138,14 +139,14 @@ func TestWriteRoundTrips(t *testing.T) {
 
 func TestNodeOrdersKeysAndInlinesScalarLists(t *testing.T) {
 	var v any
-	_ = yaml.Unmarshal([]byte("routes: [{methods: [GET], scope: public, path: /h}]\nurl: http://a:1\n"), &v)
+	_ = yaml.Unmarshal([]byte("scopes: {public: {routes: [{methods: [GET], path: /h}]}}\nurl: http://a:1\n"), &v)
 	var b strings.Builder
 	enc := yaml.NewEncoder(&b)
 	enc.SetIndent(2)
 	if err := enc.Encode(Node(v)); err != nil {
 		t.Fatal(err)
 	}
-	want := "url: http://a:1\nroutes:\n  - path: /h\n    scope: public\n    methods: [GET]\n"
+	want := "url: http://a:1\nscopes:\n  public:\n    routes:\n      - path: /h\n        methods: [GET]\n"
 	if b.String() != want {
 		t.Fatalf("got:\n%s", b.String())
 	}

@@ -10,20 +10,20 @@ import (
 func sample() map[string]any {
 	return map[string]any{
 		"kinds": map[string]any{
-			"directory":    map[string]any{"sign_in": "idp"},
-			"organization": map[string]any{"segment": "orgs"},
+			"organization": map[string]any{"path": "/orgs/{organization}", "list_permission": "organization:read"},
 		},
 		"roles": map[string]any{
-			"admin": map[string]any{"labels": []any{"*"}, "bindable_at": []any{"organization"}},
+			"admin": map[string]any{"permissions": []any{"*"}, "bindable_at": []any{"organization"}},
 		},
-		"default_role": "admin",
 		"creator_role": "admin",
 		"services": map[string]any{
 			"e10s": map[string]any{
 				"url": "http://e10s:3000",
-				"routes": []any{
-					map[string]any{"path": "/h", "scope": "public", "methods": []any{"GET"}},
-					map[string]any{"path": "/x", "methods": []any{"GET"}},
+				"scopes": map[string]any{
+					"public": map[string]any{"routes": []any{
+						map[string]any{"path": "/h", "methods": []any{"GET"}},
+						map[string]any{"path": "/x"},
+					}},
 				},
 			},
 		},
@@ -35,7 +35,7 @@ func TestErrorsNameFieldPaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(errs) != 1 || errs[0].Path != "services.e10s.routes[1]" {
+	if len(errs) != 1 || errs[0].Path != "services.e10s.scopes.public.routes[1]" {
 		t.Fatalf("got %v", errs)
 	}
 }

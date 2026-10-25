@@ -51,14 +51,15 @@ func TestRenderedDevYMLWithoutAuthSaysWhy(t *testing.T) {
 }
 
 // init writes a config that passes the schema, with organization and project
-// kinds and the generated routes listed, and keeps files that are there.
+// kinds and identity's and audit's service files listed, and keeps files that
+// are there.
 func TestInitFilesValidate(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, "routes"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, "services"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	mine := []byte("# mine\naudit: {url: \"http://audit:3002\", routes: []}\n")
-	if err := os.WriteFile(filepath.Join(dir, "routes", "audit.yml"), mine, 0o644); err != nil {
+	mine := []byte("# mine\naudit: {url: \"http://audit:3002\"}\n")
+	if err := os.WriteFile(filepath.Join(dir, "services", "audit.yml"), mine, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	captureStdout(t, func() {
@@ -66,10 +67,10 @@ func TestInitFilesValidate(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	if got, _ := os.ReadFile(filepath.Join(dir, "routes", "audit.yml")); string(got) != string(mine) {
-		t.Fatalf("an existing routes file was replaced:\n%s", got)
+	if got, _ := os.ReadFile(filepath.Join(dir, "services", "audit.yml")); string(got) != string(mine) {
+		t.Fatalf("an existing service file was replaced:\n%s", got)
 	}
-	_ = os.Remove(filepath.Join(dir, "routes", "audit.yml"))
+	_ = os.Remove(filepath.Join(dir, "services", "audit.yml"))
 	captureStdout(t, func() { _ = writeInitFiles(dir) })
 
 	cfg, err := plat5yml.Load(filepath.Join(dir, "plat5.yml"))
@@ -84,10 +85,10 @@ func TestInitFilesValidate(t *testing.T) {
 	if kinds["organization"] == nil || kinds["project"] == nil {
 		t.Fatalf("kinds: %v", kinds)
 	}
-	if cfg.Files["identity"] != "routes/identity.yml" || cfg.Files["audit"] != "routes/audit.yml" {
+	if cfg.Files["identity"] != "services/identity.yml" || cfg.Files["audit"] != "services/audit.yml" {
 		t.Fatalf("services: %v", cfg.Files)
 	}
-	if got := rootKinds(cfg.Flat); len(got) != 1 || got[0].Kind != "organization" || got[0].Segment != "orgs" {
+	if got := rootKinds(cfg.Flat); len(got) != 1 || got[0].Kind != "organization" {
 		t.Fatalf("root kinds: %+v", got)
 	}
 }
@@ -99,7 +100,7 @@ func TestInitFilesMatchPlat5(t *testing.T) {
 	if _, err := os.Stat(seed); err != nil {
 		t.Skip("no plat5 checkout beside the CLI")
 	}
-	for _, f := range []string{"plat5.yml", "routes/identity.yml", "routes/audit.yml"} {
+	for _, f := range []string{"plat5.yml", "services/identity.yml", "services/audit.yml"} {
 		theirs, err := os.ReadFile(filepath.Join(seed, f))
 		if err != nil {
 			t.Fatal(err)
