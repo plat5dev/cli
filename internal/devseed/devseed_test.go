@@ -20,7 +20,7 @@ type fake struct {
 	requests []string
 	token    map[string]string // the last /dev/token body
 	missing  string            // a route the config leaves out: 404
-	failMe   bool
+	failUser bool
 }
 
 func (f *fake) handler() http.Handler {
@@ -43,19 +43,19 @@ func (f *fake) handler() http.Handler {
 			write(200, map[string]string{"access_token": "jwt"})
 			return
 		}
-		authed := r.Header.Get("Authorization") == "Bearer jwt" || f.keys[r.Header.Get("X-API-Key")]
-		if !authed {
+		credential, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if credential != "jwt" && !f.keys[credential] {
 			write(401, map[string]any{})
 			return
 		}
 		switch route {
-		case "GET /me":
-			if f.failMe {
+		case "GET /user":
+			if f.failUser {
 				write(503, map[string]any{"error": map[string]string{"code": "UNAVAILABLE"}})
 				return
 			}
-			write(200, map[string]any{"id": "m_dev", "principal": "person", "name": "Dev User", "status": "active"})
-		case "GET /me/nodes":
+			write(200, map[string]any{"id": "01jbx9q3t5vk8m2n4p6r7s8t9w", "name": "Dev User", "status": "active"})
+		case "GET /user/nodes":
 			if r.URL.Query().Get("kind") != "organization" {
 				write(200, map[string]any{"nodes": []any{}, "has_more": false})
 				return
@@ -65,12 +65,12 @@ func (f *fake) handler() http.Handler {
 			var body map[string]string
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			f.created++
-			n := map[string]any{"id": "n_org", "kind": "organization", "slug": "dev", "label": body["label"], "parent_id": nil}
+			n := map[string]any{"id": "01jbx9q3t5vk8m2n4p6r7s8t90", "kind": "organization", "slug": "dev", "display_name": body["display_name"], "parent_id": nil}
 			f.roots = append(f.roots, n)
 			write(201, n)
-		case "POST /me/keys":
+		case "POST /user/keys":
 			f.keys["plat5-k-2-dev"] = true
-			write(201, map[string]string{"id": "k_1", "key": "plat5-k-2-dev"})
+			write(201, map[string]string{"id": "01jbx9q3t5vk8m2n4p6r7s8t91", "key": "plat5-k-2-dev"})
 		default:
 			write(404, map[string]any{})
 		}
@@ -87,8 +87,8 @@ func newFake(t *testing.T) (*fake, Client) {
 		ClientID:   "plat5",
 		Email:      "dev@example.com",
 		Name:       "Dev User",
-		NodeLabel:  "Dev",
-		Roots:      []RootKind{{Kind: "organization", Segment: "orgs"}},
+		NodeName:   "Dev",
+		Roots:      []RootKind{{Kind: "organization", Collection: "orgs"}},
 	}
 }
 
@@ -98,11 +98,14 @@ func TestEnsureSeedsOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dev.Key != "plat5-k-2-dev" || dev.MemberID != "m_dev" || len(dev.Nodes) != 1 {
+	if dev.Key != "plat5-k-2-dev" || dev.UserID != "01jbx9q3t5vk8m2n4p6r7s8t9w" || len(dev.Nodes) != 1 {
 		t.Fatalf("%+v", dev)
 	}
-	if n := dev.Nodes[0]; n.Kind != "organization" || n.ID != "n_org" || n.Path != "/orgs/dev" {
+	if n := dev.Nodes[0]; n.Kind != "organization" || n.ID != "01jbx9q3t5vk8m2n4p6r7s8t90" || n.Path != "/orgs/dev" {
 		t.Fatalf("node: %+v", n)
+	}
+	if f.roots[0]["display_name"] != "Dev" {
+		t.Fatalf("created %v", f.roots[0])
 	}
 	// The name rides in the dev token as its name claim; there is no name write.
 	if f.token["name"] != "Dev User" || f.token["email"] != "dev@example.com" || f.token["client_id"] != "plat5" {
@@ -120,35 +123,35 @@ func TestEnsureSeedsOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if again != dev || strings.Join(f.requests, ",") != "GET /me" {
+	if again != dev || strings.Join(f.requests, ",") != "GET /user" {
 		t.Fatalf("reused: %v, requests %v", again == dev, f.requests)
 	}
 }
 
-func TestEnsureReusesTheNodeByLabel(t *testing.T) {
+func TestEnsureReusesTheNodeByName(t *testing.T) {
 	f, c := newFake(t)
 	f.roots = []map[string]any{
-		{"id": "n_other", "slug": "acme", "label": "Acme", "parent_id": nil},
-		{"id": "n_old", "slug": "dev-2", "label": "Dev", "parent_id": nil},
+		{"id": "01jbx9q3t5vk8m2n4p6r7s8t92", "slug": "acme", "display_name": "Acme", "parent_id": nil},
+		{"id": "01jbx9q3t5vk8m2n4p6r7s8t93", "slug": "dev-2", "display_name": "Dev", "parent_id": nil},
 	}
 	// A lost state file, or a reset key: the node is found, not made again.
 	dev, err := Ensure(c, &state.Dev{Email: "dev@example.com", Key: "plat5-k-2-gone"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f.created != 0 || dev.Nodes[0].ID != "n_old" || dev.Nodes[0].Path != "/orgs/dev-2" {
+	if f.created != 0 || dev.Nodes[0].ID != "01jbx9q3t5vk8m2n4p6r7s8t93" || dev.Nodes[0].Path != "/orgs/dev-2" {
 		t.Fatalf("created %d, %+v", f.created, dev.Nodes)
 	}
 }
 
 func TestEnsureReportsGatewayErrors(t *testing.T) {
 	f, c := newFake(t)
-	f.failMe = true
-	if _, err := Ensure(c, nil); err == nil || !strings.Contains(err.Error(), "GET /me") {
+	f.failUser = true
+	if _, err := Ensure(c, nil); err == nil || !strings.Contains(err.Error(), "GET /user") {
 		t.Fatalf("want the failing call named, got %v", err)
 	}
-	f.failMe = false
-	f.missing = "POST /me/keys"
+	f.failUser = false
+	f.missing = "POST /user/keys"
 	if _, err := Ensure(c, nil); err == nil || !IsNotFound(err) {
 		t.Fatalf("a missing route is a 404 error for start to warn about, got %v", err)
 	}

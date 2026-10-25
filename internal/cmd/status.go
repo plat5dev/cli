@@ -90,18 +90,18 @@ func printSummary(stk *stack.Stack, st state.State) {
 	if d := st.Dev; d != nil {
 		w.section(fmt.Sprintf("Dev (%s)", d.Email))
 		for _, n := range d.Nodes {
-			w.row(n.Kind, n.Path, fmt.Sprintf("%q, which they own", config.DevNodeLabel))
+			w.row(n.Kind, n.Path, fmt.Sprintf("%q, which they own", config.DevNodeName))
 		}
 		w.row("Personal key", d.Key, "acts as them in every tree")
 	}
 	w.print()
 
 	if d := st.Dev; d != nil {
-		path := "/me"
+		path := "/user"
 		if len(d.Nodes) > 0 {
 			path = d.Nodes[0].Path
 		}
-		fmt.Printf("\nTry it:\n  curl %s%s -H \"X-API-Key: %s\"\n", c.GatewayURL(), path, d.Key)
+		fmt.Printf("\nTry it:\n  curl %s%s -H \"Authorization: Bearer %s\"\n", c.GatewayURL(), path, d.Key)
 	}
 	fmt.Println()
 }
@@ -178,9 +178,9 @@ func printWhatYouGot(stk *stack.Stack, st state.State) {
 	}
 	fmt.Println("  Tenancy        The path names the node: /orgs/acme/projects/web reaches your API with the org's and")
 	fmt.Println("                 project's ids and the caller's member id. Your handler reads them; no membership checks.")
-	fmt.Printf("  Permissions    required_labels in your routes, granted by roles in %s, are checked before your code runs.\n", file)
-	fmt.Println("  Rate limits    Per route, counted at the node you choose, shared by every gateway replica.")
-	fmt.Println("  Audit          Every write is recorded: who, where, and what changed (GET /orgs/{org}/audit-events).")
+	fmt.Printf("  Permissions    required_permissions in your routes, granted by roles in %s, are checked before your code runs.\n", file)
+	fmt.Printf("  Rate limits    Policies in %s, per caller unless count_at shares one budget, across every gateway replica.\n", file)
+	fmt.Println("  Audit          Every write is recorded: who, where, and what changed (GET /orgs/{organization}/audit-events).")
 	if stk.Has(config.ModuleObservability) {
 		fmt.Printf("  Traces         One request, gateway to your SQL, in Grafana, %s.\n", c.URL(ports.Grafana))
 	}

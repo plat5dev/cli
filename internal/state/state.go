@@ -32,10 +32,10 @@ type State struct {
 // the key still works.
 type Dev struct {
 	Email string `json:"email"`
-	// MemberID is the dev person's directory member: their user id.
-	MemberID string    `json:"member_id"`
-	Nodes    []DevNode `json:"nodes,omitempty"`
-	Key      string    `json:"key"`
+	// UserID is the dev person's user id.
+	UserID string    `json:"user_id"`
+	Nodes  []DevNode `json:"nodes,omitempty"`
+	Key    string    `json:"key"`
 }
 
 // DevNode is a seeded root: its kind, id, slug, and path at the gateway.

@@ -26,14 +26,14 @@ const (
 	DefaultAuthClient = "plat5"
 )
 
-// Local dev logins, seeded into the two Auth instances. Same class of local
-// default as admin_token: never a deployment's.
+// The local dev login, seeded into local Auth, and what start seeds for it. Same
+// class of local default as admin_token: never a deployment's.
 const (
 	DevEmail    = "dev@example.com"
 	DevPassword = "password"
-	// DevNodeLabel is the label of the node start seeds of each root kind.
-	DevNodeLabel = "Dev"
-	DevName      = "Dev User"
+	DevName     = "Dev User"
+	// DevNodeName is the display_name of the node start seeds of each root kind.
+	DevNodeName = "Dev"
 )
 
 // Modules run beside Plat5. All on unless plat5.dev.yml turns one off.

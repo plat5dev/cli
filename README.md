@@ -18,7 +18,7 @@ my-app/
   plat5.dev.yml           how plat5 start runs it on your machine
 ```
 
-Starters (an API and consoles to copy into the project) aren't available yet: `--template none`, the default, is the only one. Add your own API as a service file in `services/`, list it in `plat5.yml`'s `services`, and point `app.compose` in `plat5.dev.yml` at its compose file.
+Starters (an API and consoles to copy into the project) aren't available yet: `--template none`, the default, is the only one. Add your own API as a service file in `services/`, list it in `plat5.yml`'s `services`, and point `app.compose` in `plat5.dev.yml` at its compose file. A service file's routes sit in a kind's scope, relative to its node (`/orgs/{organization}/…`), in the `user` scope for the person's own data, such as `/user/notification-settings` (the service gets `X-Plat5-User-Id`), or in `public` ([plat5 `docs/reference/config/services.md`](https://github.com/plat5dev/plat5/blob/master/docs/reference/config/services.md)).
 
 Self-hosting a deployment is compose, not this CLI: [plat5 `docs/guides/deploy.md`](https://github.com/plat5dev/plat5/blob/master/docs/guides/deploy.md).
 
@@ -53,9 +53,9 @@ A busy port is an error naming it, never a silent move: stop what holds it, or p
 
 `start` prints its steps, and each image it has to pull, one per line. Docker compose's own pull, build, and container output goes to `start.log` in the stack dir; a failure prints its last lines and the path. `-v` / `--verbose` shows it all instead.
 
-Once the control plane is up, `start` applies `plat5.yml` as `plat5 apply` does ([plat5 `docs/reference/cli.md`](https://github.com/plat5dev/plat5/blob/master/docs/reference/cli.md#the-local-stack)). It applies without a prompt; a blocked plan (a kind removed, or its parent changed, while it has nodes) is printed and refused, and a gateway replica that refuses the new revision fails `start`. Then it compares the labels routes require with the labels roles grant. A label on one side only, a letter or two from one on the other, is warned as a likely typo, whichever side it is on: `stats:read (GET /orgs/{organization}/stats) and stats:raed (role member)`. A required label no role grants by name is how an owner-only route is written, so it is a quiet note. With no role holding `"*"`, that note is a warning: nobody can call the route.
+Once the control plane is up, `start` applies `plat5.yml` as `plat5 apply` does ([plat5 `docs/reference/cli.md`](https://github.com/plat5dev/plat5/blob/master/docs/reference/cli.md#the-local-stack)). It applies without a prompt; a blocked plan (a kind removed, or its parent changed, while it has nodes) is printed and refused, and a gateway replica that refuses the new revision fails `start`. Apply checks the config's rules, as in any deployment: a permission a role grants that no route requires, and that is no kind's `list_permission`, is refused, so a typo in a role stops `start` here. A route permission no role grants is legal: only a `"*"` role holds it.
 
-Then it makes sure there is something to call with, through the generated routes like any client: the dev person (`dev@example.com`, named "Dev User" by the `name` claim of the dev token it asks local Auth for), a node labelled `Dev` of each root kind they own (`/orgs/dev`), and one personal key, which acts as them in every tree. It reuses them while the key works. A config without those routes gets a warning. Then it prints every link, login, and key; `plat5 status` prints them again.
+Then it makes sure there is something to call with, through identity's routes at the gateway like any client: the dev person (`dev@example.com`, named "Dev User" by the `name` claim of the dev token it asks local Auth for; `GET /user`), a node named `Dev` of each root kind they own (found through `GET /user/nodes?kind=organization`, or made with `POST /orgs`; `/orgs/dev`), and one personal key (`POST /user/keys`), which acts as them in every tree. Every credential, token or key, is sent as `Authorization: Bearer`. It reuses them while the key works. A config without those routes gets a warning. Then it prints every link, login, and key; `plat5 status` prints them again.
 
 ```
 Plat5
@@ -67,7 +67,7 @@ Dev (dev@example.com)
   Personal key   plat5-k-2-…            acts as them in every tree
 
 Try it:
-  curl http://localhost:5400/orgs/dev -H "X-API-Key: plat5-k-2-…"
+  curl http://localhost:5400/orgs/dev -H "Authorization: Bearer plat5-k-2-…"
 ```
 
 Local Auth runs in dev mode: `POST /dev/token` mints a token for any email, and login codes for new sign-ups are in `plat5 logs auth | grep code`. The sign-in page says it's the local stack and shows the dev login.

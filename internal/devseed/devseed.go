@@ -1,7 +1,7 @@
 // Package devseed gives a fresh local stack something to call with: the dev
-// person, a node labelled Dev of each root kind, and a personal key, which
-// reaches every tree its person can. It goes through the gateway's generated
-// routes like any client, with a token from local Auth's dev mode. Nothing here
+// person, a node named Dev of each root kind, and a personal key, which reaches
+// every tree its person can. It goes through identity's routes at the gateway
+// like any client, with a token from local Auth's dev mode. Nothing here
 // reaches past the gateway (plat5 docs/reference/cli.md#the-local-stack).
 package devseed
 
@@ -19,11 +19,11 @@ import (
 	"github.com/plat5dev/cli/internal/state"
 )
 
-// RootKind is a root kind of the config, other than the sign-in kind, and its
-// path segment at the gateway.
+// RootKind is a root kind of the config and its collection at the gateway:
+// orgs, for /orgs/{organization}.
 type RootKind struct {
-	Kind    string
-	Segment string
+	Kind       string
+	Collection string
 }
 
 // Client reaches the local stack.
@@ -35,10 +35,11 @@ type Client struct {
 	Email    string
 	// Name is the dev person's name. A person's name comes only from the IdP, so
 	// it goes in the dev token as its name claim.
-	Name      string
-	NodeLabel string
-	Roots     []RootKind
-	HTTP      *http.Client
+	Name string
+	// NodeName is the display_name of the node seeded of each root kind.
+	NodeName string
+	Roots    []RootKind
+	HTTP     *http.Client
 }
 
 func (c Client) http() *http.Client {
@@ -49,7 +50,7 @@ func (c Client) http() *http.Client {
 }
 
 // Ensure returns working dev data: prev's while its key still works, else new.
-// Nodes are reused by label, so a lost state file does not make a second one.
+// Nodes are reused by display name, so a lost state file does not make a second one.
 func Ensure(c Client, prev *state.Dev) (*state.Dev, error) {
 	if prev != nil && prev.Email == c.Email && c.works(prev) {
 		return prev, nil
@@ -58,17 +59,15 @@ func Ensure(c Client, prev *state.Dev) (*state.Dev, error) {
 	if err != nil {
 		return nil, err
 	}
-	bearer := header{"Authorization", "Bearer " + token}
-
-	var me struct {
+	var user struct {
 		ID string `json:"id"`
 	}
-	if err := c.call("GET", "/me", bearer, nil, &me); err != nil {
+	if err := c.call("GET", "/user", token, nil, &user); err != nil {
 		return nil, err
 	}
-	dev := &state.Dev{Email: c.Email, MemberID: me.ID}
+	dev := &state.Dev{Email: c.Email, UserID: user.ID}
 	for _, root := range c.Roots {
-		n, err := c.ensureRoot(bearer, root)
+		n, err := c.ensureRoot(token, root)
 		if err != nil {
 			return nil, err
 		}
@@ -77,7 +76,7 @@ func Ensure(c Client, prev *state.Dev) (*state.Dev, error) {
 	var key struct {
 		Key string `json:"key"`
 	}
-	if err := c.call("POST", "/me/keys", bearer, map[string]string{"name": keyName}, &key); err != nil {
+	if err := c.call("POST", "/user/keys", token, map[string]string{"name": keyName}, &key); err != nil {
 		return nil, err
 	}
 	dev.Key = key.Key
@@ -87,44 +86,49 @@ func Ensure(c Client, prev *state.Dev) (*state.Dev, error) {
 const keyName = "plat5 dev"
 
 type node struct {
-	ID       string  `json:"id"`
-	Slug     string  `json:"slug"`
-	Label    string  `json:"label"`
-	ParentID *string `json:"parent_id"`
+	ID          string  `json:"id"`
+	Slug        string  `json:"slug"`
+	DisplayName string  `json:"display_name"`
+	ParentID    *string `json:"parent_id"`
 }
 
-// ensureRoot is the dev person's root of this kind labelled NodeLabel, made on
+// ensureRoot is the dev person's root of this kind named NodeName, made on
 // first use.
-func (c Client) ensureRoot(bearer header, root RootKind) (state.DevNode, error) {
-	path := "/me/nodes?kind=" + url.QueryEscape(root.Kind)
+func (c Client) ensureRoot(token string, root RootKind) (state.DevNode, error) {
+	list := "/user/nodes?kind=" + url.QueryEscape(root.Kind)
+	path := list
 	for {
 		var page struct {
 			Nodes   []node `json:"nodes"`
 			HasMore bool   `json:"has_more"`
 		}
-		if err := c.call("GET", path, bearer, nil, &page); err != nil {
+		if err := c.call("GET", path, token, nil, &page); err != nil {
 			return state.DevNode{}, err
 		}
 		for _, n := range page.Nodes {
-			if n.ParentID == nil && n.Label == c.NodeLabel {
-				return state.DevNode{Kind: root.Kind, ID: n.ID, Slug: n.Slug, Path: "/" + root.Segment + "/" + n.Slug}, nil
+			if n.ParentID == nil && n.DisplayName == c.NodeName {
+				return root.devNode(n), nil
 			}
 		}
 		if !page.HasMore || len(page.Nodes) == 0 {
 			break
 		}
-		path = "/me/nodes?kind=" + url.QueryEscape(root.Kind) + "&starting_after=" + url.QueryEscape(page.Nodes[len(page.Nodes)-1].ID)
+		path = list + "&starting_after=" + url.QueryEscape(page.Nodes[len(page.Nodes)-1].ID)
 	}
 	var n node
-	if err := c.call("POST", "/"+root.Segment, bearer, map[string]string{"label": c.NodeLabel}, &n); err != nil {
+	if err := c.call("POST", "/"+root.Collection, token, map[string]string{"display_name": c.NodeName}, &n); err != nil {
 		return state.DevNode{}, err
 	}
-	return state.DevNode{Kind: root.Kind, ID: n.ID, Slug: n.Slug, Path: "/" + root.Segment + "/" + n.Slug}, nil
+	return root.devNode(n), nil
+}
+
+func (r RootKind) devNode(n node) state.DevNode {
+	return state.DevNode{Kind: r.Kind, ID: n.ID, Slug: n.Slug, Path: "/" + r.Collection + "/" + n.Slug}
 }
 
 // works reports whether the key still authenticates (the data may have been reset).
 func (c Client) works(d *state.Dev) bool {
-	return d.Key != "" && c.call("GET", "/me", header{"X-API-Key", d.Key}, nil, nil) == nil
+	return d.Key != "" && c.call("GET", "/user", d.Key, nil, nil) == nil
 }
 
 func (c Client) devToken() (string, error) {
@@ -147,9 +151,9 @@ func (c Client) devToken() (string, error) {
 	return out.AccessToken, nil
 }
 
-type header struct{ name, value string }
-
-func (c Client) call(method, path string, h header, in, out any) error {
+// call sends one request to the gateway with credential, a token or a key, as
+// Authorization: Bearer.
+func (c Client) call(method, path, credential string, in, out any) error {
 	var body io.Reader
 	if in != nil {
 		data, err := json.Marshal(in)
@@ -162,7 +166,7 @@ func (c Client) call(method, path string, h header, in, out any) error {
 	if err != nil {
 		return err
 	}
-	req.Header.Set(h.name, h.value)
+	req.Header.Set("Authorization", "Bearer "+credential)
 	if in != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}

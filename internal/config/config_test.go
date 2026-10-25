@@ -70,7 +70,7 @@ func TestUnknownKeysAreErrors(t *testing.T) {
 	}
 	for yml, want := range map[string]string{
 		fullYML + "modules: {operator: true}\n":                                 "modules.operator",
-		fullYML + "ports: {staff_auth: 5411}\n":                                 "ports.staff_auth",
+		fullYML + "ports: {console: 5411}\n":                                    "ports.console",
 		fullYML + "source: {operator: ../operator}\n":                           "source.operator",
 		fullYML + "ports: {gateway: 5401}\n":                                    "both 5401",
 		"versions: {auth: v0.2.2}\n":                                            "versions.plat5 is required",

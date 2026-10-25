@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -145,4 +146,16 @@ func TestParsePairs(t *testing.T) {
 	if err := parsePairs("--source", []string{"plat5"}, config.Sources, out); err == nil {
 		t.Fatal("missing value")
 	}
+}
+
+func captureStdout(t *testing.T, f func()) string {
+	t.Helper()
+	r, w, _ := os.Pipe()
+	old := os.Stdout
+	os.Stdout = w
+	f()
+	w.Close()
+	os.Stdout = old
+	data, _ := io.ReadAll(r)
+	return string(data)
 }

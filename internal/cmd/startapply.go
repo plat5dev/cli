@@ -43,36 +43,22 @@ func applyForStart(client *controlplane.Client, path string, w io.Writer) (*plat
 	return cfg, nil
 }
 
-// rootKinds is the config's root kinds other than the sign-in kind, by name,
-// with each one's path segment at the gateway.
+// rootKinds is the config's root kinds, by name, with each one's collection at
+// the gateway: the first piece of its path (/orgs/{organization} is orgs).
 func rootKinds(flat map[string]any) []devseed.RootKind {
 	kinds, _ := flat["kinds"].(map[string]any)
 	var out []devseed.RootKind
 	for name, raw := range kinds {
 		k, _ := raw.(map[string]any)
-		if k == nil {
-			k = map[string]any{}
-		}
 		if _, ok := k["parent"]; ok {
 			continue
 		}
-		if _, ok := k["sign_in"]; ok {
-			continue
-		}
-		seg, _ := k["segment"].(string)
-		if seg == "" {
-			seg = defaultSegment(name)
-		}
-		out = append(out, devseed.RootKind{Kind: name, Segment: seg})
+		path, _ := k["path"].(string)
+		collection, _, _ := strings.Cut(strings.TrimPrefix(path, "/"), "/")
+		out = append(out, devseed.RootKind{Kind: name, Collection: collection})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Kind < out[j].Kind })
 	return out
-}
-
-// defaultSegment is a kind's segment when the config sets none: its name with
-// _ as -, plus s (plat5 docs/reference/config/kinds.md).
-func defaultSegment(kind string) string {
-	return strings.ReplaceAll(kind, "_", "-") + "s"
 }
 
 // urlHosts is the host of every service's url in the config, sorted.

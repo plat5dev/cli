@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/plat5dev/cli/internal/controlplane"
+	"github.com/plat5dev/cli/internal/devseed"
 )
 
 // fakeControlPlane answers dry runs with plan, records applies, and has one
@@ -130,13 +131,13 @@ func TestURLHosts(t *testing.T) {
 
 func TestRootKinds(t *testing.T) {
 	flat := map[string]any{"kinds": map[string]any{
-		"directory":    map[string]any{"sign_in": "idp"},
-		"organization": map[string]any{"segment": "orgs"},
-		"service_area": map[string]any{},
-		"project":      map[string]any{"parent": "organization"},
+		"organization": map[string]any{"path": "/orgs/{organization}"},
+		"service_area": map[string]any{"path": "/areas/{service_area}"},
+		"project":      map[string]any{"parent": "organization", "path": "/projects/{project}"},
 	}}
 	got := rootKinds(flat)
-	if len(got) != 2 || got[0].Kind != "organization" || got[0].Segment != "orgs" || got[1].Segment != "service-areas" {
+	if len(got) != 2 || got[0] != (devseed.RootKind{Kind: "organization", Collection: "orgs"}) ||
+		got[1] != (devseed.RootKind{Kind: "service_area", Collection: "areas"}) {
 		t.Fatalf("%+v", got)
 	}
 }
