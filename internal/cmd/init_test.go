@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -9,7 +10,6 @@ import (
 
 	"github.com/plat5dev/cli/internal/config"
 	"github.com/plat5dev/cli/internal/plat5yml"
-	"gopkg.in/yaml.v3"
 )
 
 func allModules() map[string]bool {
@@ -93,32 +93,36 @@ func TestInitFilesValidate(t *testing.T) {
 	}
 }
 
-// init's files are plat5's compose seed, which plat5 checks against the
-// generator. Checked when plat5 is checked out beside the CLI, as in plat5dev.
+// init's files, loaded, are the config plat5's e2e applies. Checked when plat5
+// is checked out beside the CLI, as in plat5dev.
 func TestInitFilesMatchPlat5(t *testing.T) {
-	seed := filepath.Join("..", "..", "..", "plat5", "compose", "seed")
-	if _, err := os.Stat(seed); err != nil {
-		t.Skip("no plat5 checkout beside the CLI")
+	theirs, err := os.ReadFile(filepath.Join("..", "..", "..", "plat5", "e2e", "testdata", "config.json"))
+	if err != nil {
+		t.Skipf("no plat5 e2e config beside the CLI: %v", err)
 	}
-	for _, f := range []string{"plat5.yml", "services/identity.yml", "services/audit.yml"} {
-		theirs, err := os.ReadFile(filepath.Join(seed, f))
-		if err != nil {
+	dir := t.TempDir()
+	captureStdout(t, func() {
+		if err := writeInitFiles(dir); err != nil {
 			t.Fatal(err)
 		}
-		ours, err := initFiles.ReadFile("initfiles/" + f)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var a, b any
-		if err := yaml.Unmarshal(theirs, &a); err != nil {
-			t.Fatal(err)
-		}
-		if err := yaml.Unmarshal(ours, &b); err != nil {
-			t.Fatal(err)
-		}
-		if !reflect.DeepEqual(a, b) {
-			t.Errorf("internal/cmd/initfiles/%s differs from plat5's compose/seed/%s: copy it again", f, f)
-		}
+	})
+	cfg, err := plat5yml.Load(filepath.Join(dir, "plat5.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ours, err := json.Marshal(cfg.Flat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var a, b any
+	if err := json.Unmarshal(theirs, &a); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(ours, &b); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(a, b) {
+		t.Errorf("internal/cmd/initfiles differ from plat5's e2e/testdata/config.json:\nplat5: %s\ninit:  %s", theirs, ours)
 	}
 }
 

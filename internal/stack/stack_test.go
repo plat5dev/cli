@@ -120,6 +120,10 @@ func TestOverride(t *testing.T) {
 			t.Errorf("override missing %q:\n%s", want, o)
 		}
 	}
+	// Only the control plane compiles the schema in.
+	if strings.Count(o, "additional_contexts:") != 1 {
+		t.Errorf("want the schema context on the control plane only:\n%s", o)
+	}
 	// Each service appears once: a duplicate key is invalid YAML.
 	if strings.Count(o, "\n  auth:\n") != 1 || strings.Count(o, "\n  gateway:\n") != 1 {
 		t.Fatalf("service repeated:\n%s", o)

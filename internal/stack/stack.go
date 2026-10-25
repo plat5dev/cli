@@ -327,7 +327,7 @@ func (s *Stack) sourceBuilds() []sourceBuild {
 	if dir := src[config.VersionPlat5]; dir != "" {
 		for _, svc := range []string{"control-plane", "gateway", "identity", "audit"} {
 			sb := sourceBuild{service: svc, context: filepath.Join(dir, "services", svc), target: "prod"}
-			if svc == "control-plane" || svc == "gateway" {
+			if svc == "control-plane" {
 				sb.schema = filepath.Join(dir, "schema")
 			}
 			out = append(out, sb)

@@ -78,9 +78,8 @@ services:
       PORT: 5002
       INTERNAL_PORT: 5003
       ADMIN_TOKEN: ${ADMIN_TOKEN:?}
-      INTERNAL_AUTH_TOKEN: dev-internal-token
       DATABASE_URL: postgres://plat5:plat5@postgres:5432/plat5?sslmode=disable
-      # Plan counts when a kind is removed. plat5 start applies plat5.yml; no seed.
+      # Plan counts when a kind is removed.
       IDENTITY_INTERNAL_URL: http://identity:3001
       RUST_LOG: info
       OTEL_SERVICE_NAME: control-plane
@@ -114,18 +113,16 @@ services:
       AUTH_JWKS_URI: ${IDP_JWKS_URI:?}
       AUTH_ALLOWED_AUDIENCES: ${IDP_AUDIENCES:?}
       AUTH_SUBJECT_CLAIM: ${IDP_SUBJECT_CLAIM:?}
-      ADMIT_URL: http://identity:3001/internal/admit
+      IDENTITY_INTERNAL_URL: http://identity:3001
+      # How long the gateway trusts an admit answer, and a refusal. It is how
+      # long a revoke, suspend, or role change takes to reach the edge. Short
+      # here, so a role change in plat5.yml shows on the next call; a deployment
+      # picks its own (the gateway's defaults are 5m and 10s).
+      ADMIT_CACHE_TTL: 5s
+      ADMIT_NEGATIVE_CACHE_TTL: 5s
       AUDIT_ENABLED: "true"
       AUDIT_URL: http://audit:3003
-      INTERNAL_AUTH_TOKEN: dev-internal-token
       RUST_LOG: info
-      # How long the gateway trusts an admit answer. It is how long a revoke,
-      # suspend, or role change takes to reach the edge. Short here, so a role
-      # change in plat5.yml shows on the next call; a deployment picks its own
-      # (the gateway's default is 300).
-      APIKEY_CACHE_TTL_SECS: "5"
-      RATE_LIMIT_REQUESTS: "60"
-      RATE_LIMIT_WINDOW_SECONDS: "60"
       RATE_LIMIT_AUTH_FAILURE_REQUESTS: "60"
       RATE_LIMIT_AUTH_FAILURE_WINDOW_SECONDS: "60"
       VALKEY_URL: redis://valkey:6379
@@ -163,7 +160,6 @@ services:
       <<: *otel
       PORT: 3000
       INTERNAL_PORT: 3001
-      INTERNAL_AUTH_TOKEN: dev-internal-token
       APIKEY_BRAND: ${APIKEY_BRAND:?}
       DATABASE_URL: postgres://plat5:plat5@postgres:5432/plat5?sslmode=disable
       CONTROL_PLANE_URL: http://control-plane:5003
@@ -193,7 +189,6 @@ services:
       <<: *otel
       PORT: 3002
       INTERNAL_PORT: 3003
-      INTERNAL_AUTH_TOKEN: dev-internal-token
       DATABASE_URL: postgres://plat5:plat5@postgres:5432/plat5?sslmode=disable
       OTEL_SERVICE_NAME: audit
       OTEL_SERVICE_NAMESPACE: audit

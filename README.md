@@ -165,7 +165,7 @@ cd my-app && plat5 start      # builds, then runs; the first Rust build takes a 
 
 The embedded compose files (`internal/bundle/stack`) track plat5 HEAD, so a `plat5` checkout at HEAD runs as it will ship. For hot reload of one service, use that repo's own dev compose.
 
-Two copies track plat5 too: the config schema (`internal/schema`, for offline `validate`) and the files `init` writes (`internal/cmd/initfiles`, plat5's `compose/seed`). Their tests compare them with a `plat5` checkout beside the CLI, and skip without one.
+Two copies track plat5 too: the config schema (`internal/schema`, plat5's `schema/`, for offline `validate`) and the files `init` writes (`internal/cmd/initfiles`, which load into the config plat5's e2e applies, `e2e/testdata/config.json`). Their tests compare them with a `plat5` checkout beside the CLI, and skip without one.
 
 ## State
 

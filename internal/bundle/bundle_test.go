@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestMaterialize(t *testing.T) {
@@ -59,23 +61,67 @@ func TestAuthDevMode(t *testing.T) {
 	}
 }
 
-// Core wires the gateway to admit and identity's subject claim, and the control
-// plane to identity for plan counts. start applies the config, so nothing seeds it.
+// Core wires the gateway to identity's internal API and the IdP's audiences and
+// subject claim, and the control plane to identity for plan counts. start
+// applies the config, so nothing seeds it.
 func TestCoreEnv(t *testing.T) {
 	data, _ := content.ReadFile("stack/core.yml")
 	core := string(data)
 	for _, want := range []string{
-		"ADMIT_URL: http://identity:3001/internal/admit",
+		"AUTH_ALLOWED_AUDIENCES: ${IDP_AUDIENCES:?}",
 		"AUTH_SUBJECT_CLAIM: ${IDP_SUBJECT_CLAIM:?}",
 		"IDENTITY_INTERNAL_URL: http://identity:3001",
+		"ADMIT_CACHE_TTL: 5s",
 	} {
 		if !strings.Contains(core, want) {
 			t.Errorf("core.yml lacks %q", want)
 		}
 	}
-	if strings.Contains(core, "SEED_") {
-		t.Error("core.yml seeds the control plane; plat5 start applies plat5.yml instead")
+	if n := strings.Count(core, "IDENTITY_INTERNAL_URL: http://identity:3001"); n != 2 {
+		t.Errorf("IDENTITY_INTERNAL_URL is set %d times, want the gateway and the control plane", n)
 	}
+}
+
+// Core sets only env that plat5's own compose sets, service by service. Checked
+// when plat5 is checked out beside the CLI, as in plat5dev.
+func TestCoreEnvMatchesPlat5(t *testing.T) {
+	theirs, err := os.ReadFile(filepath.Join("..", "..", "..", "plat5", "compose", "docker-compose.yml"))
+	if err != nil {
+		t.Skipf("no plat5 compose beside the CLI: %v", err)
+	}
+	ours, _ := content.ReadFile("stack/core.yml")
+	plat5, cli := composeEnv(t, theirs), composeEnv(t, ours)
+	for svc, env := range cli {
+		known, ok := plat5[svc]
+		if !ok {
+			continue
+		}
+		for k := range env {
+			if !known[k] {
+				t.Errorf("core.yml sets %s on %s; plat5's compose doesn't", k, svc)
+			}
+		}
+	}
+}
+
+func composeEnv(t *testing.T, data []byte) map[string]map[string]bool {
+	t.Helper()
+	var doc struct {
+		Services map[string]struct {
+			Environment map[string]any `yaml:"environment"`
+		} `yaml:"services"`
+	}
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]map[string]bool{}
+	for svc, s := range doc.Services {
+		out[svc] = map[string]bool{}
+		for k := range s.Environment {
+			out[svc][k] = true
+		}
+	}
+	return out
 }
 
 func TestServices(t *testing.T) {
