@@ -16,6 +16,9 @@ func sample() map[string]any {
 			"admin": map[string]any{"permissions": []any{"*"}, "bindable_at": []any{"organization"}},
 		},
 		"creator_role": "admin",
+		"rate_limits": map[string]any{
+			"default": map[string]any{"requests": 60, "window_seconds": 60},
+		},
 		"services": map[string]any{
 			"e10s": map[string]any{
 				"url": "http://e10s:3000",
@@ -37,6 +40,27 @@ func TestErrorsNameFieldPaths(t *testing.T) {
 	}
 	if len(errs) != 1 || errs[0].Path != "services.e10s.scopes.public.routes[1]" {
 		t.Fatalf("got %v", errs)
+	}
+}
+
+// The default policy is required, and has no count_at.
+func TestDefaultPolicy(t *testing.T) {
+	c := sample()
+	c["services"] = map[string]any{}
+	for path, limits := range map[string]any{
+		"rate_limits": map[string]any{},
+		"rate_limits.default.count_at": map[string]any{
+			"default": map[string]any{"requests": 60, "window_seconds": 60, "count_at": "organization"},
+		},
+	} {
+		c["rate_limits"] = limits
+		errs, err := ValidateConfig(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(errs) != 1 || errs[0].Path != path {
+			t.Errorf("%s: got %v", path, errs)
+		}
 	}
 }
 

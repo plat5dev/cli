@@ -33,6 +33,10 @@ roles:
     permissions: [project:create, project:read, project:write, project:bindings:read]
     bindable_at: [organization, project]
 creator_role: admin
+# Rate limits (plat5 docs/reference/config/rate-limits.md). default is every
+# route's that names no policy; a route says rate_limit: false to have none.
+rate_limits:
+  default: { requests: 100, window_seconds: 1 }
 services:
   - services/identity.yml
   - services/audit.yml

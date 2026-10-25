@@ -221,9 +221,9 @@ services:
             methods: [GET]
 `)["e10s"]
 	want := []Route{
-		{Path: "/health", Method: "GET", Scope: "public", Upstream: "/health", RateLimit: []string{}},
+		{Path: "/health", Method: "GET", Scope: "public", Upstream: "/health", RateLimit: []string{"default"}},
 		{Path: "/orgs/{organization}/projects/{project}", Method: "GET", Scope: "project", Upstream: "/projects/{project.id}",
-			RequiredPermissions: &Required{Permissions: []string{"project:read"}}, RateLimit: []string{}},
+			RequiredPermissions: &Required{Permissions: []string{"project:read"}}, RateLimit: []string{"default"}},
 		{Path: "/orgs/{organization}/projects/{project}/plans/{plan_id}", Method: "GET", Scope: "project", Upstream: "/projects/{project.id}/plans/{plan_id}",
 			RequiredPermissions: &Required{AnyMember: true}, RateLimit: []string{}},
 		{Path: "/orgs/{organization}/projects/{project}/plans/{plan_id}", Method: "PUT", Scope: "project", Upstream: "/projects/{project.id}/plans/{plan_id}",

@@ -48,9 +48,8 @@ type config struct {
 		Timeouts     timeouts `json:"timeouts"`
 		MaxBodyBytes *uint64  `json:"max_body_bytes"`
 	} `json:"defaults"`
-	Kinds      map[string]kind    `json:"kinds"`
-	RateLimits map[string]any     `json:"rate_limits"`
-	Services   map[string]service `json:"services"`
+	Kinds    map[string]kind    `json:"kinds"`
+	Services map[string]service `json:"services"`
 }
 
 type timeouts struct {

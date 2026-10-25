@@ -311,7 +311,6 @@ func expandSpec(c *config, s spec) []Route {
 	if s.prefix != "" && s.path == "/" {
 		defaultUpstream = s.prefix
 	}
-	_, hasDefault := c.RateLimits[defaultPolicy]
 
 	out := make([]Route, 0, len(s.verbs))
 	for _, v := range s.verbs {
@@ -320,7 +319,7 @@ func expandSpec(c *config, s spec) []Route {
 			Method:       v.method,
 			Scope:        s.scope,
 			Upstream:     defaultUpstream,
-			RateLimit:    []string{},
+			RateLimit:    []string{defaultPolicy},
 			Audit:        s.scope != publicScope && auditedByDefault(v.method),
 			AllowDeleted: s.allowDeleted,
 		}
@@ -333,11 +332,8 @@ func expandSpec(c *config, s spec) []Route {
 		if kindScope {
 			r.RequiredPermissions = v.RequiredPermissions
 		}
-		switch {
-		case v.RateLimit != nil:
+		if v.RateLimit != nil {
 			r.RateLimit = v.RateLimit.Policies
-		case hasDefault:
-			r.RateLimit = []string{defaultPolicy}
 		}
 		if v.Audit != nil && s.scope != publicScope {
 			r.Audit = *v.Audit

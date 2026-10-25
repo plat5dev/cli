@@ -76,11 +76,11 @@ func TestPrintPlan(t *testing.T) {
 	for name, wants := range map[string][]string{
 		"remove-kind-blocked": {
 			"Plan against revision 7:\n\n  - kind folder\n",
-			"      BLOCKED (kind_not_empty): 3 nodes in the way, e.g. 01jb8z3m5q0000000000000001, 01jb8z3m5q0000000000000002, 01jb8z3m5q0000000000000003\n",
+			"      BLOCKED (kind_not_empty): 5 nodes in the way, e.g. 01jb8z3m5q0000000000000001, 01jb8z3m5q0000000000000002, 01jb8z3m5q0000000000000003, 01jb8z3m5q0000000000000004, 01jb8z3m5q0000000000000005\n",
 			"      - parent: \"organization\"\n      - path: \"/folders/{folder}\"\n",
 			"  ~ role admin\n      ~ bindable_at: [\"organization\", \"project\", \"folder\"] → [\"organization\", \"project\"]\n",
 			"  ~ service e10s\n      - GET /orgs/{organization}/folders/{folder}/plans\n          - scope: \"folder\"\n",
-			"          - required_permissions: [\"folder:read\"]\n          - rate_limit: []\n          - audit: false\n",
+			"          - required_permissions: [\"folder:read\"]\n          - rate_limit: [\"default\"]\n          - audit: false\n",
 			"\nPlan: 0 to add, 2 to change, 0 to remove. 1 blocked: nothing can apply until it's cleared.\n",
 		},
 		"parent-change-blocked": {
@@ -92,7 +92,8 @@ func TestPrintPlan(t *testing.T) {
 			"  ~ setting reserved_slugs: [] → [\"new\", \"settings\"]\n",
 			"  ~ setting defaults\n      ~ timeouts: {connect: \"10s\", read: \"30s\"} → {connect: \"5s\", read: \"20s\"}\n      ~ max_body_bytes: 10485760 → 2097152\n",
 			"  + rate_limit evals-org\n      + requests: 300\n      + window_seconds: 1\n      + count_at: \"organization\"\n",
-			"      ~ GET /health\n          ~ rate_limit: [] → [\"default\"]\n",
+			"  ~ rate_limit default\n      ~ requests: 60 → 120\n",
+			"      ~ GET /orgs/{organization}/plans\n          ~ rate_limit: [\"default\"] → [\"evals-org\"]\n",
 		},
 		"services": {
 			"  - service billing\n      - url: \"http://billing:3000\"\n",
@@ -238,6 +239,7 @@ func TestExplainNamesTheFile(t *testing.T) {
 	plat5 := `kinds: { organization: { path: "/orgs/{organization}", list_permission: organization:read } }
 roles: { admin: { permissions: ["*"], bindable_at: [organization] } }
 creator_role: admin
+rate_limits: { default: { requests: 60, window_seconds: 60 } }
 services: [services/e10s.yml]
 `
 	e10s := "e10s:\n  url: http://e10s:3000\n  scopes:\n    team:\n      routes:\n        - { path: /h, methods: [GET] }\n"
@@ -271,6 +273,7 @@ func TestConfigPullWritesServiceFiles(t *testing.T) {
 		"kinds":        map[string]any{"organization": map[string]any{"path": "/orgs/{organization}", "list_permission": "organization:read"}},
 		"roles":        map[string]any{"admin": map[string]any{"permissions": []any{"*"}, "bindable_at": []any{"organization"}}},
 		"creator_role": "admin",
+		"rate_limits":  map[string]any{"default": map[string]any{"requests": 60, "window_seconds": 60}},
 		"services": map[string]any{
 			"identity": map[string]any{"url": "http://identity:3000"},
 			"audit":    map[string]any{"url": "http://audit:3002"},
