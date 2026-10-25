@@ -185,7 +185,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			hint := ""
 			if devseed.IsNotFound(err) {
-				hint = "\n  (A route the dev seed uses isn't in the config: plat5 routes generate writes them.)"
+				hint = "\n  (A route the dev seed uses isn't in the config: plat5 routes list shows the routes it has.)"
 			}
 			fmt.Printf("warning: could not seed dev data: %v%s\n", err, hint)
 		}

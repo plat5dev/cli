@@ -30,7 +30,7 @@ A deployment's config is plat5.yml and the service files it lists:
   plat5 validate         check it against the schema, offline
   plat5 plan             what applying it would change
   plat5 apply            plan, confirm, apply
-  plat5 routes generate  identity's and audit's routes for your kinds
+  plat5 routes list      every service's routes, as the gateway matches them
   plat5 config pull      an applied revision, as files`,
 	SilenceUsage:  true,
 	SilenceErrors: true,

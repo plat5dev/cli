@@ -12,7 +12,7 @@ import (
 )
 
 // The config API (plat5 docs/reference/api/control-plane.md): dry run, apply,
-// revisions, reader status, the generated catalog.
+// revisions, reader status.
 
 // Plan is a dry run's answer (plat5 docs/concepts/config.md#the-plan).
 type Plan struct {
@@ -143,18 +143,6 @@ func (c *Client) Status() (*Status, error) {
 		return nil, err
 	}
 	return &out, nil
-}
-
-// Catalog is POST /catalog: identity's and audit's routes for these kinds, by
-// service name.
-func (c *Client) Catalog(kinds any) (map[string]any, error) {
-	var out struct {
-		Services map[string]any `json:"services"`
-	}
-	if err := c.do(http.MethodPost, "/catalog", map[string]any{"kinds": kinds}, &out); err != nil {
-		return nil, err
-	}
-	return out.Services, nil
 }
 
 func (c *Client) do(method, path string, body, out any) error {

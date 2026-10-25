@@ -85,11 +85,11 @@ Local Auth runs in dev mode: `POST /dev/token` mints a token for any email, and 
 | `plat5 validate [plat5.yml]` | Check a deployment's config against the schema, offline |
 | `plat5 plan [plat5.yml] [-out plan.json] [--detailed-exitcode]` | Dry run: the diff applying it would make |
 | `plat5 apply [plat5.yml \| plan.json] [--auto-approve]` | Plan, confirm, apply, or apply a saved plan; then wait up to 10s for the gateway's replicas to load it, and exit 1 if one refused it |
-| `plat5 routes generate [plat5.yml]` | Write `routes/identity.yml` and `routes/audit.yml` from the config's kinds |
+| `plat5 routes list [plat5.yml]` | Every service's expanded routes, identity's and audit's included: method, public path, scope, upstream, permissions. Offline |
 | `plat5 config pull [--revision n] [dir]` | Write an applied revision as `plat5.yml` and `services/<service>.yml` |
 | `plat5 version` / `--version` | The CLI version, and the image versions `plat5.dev.yml` pins |
 
-`validate`, `plan`, `apply`, `routes generate` and `config pull` work on a deployment's config: `plat5.yml` and the service files it lists ([plat5 `docs/reference/cli.md`](https://github.com/plat5dev/plat5/blob/master/docs/reference/cli.md)). They talk to the local control plane (`http://localhost:5402`, `dev-admin-token`) unless `--control-plane-url` / `--admin-token` (or `PLAT5_CONTROL_PLANE_URL` / `PLAT5_ADMIN_TOKEN`) point elsewhere.
+`validate`, `plan`, `apply`, `routes list` and `config pull` work on a deployment's config: `plat5.yml` and the service files it lists ([plat5 `docs/reference/cli.md`](https://github.com/plat5dev/plat5/blob/master/docs/reference/cli.md)). `validate` and `routes list` are offline; the others talk to the local control plane (`http://localhost:5402`, `dev-admin-token`) unless `--control-plane-url` / `--admin-token` (or `PLAT5_CONTROL_PLANE_URL` / `PLAT5_ADMIN_TOKEN`) point elsewhere.
 
 ## `plat5.dev.yml`
 
