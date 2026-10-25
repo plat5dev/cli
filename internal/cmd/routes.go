@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/plat5dev/cli/internal/routes"
+	"github.com/plat5dev/cli/internal/controlplane"
 	"github.com/spf13/cobra"
 )
 
@@ -18,11 +18,12 @@ var routesCmd = &cobra.Command{
 
 var routesListCmd = &cobra.Command{
 	Use:   "list [plat5.yml]",
-	Short: "Every service's expanded routes, identity's and audit's included, offline",
+	Short: "Every service's expanded routes, identity's and audit's included",
 	Long: `Every service's expanded routes, identity's and audit's included, as the
 gateway matches them: method, public path, scope, upstream and permissions,
-sorted by path. Offline: the config is expanded here, as the control plane
-expands it at apply.`,
+sorted by path. The config goes to the control plane as a dry run, and the
+routes are the ones it expanded, so it needs a control plane, local or
+deployed. Nothing is applied.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runRoutesList,
 }
@@ -36,18 +37,18 @@ func runRoutesList(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	services, err := routes.Expand(cfg.Flat)
+	p, err := configClient().DryRun(cfg.Flat)
 	if err != nil {
-		return err
+		return explain(cfg, err)
 	}
-	printRoutes(os.Stdout, services)
+	printRoutes(os.Stdout, p.Services)
 	return nil
 }
 
 // printRoutes writes each service, by name, and under it one route per line:
-// method, public path, scope, upstream, permissions. Columns line up across
-// services.
-func printRoutes(w io.Writer, services map[string]routes.Service) {
+// method, public path, scope, upstream, permissions, in the order the control
+// plane serves them: by path, then method. Columns line up across services.
+func printRoutes(w io.Writer, services map[string]controlplane.Service) {
 	names := make([]string, 0, len(services))
 	for n := range services {
 		names = append(names, n)

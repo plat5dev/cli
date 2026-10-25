@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/plat5dev/cli/internal/schema"
 )
@@ -14,11 +15,14 @@ import (
 // The config API (plat5 docs/reference/api/control-plane.md): dry run, apply,
 // revisions, reader status.
 
-// Plan is a dry run's answer (plat5 docs/concepts/config.md#the-plan).
+// Plan is a dry run's answer: the plan (plat5 docs/concepts/config.md#the-plan),
+// and every service of the planned config as the gateway feed serves it (plat5
+// docs/reference/api/control-plane.md#dry-run).
 type Plan struct {
-	Revision int64    `json:"revision"`
-	Summary  Summary  `json:"summary"`
-	Changes  []Change `json:"changes"`
+	Revision int64              `json:"revision"`
+	Summary  Summary            `json:"summary"`
+	Changes  []Change           `json:"changes"`
+	Services map[string]Service `json:"services"`
 }
 
 type Summary struct {
@@ -57,6 +61,60 @@ type Blocked struct {
 type InTheWay struct {
 	Nodes  int64    `json:"nodes"`
 	Sample []string `json:"sample"`
+}
+
+// Service is a service as the gateway feed serves it, defaults filled in and
+// its routes expanded, sorted by path, then method (plat5
+// docs/reference/api/internal.md#control-plane-feeds).
+type Service struct {
+	URL          string   `json:"url"`
+	Timeouts     Timeouts `json:"timeouts"`
+	MaxBodyBytes uint64   `json:"max_body_bytes"`
+	Routes       []Route  `json:"routes"`
+}
+
+type Timeouts struct {
+	Connect string `json:"connect"`
+	Read    string `json:"read"`
+}
+
+// Route is one route as the gateway matches it.
+type Route struct {
+	Path     string `json:"path"`
+	Method   string `json:"method"`
+	Scope    string `json:"scope"`
+	Upstream string `json:"upstream"`
+	// RequiredPermissions is nil outside a kind scope.
+	RequiredPermissions *Required `json:"required_permissions"`
+	RateLimit           []string  `json:"rate_limit"`
+	Audit               bool      `json:"audit"`
+	AllowDeleted        bool      `json:"allow_deleted"`
+}
+
+// Required is required_permissions: a list, any one of which admits, or
+// any_member.
+type Required struct {
+	AnyMember   bool
+	Permissions []string
+}
+
+func (r *Required) UnmarshalJSON(data []byte) error {
+	var s string
+	if json.Unmarshal(data, &s) == nil {
+		if s != "any_member" {
+			return fmt.Errorf("required_permissions: %q", s)
+		}
+		r.AnyMember = true
+		return nil
+	}
+	return json.Unmarshal(data, &r.Permissions)
+}
+
+func (r Required) String() string {
+	if r.AnyMember {
+		return "any_member"
+	}
+	return strings.Join(r.Permissions, ", ")
 }
 
 // Empty reports a plan with nothing to change.
