@@ -163,6 +163,12 @@ plat5 init my-app --source plat5=../plat5 --source auth=../auth
 cd my-app && plat5 start      # builds, then runs; the first Rust build takes a while
 ```
 
+A CLI built from this checkout reports a pseudo-version older than the `cli:` floor `init` writes, so every command refuses the project. Build it with the version flag, at the floor (`internal/config.SchemaVersion`) or newer:
+
+```bash
+go build -ldflags "-X github.com/plat5dev/cli/internal/cmd.Version=0.8.0" -o plat5 ./cmd/plat5
+```
+
 The embedded compose files (`internal/bundle/stack`) track plat5 HEAD, so a `plat5` checkout at HEAD runs as it will ship. For hot reload of one service, use that repo's own dev compose.
 
 Two copies track plat5 too: the config schema (`internal/schema`, plat5's `schema/`, for offline `validate`) and the files `init` writes (`internal/cmd/initfiles`, which load into the config plat5's e2e applies, `e2e/testdata/config.json`). Their tests compare them with a `plat5` checkout beside the CLI, and skip without one.

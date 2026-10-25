@@ -98,7 +98,7 @@ func TestPrintPlan(t *testing.T) {
 		"services": {
 			"  - service billing\n      - url: \"http://billing:3000\"\n",
 			"  ~ service e10s\n      ~ url: \"http://e10s:3000\" → \"http://e10s:4000\"\n",
-			"          + required_permissions: null\n",
+			"      + GET /user/notifications\n          + scope: \"user\"\n          + upstream: \"/users/{user.id}/notifications\"\n          + rate_limit: [\"default\"]\n",
 			"      ~ GET /orgs/{organization}/projects/{project}/plans\n          ~ required_permissions: [\"project:read\"] → [\"project:read\", \"catalog:read\"]\n",
 			"Plan: 1 to add, 1 to change, 1 to remove.\n",
 		},
@@ -111,6 +111,13 @@ func TestPrintPlan(t *testing.T) {
 			for _, want := range wants {
 				if !strings.Contains(out, want) {
 					t.Errorf("want %q in:\n%s", want, out)
+				}
+			}
+			for _, line := range strings.Split(out, "\n") {
+				for _, unset := range []string{": null", `: ""`, ": []", ": {}"} {
+					if strings.HasSuffix(line, unset) {
+						t.Errorf("unset field printed: %q", line)
+					}
 				}
 			}
 			if name != "remove-kind-blocked" && name != "parent-change-blocked" && strings.Contains(out, "blocked") {

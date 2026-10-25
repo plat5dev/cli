@@ -401,11 +401,13 @@ func printPlan(w io.Writer, p *controlplane.Plan) {
 }
 
 // printEntry writes one plan line or route: its sign and head, then each field
-// that differs. A value that isn't an object, such as a setting's, goes on the
-// head: ~ setting deletion_grace: "30d" → "7d".
+// that differs, leaving out fields that are null or empty. A value that isn't
+// an object, such as a setting's, goes on the head:
+// ~ setting deletion_grace: "30d" → "7d".
 func printEntry(w io.Writer, indent, sign, head string, before, after json.RawMessage) {
 	bf, bObj := objectFields(before)
 	af, aObj := objectFields(after)
+	bf, af = setFields(bf), setFields(af)
 	if (len(before) > 0 && !bObj) || (len(after) > 0 && !aObj) {
 		fmt.Fprintf(w, "%s%s %s: %s\n", indent, sign, head, beforeAfter(before, after))
 		return
@@ -467,6 +469,22 @@ func objectFields(raw json.RawMessage) ([]field, bool) {
 		out = append(out, field{key: key.(string), raw: v})
 	}
 	return out, true
+}
+
+// setFields is fs without the fields that are null, "", [] or {}.
+func setFields(fs []field) []field {
+	var out []field
+	for _, f := range fs {
+		var c bytes.Buffer
+		if json.Compact(&c, f.raw) == nil {
+			switch c.String() {
+			case "null", `""`, "[]", "{}":
+				continue
+			}
+		}
+		out = append(out, f)
+	}
+	return out
 }
 
 // formatValue writes a JSON value on one line, keys in order:
