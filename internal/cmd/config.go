@@ -2,15 +2,15 @@ package cmd
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
-	"strconv"
 	"strings"
+	"time"
 
 	"github.com/plat5dev/cli/internal/config"
 	"github.com/plat5dev/cli/internal/controlplane"
@@ -31,7 +31,6 @@ var (
 	flagOut              string
 	flagDetailedExitcode bool
 	flagAutoApprove      bool
-	flagConfirm          []string
 	flagRevision         int64
 )
 
@@ -62,7 +61,7 @@ var planCmd = &cobra.Command{
 	Short: "Show what applying the config would change (a dry run)",
 	Long: `Show what applying the config would change: a dry run on the control plane.
 
-  -out plan.json        also save the plan: the apply body, config with expect and confirm
+  -out plan.json        also save the plan: the apply body, the config with expect
   --detailed-exitcode   exit 0 with no changes, 2 with changes, 1 on an error`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runPlan,
@@ -71,11 +70,12 @@ var planCmd = &cobra.Command{
 var applyCmd = &cobra.Command{
 	Use:   "apply [plat5.yml | plan.json]",
 	Short: "Plan, confirm, and apply the config",
-	Long: `Plan, show the diff, ask to confirm, and apply.
+	Long: `Plan, show the diff, ask to confirm, and apply. Then wait up to 10 seconds
+for the gateway's replicas to load the new revision, and say where they stand.
+A replica that refused it exits 1, though the revision is applied.
 
 A saved plan (plat5 plan -out plan.json) applies as it is, with no prompt.
---auto-approve skips the prompt; a destructive plan also needs --confirm kind=nodes
-for each kind it removes.`,
+--auto-approve skips the prompt. A blocked plan never applies.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runApply,
 }
@@ -96,7 +96,6 @@ func init() {
 	planCmd.Flags().StringVar(&flagOut, "out", "", "Save the plan to this file")
 	planCmd.Flags().BoolVar(&flagDetailedExitcode, "detailed-exitcode", false, "Exit 0 with no changes, 2 with changes, 1 on an error")
 	applyCmd.Flags().BoolVar(&flagAutoApprove, "auto-approve", false, "Apply without the prompt")
-	applyCmd.Flags().StringArrayVar(&flagConfirm, "confirm", nil, "Confirm a destructive change: kind=nodes, e.g. folder=14")
 	configPullCmd.Flags().Int64Var(&flagRevision, "revision", 0, "The revision to pull (default: the current one)")
 	configCmd.AddCommand(configPullCmd)
 }
@@ -222,22 +221,19 @@ func plan(args []string) error {
 	return nil
 }
 
-// applyBody is the config with the apply's preconditions.
-func applyBody(flat map[string]any, revision int64, confirm map[string]controlplane.Confirm) map[string]any {
-	body := make(map[string]any, len(flat)+2)
+// applyBody is the config with the apply's precondition.
+func applyBody(flat map[string]any, revision int64) map[string]any {
+	body := make(map[string]any, len(flat)+1)
 	for k, v := range flat {
 		body[k] = v
 	}
 	body["expect"] = map[string]any{"revision": revision}
-	if len(confirm) > 0 {
-		body["confirm"] = confirm
-	}
 	return body
 }
 
 // writeSavedPlan saves exactly the apply body.
 func writeSavedPlan(path string, flat map[string]any, p *controlplane.Plan) error {
-	data, err := json.MarshalIndent(applyBody(flat, p.Revision, p.Confirm), "", "  ")
+	data, err := json.MarshalIndent(applyBody(flat, p.Revision), "", "  ")
 	if err != nil {
 		return err
 	}
@@ -261,7 +257,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 			return explain(nil, err)
 		}
 		fmt.Printf("Applied revision %d.\n", applied.Revision)
-		return nil
+		return reportGateway(client, applied.Revision, os.Stdout, "")
 	}
 
 	cfg, err := loadValid(configPath(args))
@@ -279,114 +275,122 @@ func runApply(cmd *cobra.Command, args []string) error {
 	if p.Summary.Blocked > 0 {
 		return fmt.Errorf("the plan has blocked changes; nothing applied")
 	}
-
-	var confirm map[string]controlplane.Confirm
-	if flagAutoApprove {
-		confirm, err = confirmFromFlags(p, flagConfirm)
-		if err != nil {
-			return err
-		}
-	} else {
+	if !flagAutoApprove {
 		if !prompt.Interactive() {
 			return fmt.Errorf("no terminal to confirm on: use --auto-approve, or plat5 plan -out and plat5 apply plan.json")
 		}
-		confirm, err = confirmInteractively(os.Stdin, os.Stdout, p)
-		if err != nil {
-			return err
+		if !confirmed(os.Stdin, os.Stdout) {
+			return fmt.Errorf("not applied")
 		}
 	}
 
-	applied, err := client.ApplyConfig(applyBody(cfg.Flat, p.Revision, confirm))
+	applied, err := client.ApplyConfig(applyBody(cfg.Flat, p.Revision))
 	if err != nil {
 		return explain(cfg, err)
 	}
 	fmt.Printf("\nApplied revision %d.\n", applied.Revision)
+	return reportGateway(client, applied.Revision, os.Stdout, "")
+}
+
+// confirmed asks to apply. Only yes applies.
+func confirmed(in io.Reader, out io.Writer) bool {
+	fmt.Fprint(out, "\nApply this plan? Only yes applies: ")
+	line, _ := bufio.NewReader(in).ReadString('\n')
+	return strings.TrimSpace(line) == "yes"
+}
+
+// How long an apply waits for the gateway's replicas to report the new
+// revision, and how often it asks.
+var (
+	gatewayWait = 10 * time.Second
+	gatewayPoll = 500 * time.Millisecond
+)
+
+// reportGateway waits for every gateway replica to load revision or refuse it,
+// up to gatewayWait, then prints where they stand. A refusal is an error: the
+// revision is applied, and that replica keeps serving the one it had.
+func reportGateway(client *controlplane.Client, revision int64, w io.Writer, indent string) error {
+	deadline := time.Now().Add(gatewayWait)
+	var st *controlplane.Status
+	for {
+		var err error
+		st, err = client.Status()
+		if err != nil {
+			return err
+		}
+		if gatewaySettled(st.Gateway, revision) || !time.Now().Before(deadline) {
+			break
+		}
+		time.Sleep(gatewayPoll)
+	}
+	if len(st.Gateway) == 0 {
+		fmt.Fprintf(w, "%sgateway: no replica has reported in the last minute\n", indent)
+		return nil
+	}
+	on, refused := 0, 0
+	for _, r := range st.Gateway {
+		if r.Loaded >= revision {
+			on++
+		}
+	}
+	fmt.Fprintf(w, "%sgateway: %d/%d replicas on revision %d\n", indent, on, len(st.Gateway), revision)
+	for _, r := range st.Gateway {
+		switch {
+		case r.Loaded >= revision:
+		case r.Refused != nil && r.Refused.Revision >= revision:
+			refused++
+			fmt.Fprintf(w, "%s  %s refused revision %d: %s\n", indent, r.Replica, r.Refused.Revision, r.Refused.Reason)
+		default:
+			fmt.Fprintf(w, "%s  %s is still on revision %d\n", indent, r.Replica, r.Loaded)
+		}
+	}
+	if refused > 0 {
+		return fmt.Errorf("revision %d is applied, but %d of %d gateway replicas refused it and serve the revision they had", revision, refused, len(st.Gateway))
+	}
 	return nil
 }
 
-// confirmFromFlags takes --confirm kind=nodes for each kind the plan removes.
-// Counts that no longer match are the control plane's to refuse.
-func confirmFromFlags(p *controlplane.Plan, flags []string) (map[string]controlplane.Confirm, error) {
-	confirm := map[string]controlplane.Confirm{}
-	for _, f := range flags {
-		kind, n, ok := strings.Cut(f, "=")
-		nodes, err := strconv.ParseInt(n, 10, 64)
-		if !ok || kind == "" || err != nil {
-			return nil, fmt.Errorf("--confirm %s: want kind=nodes, e.g. folder=14", f)
-		}
-		confirm[kind] = controlplane.Confirm{Nodes: nodes}
+// gatewaySettled reports whether every replica has loaded revision or refused it.
+func gatewaySettled(replicas []controlplane.GatewayReplica, revision int64) bool {
+	if len(replicas) == 0 {
+		return false
 	}
-	var missing []string
-	for kind, c := range p.Confirm {
-		if _, ok := confirm[kind]; !ok {
-			missing = append(missing, fmt.Sprintf("--confirm %s=%d", kind, c.Nodes))
+	for _, r := range replicas {
+		if r.Loaded < revision && (r.Refused == nil || r.Refused.Revision < revision) {
+			return false
 		}
 	}
-	if len(missing) > 0 {
-		sort.Strings(missing)
-		return nil, fmt.Errorf("the plan is destructive; --auto-approve also needs %s", strings.Join(missing, " "))
-	}
-	return confirm, nil
-}
-
-// confirmInteractively asks for each destructive kind's node count, then yes.
-func confirmInteractively(in io.Reader, out io.Writer, p *controlplane.Plan) (map[string]controlplane.Confirm, error) {
-	r := bufio.NewReader(in)
-	ask := func(q string) string {
-		fmt.Fprint(out, q)
-		line, _ := r.ReadString('\n')
-		return strings.TrimSpace(line)
-	}
-	kinds := make([]string, 0, len(p.Confirm))
-	for k := range p.Confirm {
-		kinds = append(kinds, k)
-	}
-	sort.Strings(kinds)
-	for _, kind := range kinds {
-		n := p.Confirm[kind].Nodes
-		if ask(fmt.Sprintf("\nRemoving kind %s soft-deletes %d nodes. Type %d to confirm: ", kind, n, n)) != strconv.FormatInt(n, 10) {
-			return nil, fmt.Errorf("not confirmed; nothing applied")
-		}
-	}
-	if ask("\nApply this plan? Only yes applies: ") != "yes" {
-		return nil, fmt.Errorf("not applied")
-	}
-	return p.Confirm, nil
+	return true
 }
 
 var opSigns = map[string]string{"add": "+", "change": "~", "remove": "-"}
 
 // printPlan writes the plan as Terraform does: + add, ~ change, - remove, each
-// destructive and blocked line marked, then the summary.
+// line with its changed fields as before → after, a service's expanded routes
+// the same way, blocked lines with what's in the way, then the summary.
 func printPlan(w io.Writer, p *controlplane.Plan) {
 	if p.Empty() {
 		fmt.Fprintf(w, "No changes. The deployment at revision %d matches the config.\n", p.Revision)
 		return
 	}
-	fmt.Fprintf(w, "Plan against revision %d:\n\n", p.Revision)
+	fmt.Fprintf(w, "Plan against revision %d:\n", p.Revision)
 	for _, c := range p.Changes {
-		line := fmt.Sprintf("  %s %s %s", opSigns[c.Op], c.What, c.Name)
-		var note string
-		switch {
-		case c.Class == "destructive" && c.Effects != nil:
-			note = fmt.Sprintf("DESTRUCTIVE: soft-deletes %d nodes (%d bindings, %d service accounts, %d keys)",
-				c.Effects.Nodes, c.Effects.Bindings, c.Effects.ServiceAccounts, c.Effects.Keys)
-		case c.Class == "blocked" && c.InTheWay != nil:
-			note = fmt.Sprintf("BLOCKED (%s): %d nodes in the way", c.Reason, c.InTheWay.Nodes)
-			if len(c.InTheWay.Sample) > 0 {
-				note += ", e.g. " + strings.Join(c.InTheWay.Sample, ", ")
+		fmt.Fprintln(w)
+		printEntry(w, "  ", opSigns[c.Op], c.What+" "+c.Name, c.Before, c.After)
+		if c.Blocked != nil {
+			nodes := "nodes"
+			if c.Blocked.InTheWay.Nodes == 1 {
+				nodes = "node"
 			}
-		case c.Routes != nil && c.Op == "change":
-			note = fmt.Sprintf("routes +%d ~%d -%d", c.Routes.Add, c.Routes.Change, c.Routes.Remove)
-		case c.Routes != nil && c.Op == "add":
-			note = fmt.Sprintf("%d routes", c.Routes.Add)
-		case c.Routes != nil && c.Op == "remove":
-			note = fmt.Sprintf("%d routes", c.Routes.Remove)
+			note := fmt.Sprintf("BLOCKED (%s): %d %s in the way", c.Blocked.Reason, c.Blocked.InTheWay.Nodes, nodes)
+			if len(c.Blocked.InTheWay.Sample) > 0 {
+				note += ", e.g. " + strings.Join(c.Blocked.InTheWay.Sample, ", ")
+			}
+			fmt.Fprintln(w, "      "+note)
 		}
-		if note != "" {
-			line = fmt.Sprintf("%-40s %s", line, note)
+		for _, r := range c.Routes {
+			printEntry(w, "      ", opSigns[r.Op], r.Method+" "+r.Path, r.Before, r.After)
 		}
-		fmt.Fprintln(w, line)
 	}
 	s := p.Summary
 	fmt.Fprintf(w, "\nPlan: %d to add, %d to change, %d to remove.", s.Add, s.Change, s.Remove)
@@ -394,6 +398,114 @@ func printPlan(w io.Writer, p *controlplane.Plan) {
 		fmt.Fprintf(w, " %d blocked: nothing can apply until it's cleared.", s.Blocked)
 	}
 	fmt.Fprintln(w)
+}
+
+// printEntry writes one plan line or route: its sign and head, then each field
+// that differs. A value that isn't an object, such as a setting's, goes on the
+// head: ~ setting deletion_grace: "30d" → "7d".
+func printEntry(w io.Writer, indent, sign, head string, before, after json.RawMessage) {
+	bf, bObj := objectFields(before)
+	af, aObj := objectFields(after)
+	if (len(before) > 0 && !bObj) || (len(after) > 0 && !aObj) {
+		fmt.Fprintf(w, "%s%s %s: %s\n", indent, sign, head, beforeAfter(before, after))
+		return
+	}
+	fmt.Fprintf(w, "%s%s %s\n", indent, sign, head)
+	inAfter := map[string]json.RawMessage{}
+	for _, f := range af {
+		inAfter[f.key] = f.raw
+	}
+	inBefore := map[string]bool{}
+	for _, f := range bf {
+		inBefore[f.key] = true
+		if a, ok := inAfter[f.key]; ok {
+			fmt.Fprintf(w, "%s    ~ %s: %s\n", indent, f.key, beforeAfter(f.raw, a))
+		} else {
+			fmt.Fprintf(w, "%s    - %s: %s\n", indent, f.key, formatValue(f.raw))
+		}
+	}
+	for _, f := range af {
+		if !inBefore[f.key] {
+			fmt.Fprintf(w, "%s    + %s: %s\n", indent, f.key, formatValue(f.raw))
+		}
+	}
+}
+
+// beforeAfter is "before → after", or the one side there is.
+func beforeAfter(before, after json.RawMessage) string {
+	switch {
+	case len(before) == 0:
+		return formatValue(after)
+	case len(after) == 0:
+		return formatValue(before)
+	}
+	return formatValue(before) + " → " + formatValue(after)
+}
+
+// field is one key of an object, in the order the server sent it.
+type field struct {
+	key string
+	raw json.RawMessage
+}
+
+// objectFields is raw's keys in order, or false when raw isn't an object.
+func objectFields(raw json.RawMessage) ([]field, bool) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return nil, false
+	}
+	var out []field
+	for dec.More() {
+		key, err := dec.Token()
+		if err != nil {
+			return nil, false
+		}
+		var v json.RawMessage
+		if err := dec.Decode(&v); err != nil {
+			return nil, false
+		}
+		out = append(out, field{key: key.(string), raw: v})
+	}
+	return out, true
+}
+
+// formatValue writes a JSON value on one line, keys in order:
+// {connect: "10s", read: "30s"}, ["organization", "project"].
+func formatValue(raw json.RawMessage) string {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var b strings.Builder
+	writeValue(dec, &b)
+	return b.String()
+}
+
+func writeValue(dec *json.Decoder, b *strings.Builder) {
+	tok, err := dec.Token()
+	if err != nil {
+		return
+	}
+	switch t := tok.(type) {
+	case json.Delim:
+		b.WriteRune(rune(t))
+		for i := 0; dec.More(); i++ {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			if t == '{' {
+				key, _ := dec.Token()
+				fmt.Fprintf(b, "%s: ", key)
+			}
+			writeValue(dec, b)
+		}
+		end, _ := dec.Token()
+		fmt.Fprint(b, end)
+	case string:
+		fmt.Fprintf(b, "%q", t)
+	case nil:
+		b.WriteString("null")
+	default:
+		fmt.Fprint(b, t)
+	}
 }
 
 func runConfigPull(cmd *cobra.Command, args []string) error {

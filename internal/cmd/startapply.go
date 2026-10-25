@@ -13,9 +13,8 @@ import (
 )
 
 // applyForStart applies plat5.yml as plat5 apply does, without the prompt: start
-// is not interactive. A plan that destroys nothing applies. A destructive or
-// blocked plan is printed and refused; plat5 apply shows it and asks to confirm
-// (plat5 docs/reference/cli.md#the-local-stack).
+// is not interactive. A blocked plan is printed and refused. Then it reports
+// where the gateway's replicas stand (plat5 docs/reference/cli.md#the-local-stack).
 func applyForStart(client *controlplane.Client, path string, w io.Writer) (*plat5yml.Config, error) {
 	cfg, err := loadValid(path)
 	if err != nil {
@@ -33,27 +32,15 @@ func applyForStart(client *controlplane.Client, path string, w io.Writer) (*plat
 	if p.Summary.Blocked > 0 {
 		return nil, fmt.Errorf("the plan has blocked changes; nothing applied")
 	}
-	if destructive(p) {
-		return nil, fmt.Errorf("the plan is destructive, so plat5 start doesn't apply it. Run plat5 apply: it shows the plan and asks to confirm")
-	}
-	applied, err := client.ApplyConfig(applyBody(cfg.Flat, p.Revision, nil))
+	applied, err := client.ApplyConfig(applyBody(cfg.Flat, p.Revision))
 	if err != nil {
 		return nil, explain(cfg, err)
 	}
 	fmt.Fprintf(w, "  Applied revision %d.\n", applied.Revision)
+	if err := reportGateway(client, applied.Revision, w, "  "); err != nil {
+		return nil, err
+	}
 	return cfg, nil
-}
-
-func destructive(p *controlplane.Plan) bool {
-	if len(p.Confirm) > 0 {
-		return true
-	}
-	for _, c := range p.Changes {
-		if c.Class == "destructive" {
-			return true
-		}
-	}
-	return false
 }
 
 // rootKinds is the config's root kinds other than the sign-in kind, by name,

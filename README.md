@@ -53,7 +53,7 @@ A busy port is an error naming it, never a silent move: stop what holds it, or p
 
 `start` prints its steps, and each image it has to pull, one per line. Docker compose's own pull, build, and container output goes to `start.log` in the stack dir; a failure prints its last lines and the path. `-v` / `--verbose` shows it all instead.
 
-Once the control plane is up, `start` applies `plat5.yml` as `plat5 apply` does ([plat5 `docs/reference/cli.md`](https://github.com/plat5dev/plat5/blob/master/docs/reference/cli.md#the-local-stack)). A plan that destroys nothing applies without a prompt. A destructive plan (a kind removed) is printed and refused: run `plat5 apply`, which asks to confirm. Then `start` compares the labels routes require with the labels roles grant. A label on one side only, a letter or two from one on the other, is warned as a likely typo, whichever side it is on: `stats:read (GET /orgs/{organization}/stats) and stats:raed (role member)`. A required label no role grants by name is how an owner-only route is written, so it is a quiet note. With no role holding `"*"`, that note is a warning: nobody can call the route.
+Once the control plane is up, `start` applies `plat5.yml` as `plat5 apply` does ([plat5 `docs/reference/cli.md`](https://github.com/plat5dev/plat5/blob/master/docs/reference/cli.md#the-local-stack)). It applies without a prompt; a blocked plan (a kind removed, or its parent changed, while it has nodes) is printed and refused, and a gateway replica that refuses the new revision fails `start`. Then it compares the labels routes require with the labels roles grant. A label on one side only, a letter or two from one on the other, is warned as a likely typo, whichever side it is on: `stats:read (GET /orgs/{organization}/stats) and stats:raed (role member)`. A required label no role grants by name is how an owner-only route is written, so it is a quiet note. With no role holding `"*"`, that note is a warning: nobody can call the route.
 
 Then it makes sure there is something to call with, through the generated routes like any client: the dev person (`dev@example.com`, named "Dev User" by the `name` claim of the dev token it asks local Auth for), a node labelled `Dev` of each root kind they own (`/orgs/dev`), and one personal key, which acts as them in every tree. It reuses them while the key works. A config without those routes gets a warning. Then it prints every link, login, and key; `plat5 status` prints them again.
 
@@ -84,7 +84,7 @@ Local Auth runs in dev mode: `POST /dev/token` mints a token for any email, and 
 | `plat5 doctor` | Check Docker, `plat5.dev.yml`, `plat5.yml`, and ports (naming the Plat5 project that holds a busy one) |
 | `plat5 validate [plat5.yml]` | Check a deployment's config against the schema, offline |
 | `plat5 plan [plat5.yml] [-out plan.json] [--detailed-exitcode]` | Dry run: the diff applying it would make |
-| `plat5 apply [plat5.yml \| plan.json] [--auto-approve] [--confirm kind=n]` | Plan, confirm, apply; or apply a saved plan |
+| `plat5 apply [plat5.yml \| plan.json] [--auto-approve]` | Plan, confirm, apply, or apply a saved plan; then wait up to 10s for the gateway's replicas to load it, and exit 1 if one refused it |
 | `plat5 routes generate [plat5.yml]` | Write `routes/identity.yml` and `routes/audit.yml` from the config's kinds |
 | `plat5 config pull [--revision n] [dir]` | Write an applied revision as `plat5.yml` and `services/<service>.yml` |
 | `plat5 version` / `--version` | The CLI version, and the image versions `plat5.dev.yml` pins |

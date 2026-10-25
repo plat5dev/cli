@@ -12,14 +12,13 @@ import (
 )
 
 // The config API (plat5 docs/reference/api/control-plane.md): dry run, apply,
-// revisions, the generated catalog.
+// revisions, reader status, the generated catalog.
 
 // Plan is a dry run's answer (plat5 docs/concepts/config.md#the-plan).
 type Plan struct {
-	Revision int64              `json:"revision"`
-	Summary  Summary            `json:"summary"`
-	Changes  []Change           `json:"changes"`
-	Confirm  map[string]Confirm `json:"confirm"`
+	Revision int64    `json:"revision"`
+	Summary  Summary  `json:"summary"`
+	Changes  []Change `json:"changes"`
 }
 
 type Summary struct {
@@ -29,37 +28,35 @@ type Summary struct {
 	Blocked int64 `json:"blocked"`
 }
 
+// Change is one plan line. Before and After hold only the fields that differ,
+// as the server sent them: Before is absent on an add, After on a remove.
 type Change struct {
-	Class    string       `json:"class"`
-	Op       string       `json:"op"`
-	What     string       `json:"what"`
-	Name     string       `json:"name"`
-	Routes   *RouteCounts `json:"routes,omitempty"`
-	Reason   string       `json:"reason,omitempty"`
-	InTheWay *InTheWay    `json:"in_the_way,omitempty"`
-	Effects  *Effects     `json:"effects,omitempty"`
+	Op      string          `json:"op"`
+	What    string          `json:"what"`
+	Name    string          `json:"name"`
+	Before  json.RawMessage `json:"before,omitempty"`
+	After   json.RawMessage `json:"after,omitempty"`
+	Routes  []RouteChange   `json:"routes,omitempty"`
+	Blocked *Blocked        `json:"blocked,omitempty"`
 }
 
-type RouteCounts struct {
-	Add    int64 `json:"add"`
-	Change int64 `json:"change"`
-	Remove int64 `json:"remove"`
+// RouteChange is one expanded route on a service line.
+type RouteChange struct {
+	Op     string          `json:"op"`
+	Method string          `json:"method"`
+	Path   string          `json:"path"`
+	Before json.RawMessage `json:"before,omitempty"`
+	After  json.RawMessage `json:"after,omitempty"`
+}
+
+type Blocked struct {
+	Reason   string   `json:"reason"`
+	InTheWay InTheWay `json:"in_the_way"`
 }
 
 type InTheWay struct {
 	Nodes  int64    `json:"nodes"`
 	Sample []string `json:"sample"`
-}
-
-type Effects struct {
-	Nodes           int64 `json:"nodes"`
-	Bindings        int64 `json:"bindings"`
-	ServiceAccounts int64 `json:"service_accounts"`
-	Keys            int64 `json:"keys"`
-}
-
-type Confirm struct {
-	Nodes int64 `json:"nodes"`
 }
 
 // Empty reports a plan with nothing to change.
@@ -97,7 +94,7 @@ func (c *Client) DryRun(body any) (*Plan, error) {
 	return &plan, nil
 }
 
-// ApplyConfig is POST /apply: the config with expect and confirm.
+// ApplyConfig is POST /apply: the config with expect.
 func (c *Client) ApplyConfig(body any) (*Applied, error) {
 	var out Applied
 	if err := c.do(http.MethodPost, "/apply", body, &out); err != nil {
@@ -114,6 +111,35 @@ func (c *Client) GetRevision(n int64) (*Revision, error) {
 	}
 	var out Revision
 	if err := c.do(http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Status is where each reader replica stands.
+type Status struct {
+	Revision int64            `json:"revision"`
+	Gateway  []GatewayReplica `json:"gateway"`
+}
+
+// GatewayReplica is a gateway replica that long-polled in the last minute: the
+// revision it serves, and the newest it refused, if any, with why.
+type GatewayReplica struct {
+	Replica string   `json:"replica"`
+	Loaded  int64    `json:"loaded"`
+	Refused *Refusal `json:"refused"`
+	SeenAt  string   `json:"seen_at"`
+}
+
+type Refusal struct {
+	Revision int64  `json:"revision"`
+	Reason   string `json:"reason"`
+}
+
+// Status is GET /status.
+func (c *Client) Status() (*Status, error) {
+	var out Status
+	if err := c.do(http.MethodGet, "/status", nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

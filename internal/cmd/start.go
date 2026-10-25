@@ -35,9 +35,8 @@ Plat5 always runs. Beside it, the modules plat5.dev.yml turns on (all by default
   observability  Grafana with logs, traces, and metrics (grafana/otel-lgtm + Alloy)
 Then your app, from app.compose in plat5.dev.yml.
 
-start applies plat5.yml as plat5 apply does. A plan that destroys nothing
-applies without a prompt; a destructive one is refused, so run plat5 apply,
-which asks to confirm. Then it seeds the dev person, a node labelled Dev of
+start applies plat5.yml as plat5 apply does, without a prompt; a blocked plan
+is printed and refused. Then it seeds the dev person, a node labelled Dev of
 each root kind, and a personal key. Running it again updates the stack in place.
 
 A service file's url is what the gateway reaches, as in any deployment. When
