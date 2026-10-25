@@ -48,7 +48,7 @@ func (f *fakeControlPlane) server(t *testing.T) *controlplane.Client {
 func initDir(t *testing.T) string {
 	dir := t.TempDir()
 	captureStdout(t, func() {
-		if err := writeInitFiles(dir); err != nil {
+		if err := writeInitFiles(dir, basePlat5YML(t)); err != nil {
 			t.Fatal(err)
 		}
 	})

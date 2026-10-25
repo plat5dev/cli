@@ -1,0 +1,63 @@
+# {{.Project}}
+
+Your API{{if .Web}} and a console for your customers{{end}}, behind Plat5. Plat5 signs people in, keeps the tree of organizations and projects with their members, roles and keys, checks every request at its gateway, and records an audit log. Your API does none of that: it reads the node ids the gateway writes into its path.
+
+Everything here is yours to change: a starting point, not a dependency.
+
+## Run it
+
+```bash
+plat5 start       # Plat5, then your apps; prints every link, login, and a key
+plat5 status      # the same, again
+plat5 logs --app  # your apps' logs
+plat5 stop        # data is kept
+```
+{{if .Web}}
+The customer console is at {{.Web}}: sign in as `{{.DevEmail}}` / `{{.Password}}`.
+{{end}}
+## What's here
+
+| | |
+|--|--|
+| `api/` | Your API ({{.Starter}}). `api/README.md` says what it serves and what it trusts |
+{{- if .Web}}
+| `customer-console/` | Your customers' console: Vite + React, calling the gateway. `customer-console/README.md` says how it's laid out |
+{{- end}}
+| `plat5.yml` | The deployment's config: settings, the `organization` and `project` kinds, the roles, rate limits{{if .Web}}, the console's origin under `cors`{{end}}, and the service files. `plat5 start` applies it; `plat5 apply` applies it to any deployment |
+| `services/{{.Service}}.yml` | Your API's service file: its url and its routes, by scope |
+| `services/identity.yml`, `services/audit.yml` | Identity's and audit's service files, at their default resources |
+| `plat5.dev.yml` | How `plat5 start` runs the project on your machine: image versions, modules, your apps |
+| `docker-compose.yml` | Runs your apps: it includes each folder's own compose file |
+| `operator.routes.yml` | The route list for an operator gateway: what operators may call, with your API's paths from the starter. `plat5 start` runs no operator gateway; one you run mounts this file |
+
+## Extend it
+
+### Add an API route
+
+1. Write the handler in `api/`, on the path your API gets: the scope's `upstream_prefix` (`/projects/{project.id}` arrives as `/projects/<id>`) and the route's path.
+2. Add the route to `services/{{.Service}}.yml`, in its scope, with the `required_permissions` it needs (plat5 `docs/reference/config/services.md`).
+3. Grant a new permission to a role in `plat5.yml`'s `roles`.
+4. `plat5 start` again, or `plat5 apply`. The gateway loads the new config; nothing restarts.
+{{if .Web}}
+### Add a page to the customer console
+
+1. `customer-console/src/pages/YourPage.tsx`. Call your API through `customer-console/src/api/endpoints.ts`.
+2. A route in `customer-console/src/App.tsx`, and a link in `customer-console/src/components/Layout.tsx`.
+{{end}}
+### Let operators call your API
+
+List your API's own paths, by node id, under `services.{{.Service}}` in `operator.routes.yml` (operator `docs/reference/routes.md`). The operator gateway forwards them unchanged.
+
+### Remove what you don't need
+
+- **An app**: delete its folder and its line in `docker-compose.yml`.{{if .Web}} Without `customer-console/`, also remove `app.web` from `plat5.dev.yml` and its origin from `cors` in `plat5.yml`.{{end}}
+- **A module** (sign-in, Grafana): turn it off under `modules:` in `plat5.dev.yml`.
+- **Run your apps yourself**, with your own tools: `plat5 start -x app` runs Plat5 alone{{if .Next}}, then, in `api/`:{{else}}.{{end}}
+{{- if .Next}}
+
+  ```bash
+{{- range .Next}}
+  {{.}}
+{{- end}}
+  ```
+{{- end}}

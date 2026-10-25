@@ -1,0 +1,98 @@
+# What this gateway forwards: each service's own paths, by node id. Contract:
+# docs/reference/routes.md. Addresses are Plat5's compose network; a deployment mounts
+# its own file with its addresses and its services' routes.
+#
+# Plat5 identity's service API for other front doors, except creating keys, which mints
+# customer credentials. Plat5's audit reads. The operator audit log read (drop it, and the
+# operator-audit service, with AUDIT_ENABLED=false).
+services:
+  identity:
+    url: http://identity:3000
+    routes:
+      # The tree, unfiltered: ?kind=, ?parent_id=, ?status=.
+      - path: /nodes
+        methods: [GET]
+      - path: /nodes/{node_id}
+        node: node_id
+        methods: [GET, PATCH, DELETE]
+      - path: /nodes/{node_id}/restore
+        node: node_id
+        methods: [POST]
+      # For purged roots only: identity answers 409 on any other node.
+      - path: /nodes/{node_id}/release-slug
+        node: node_id
+        methods: [POST]
+      # Filtered by the member when listed as one. Created as one, they get creator_role.
+      - path: /nodes/{node_id}/children/{kind}
+        node: node_id
+        as_member: true
+        methods: [GET, POST]
+      - path: /roots/{kind}
+        methods: [POST]
+      - path: /nodes/{node_id}/roles
+        node: node_id
+        methods: [GET]
+      - path: /nodes/{node_id}/bindings
+        node: node_id
+        methods: [GET, POST]
+      - path: /nodes/{node_id}/bindings/{binding_id}
+        node: node_id
+        methods: [PATCH, DELETE]
+      - path: /nodes/{node_id}/memberships/{member_id}
+        node: node_id
+        methods: [GET]
+      - path: /nodes/{root_id}/members
+        node: root_id
+        methods: [GET, POST]
+      - path: /nodes/{root_id}/members/{member_id}
+        node: root_id
+        methods: [GET, DELETE]
+      - path: /nodes/{node_id}/service-accounts
+        node: node_id
+        methods: [GET, POST]
+      - path: /nodes/{node_id}/service-accounts/{service_account_id}
+        node: node_id
+        methods: [GET, PATCH, DELETE]
+      - path: /nodes/{node_id}/service-accounts/{service_account_id}/keys
+        node: node_id
+        methods: [GET]
+      - path: /nodes/{node_id}/service-accounts/{service_account_id}/keys/{key_id}
+        node: node_id
+        methods: [DELETE]
+      - path: /nodes/{node_id}/invites
+        node: node_id
+        methods: [GET, POST]
+      - path: /nodes/{node_id}/invites/{invite_id}
+        node: node_id
+        methods: [DELETE]
+      # A person, by user id: ?issuer=&subject= finds one by IdP link.
+      - path: /users
+        methods: [GET]
+      - path: /users/{user_id}
+        methods: [GET, DELETE]
+      - path: /users/{user_id}/status
+        methods: [PATCH]
+      - path: /users/{user_id}/nodes
+        methods: [GET]
+      - path: /users/{user_id}/keys
+        methods: [GET]
+      - path: /users/{user_id}/keys/{key_id}
+        methods: [DELETE]
+      - path: /users/{user_id}/invites/redeem
+        methods: [POST]
+      # From a member to its person.
+      - path: /members/{member_id}/user
+        methods: [GET]
+  audit:
+    url: http://audit:3002
+    routes:
+      - path: /nodes/{node_id}/audit-events
+        node: node_id
+        methods: [GET]
+      - path: /users/{user_id}/audit-events
+        methods: [GET]
+  operator-audit:
+    url: http://operator-audit:5005
+    routes:
+      - path: /operator-audit-events
+        methods: [GET]

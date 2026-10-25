@@ -26,7 +26,7 @@ func TestRenderedDevYMLResolves(t *testing.T) {
 		"from-src":  {modules: allModules(), sources: map[string]string{"plat5": "/src/plat5"}},
 		"fewer-mod": {modules: map[string]bool{config.ModuleAuth: true}, sources: map[string]string{}},
 	} {
-		yml := renderDevYML("demo", ch, pins)
+		yml := renderDevYML("demo", ch, pins, nil)
 		f, err := config.Parse([]byte(yml))
 		if err != nil {
 			t.Fatalf("%s: %v\n%s", name, err, yml)
@@ -45,7 +45,7 @@ func TestRenderedDevYMLResolves(t *testing.T) {
 }
 
 func TestRenderedDevYMLWithoutAuthSaysWhy(t *testing.T) {
-	yml := renderDevYML("demo", initChoices{modules: map[string]bool{}, sources: map[string]string{}}, pins)
+	yml := renderDevYML("demo", initChoices{modules: map[string]bool{}, sources: map[string]string{}}, pins, nil)
 	if !strings.Contains(yml, "plat5 start needs idp:") {
 		t.Fatalf("no hint:\n%s", yml)
 	}
@@ -64,7 +64,7 @@ func TestInitFilesValidate(t *testing.T) {
 		t.Fatal(err)
 	}
 	captureStdout(t, func() {
-		if err := writeInitFiles(dir); err != nil {
+		if err := writeInitFiles(dir, basePlat5YML(t)); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -72,7 +72,7 @@ func TestInitFilesValidate(t *testing.T) {
 		t.Fatalf("an existing service file was replaced:\n%s", got)
 	}
 	_ = os.Remove(filepath.Join(dir, "services", "audit.yml"))
-	captureStdout(t, func() { _ = writeInitFiles(dir) })
+	captureStdout(t, func() { _ = writeInitFiles(dir, basePlat5YML(t)) })
 
 	cfg, err := plat5yml.Load(filepath.Join(dir, "plat5.yml"))
 	if err != nil {
@@ -103,7 +103,7 @@ func TestInitFilesMatchPlat5(t *testing.T) {
 	}
 	dir := t.TempDir()
 	captureStdout(t, func() {
-		if err := writeInitFiles(dir); err != nil {
+		if err := writeInitFiles(dir, basePlat5YML(t)); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -127,12 +127,13 @@ func TestInitFilesMatchPlat5(t *testing.T) {
 	}
 }
 
-func TestInitRefusesStarters(t *testing.T) {
-	initTemplate = "go-fiber-api"
-	defer func() { initTemplate = noTemplate }()
-	if err := runInit(initCmd, []string{t.TempDir()}); err == nil || !strings.Contains(err.Error(), "--template none") {
-		t.Fatalf("want a refusal naming --template none, got %v", err)
+func basePlat5YML(t *testing.T) []byte {
+	t.Helper()
+	data, err := initFiles.ReadFile("initfiles/plat5.yml")
+	if err != nil {
+		t.Fatal(err)
 	}
+	return data
 }
 
 func TestParsePairs(t *testing.T) {

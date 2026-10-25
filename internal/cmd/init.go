@@ -13,11 +13,11 @@ import (
 	"github.com/plat5dev/cli/internal/config"
 	"github.com/plat5dev/cli/internal/prompt"
 	"github.com/plat5dev/cli/internal/release"
+	"github.com/plat5dev/cli/internal/template"
 	"github.com/spf13/cobra"
 )
 
 // noTemplate is --template none: Plat5 alone, with organization and project kinds.
-// It is the only starter until the starter repos ship plat5.yml and services/.
 const noTemplate = "none"
 
 // initFiles is the config init writes: organization and project kinds, the
@@ -27,13 +27,16 @@ const noTemplate = "none"
 var initFiles embed.FS
 
 var (
-	initTemplate        string
-	initYes             bool
-	initForce           bool
-	initNoAuth          bool
-	initNoObservability bool
-	initSources         []string
-	initVersions        []string
+	initTemplate          string
+	initTemplatesDir      string
+	initTemplateRef       string
+	initYes               bool
+	initForce             bool
+	initNoAuth            bool
+	initNoObservability   bool
+	initNoCustomerConsole bool
+	initSources           []string
+	initVersions          []string
 )
 
 var initCmd = &cobra.Command{
@@ -41,47 +44,65 @@ var initCmd = &cobra.Command{
 	Short: "Create a project",
 	Long: `Create a Plat5 project, then cd into it and run plat5 start:
 
-  plat5.yml          the deployment's config: organization and project kinds, roles
-  services/          identity's and audit's service files
-  plat5.dev.yml      how plat5 start runs it on your machine
+  plat5.yml            the deployment's config: organization and project kinds,
+                       roles, the service files
+  services/            identity's and audit's service files, and your API's
+  plat5.dev.yml        how plat5 start runs it on your machine
+  api/                 your API, from a starter
+  customer-console/    a console for your customers (--no-customer-console: none)
+  docker-compose.yml   runs your apps
+  operator.routes.yml  the route list for an operator gateway
+  README.md            what's here, and how to extend it
 
-  plat5 init my-app
-  plat5 init my-app -y            take the defaults (every module)
+Each app is a starting point the project owns, not a dependency.
+
+  plat5 init my-app                           asks for a starter and modules
+  plat5 init my-app -y                        the defaults: go-fiber-api, every module
+  plat5 init my-app --template node-fastify-api -y
+  plat5 init my-app --template none -y        Plat5 alone: the config, no apps
 
 Without a directory, the project is the current directory. An existing
-plat5.yml or service file is kept.
+plat5.yml or service file is kept with --template none; a starter refuses a
+project that has any of its files.
 
-Starters (an API and consoles to copy) aren't available yet: --template none,
-the default, is the only one.
+A starter is a first-party name (go-fiber-api, node-fastify-api,
+bun-effect-api), owner/repo on GitHub, or a .tar.gz URL. Starters and the
+customer console are downloaded at --template-ref (default master); nothing is
+cached.
 
-Contributors: --source plat5=../plat5 builds that module from a checkout instead
-of pulling its image (plat5, auth).`,
+Contributors: --templates-dir .. reads first-party templates from checkouts
+(../template-go-fiber-api, ../template-customer-console), and --source
+plat5=../plat5 builds that module from a checkout instead of pulling its image
+(plat5, auth).`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runInit,
 }
 
 func init() {
 	f := initCmd.Flags()
-	f.StringVar(&initTemplate, "template", noTemplate, "Starter: none (the only one for now)")
-	f.BoolVarP(&initYes, "yes", "y", false, "Don't ask; take the defaults (every module)")
+	f.StringVar(&initTemplate, "template", template.Official[0].Name, "Starter: "+strings.Join(template.OfficialNames(), ", ")+", owner/repo, a .tar.gz URL, or none")
+	f.BoolVarP(&initYes, "yes", "y", false, "Don't ask; take the defaults ("+template.Official[0].Name+", every module)")
 	f.BoolVar(&initForce, "force", false, "Overwrite an existing plat5.dev.yml")
 	f.BoolVar(&initNoAuth, "no-auth", false, "Turn the auth module off (then set idp: in plat5.dev.yml)")
 	f.BoolVar(&initNoObservability, "no-observability", false, "Turn the observability module off")
+	f.BoolVar(&initNoCustomerConsole, "no-customer-console", false, "Don't add the customer console (customer-console/)")
+	f.StringVar(&initTemplatesDir, "templates-dir", "", "Read first-party templates from checkouts in this directory (or PLAT5_TEMPLATES_DIR)")
+	f.StringVar(&initTemplateRef, "template-ref", "", "Git ref of downloaded templates (default master; or PLAT5_TEMPLATE_REF)")
 	f.StringArrayVar(&initSources, "source", nil, "Build a module from a checkout: plat5=../plat5 (repeatable)")
 	f.StringArrayVar(&initVersions, "version", nil, "Pin an image: plat5=v0.8.0 (repeatable; default the latest tag)")
 }
 
 type initChoices struct {
-	dir      string
-	modules  map[string]bool
-	sources  map[string]string
-	versions map[string]string
+	dir string
+	// starter is --template; empty for none.
+	starter           string
+	noCustomerConsole bool
+	modules           map[string]bool
+	sources           map[string]string
+	versions          map[string]string
 }
 
 func runInit(cmd *cobra.Command, args []string) error {
-	if initTemplate != noTemplate {
-		return fmt.Errorf("--template %s: starters aren't available yet; use --template none", initTemplate)
-	}
 	ch, err := initChoose(cmd, args)
 	if err != nil {
 		return err
@@ -104,11 +125,38 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fmt.Println("Created", relPath(mustGetwd(), ch.dir)+":")
-	if err := writeInitFiles(ch.dir); err != nil {
+	plat5YML, err := initFiles.ReadFile("initfiles/plat5.yml")
+	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(devPath, []byte(renderDevYML(projectID, ch, versions)), 0o644); err != nil {
+	var lay *layout
+	if ch.starter != "" {
+		opts, err := templateOpts()
+		if err != nil {
+			return err
+		}
+		if lay, err = loadLayout(opts, ch.starter, !ch.noCustomerConsole); err != nil {
+			return err
+		}
+		defer lay.close()
+		if err := lay.checkFree(ch.dir); err != nil {
+			return err
+		}
+		if plat5YML, err = lay.plat5YML(plat5YML); err != nil {
+			return err
+		}
+	}
+
+	fmt.Println("Created", relPath(mustGetwd(), ch.dir)+":")
+	if err := writeInitFiles(ch.dir, plat5YML); err != nil {
+		return err
+	}
+	if lay != nil {
+		if err := lay.write(ch.dir, projectID); err != nil {
+			return err
+		}
+	}
+	if err := os.WriteFile(devPath, []byte(renderDevYML(projectID, ch, versions, lay)), 0o644); err != nil {
 		return err
 	}
 	fmt.Println("  wrote", config.FileName)
@@ -122,8 +170,23 @@ func runInit(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// writeInitFiles writes plat5.yml and services/, keeping any that exist.
-func writeInitFiles(dir string) error {
+// templateOpts reads first-party templates from a local templates directory
+// when one is set; otherwise templates are GitHub archives at the ref.
+func templateOpts() (template.ResolveOptions, error) {
+	opts := template.ResolveOptions{Ref: firstNonEmpty(initTemplateRef, strings.TrimSpace(os.Getenv("PLAT5_TEMPLATE_REF")))}
+	if dir := firstNonEmpty(initTemplatesDir, strings.TrimSpace(os.Getenv("PLAT5_TEMPLATES_DIR"))); dir != "" {
+		abs, err := filepath.Abs(prompt.ExpandPath(dir))
+		if err != nil {
+			return opts, err
+		}
+		opts.LocalRoot = abs
+	}
+	return opts, nil
+}
+
+// writeInitFiles writes plat5.yml (its body given) and identity's and audit's
+// service files, keeping any that exist.
+func writeInitFiles(dir string, plat5YML []byte) error {
 	return fs.WalkDir(initFiles, "initfiles", func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
@@ -138,6 +201,9 @@ func writeInitFiles(dir string) error {
 		if err != nil {
 			return err
 		}
+		if rel == "plat5.yml" {
+			data = plat5YML
+		}
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err
 		}
@@ -149,16 +215,17 @@ func writeInitFiles(dir string) error {
 	})
 }
 
-// initChoose settles the directory, modules, sources, and pins from args, flags,
-// and (on a terminal, without -y) prompts.
+// initChoose settles the directory, starter, modules, sources, and pins from
+// args, flags, and (on a terminal, without -y) prompts.
 func initChoose(cmd *cobra.Command, args []string) (initChoices, error) {
 	ch := initChoices{
 		modules: map[string]bool{
 			config.ModuleAuth:          !initNoAuth,
 			config.ModuleObservability: !initNoObservability,
 		},
-		sources:  map[string]string{},
-		versions: map[string]string{},
+		noCustomerConsole: initNoCustomerConsole,
+		sources:           map[string]string{},
+		versions:          map[string]string{},
 	}
 	if err := parsePairs("--source", initSources, config.Sources, ch.sources); err != nil {
 		return ch, err
@@ -178,6 +245,7 @@ func initChoose(cmd *cobra.Command, args []string) (initChoices, error) {
 	if len(args) == 1 {
 		dir = args[0]
 	}
+	starter := initTemplate
 	if !initYes && prompt.Interactive() {
 		var fields []huh.Field
 		if dir == "" {
@@ -189,6 +257,14 @@ func initChoose(cmd *cobra.Command, args []string) (initChoices, error) {
 					}
 					return nil
 				}))
+		}
+		if !cmd.Flags().Changed("template") {
+			var opts []huh.Option[string]
+			for _, o := range template.Official {
+				opts = append(opts, huh.NewOption(fmt.Sprintf("%-18s %s", o.Name, o.Description), o.Name))
+			}
+			opts = append(opts, huh.NewOption(fmt.Sprintf("%-18s %s", noTemplate, "Plat5 alone: the config, no apps"), noTemplate))
+			fields = append(fields, huh.NewSelect[string]().Title("Starter").Options(opts...).Value(&starter))
 		}
 		askModules := !cmd.Flags().Changed("no-auth") && !cmd.Flags().Changed("no-observability")
 		picked := []string{config.ModuleAuth, config.ModuleObservability}
@@ -219,6 +295,9 @@ func initChoose(cmd *cobra.Command, args []string) (initChoices, error) {
 		return ch, err
 	}
 	ch.dir = abs
+	if starter != noTemplate {
+		ch.starter = starter
+	}
 	return ch, nil
 }
 
@@ -231,7 +310,7 @@ func runForm(fields []huh.Field) error {
 		return errors.New("cancelled")
 	}
 	if err != nil && strings.Contains(err.Error(), "TTY") {
-		return errors.New("no terminal to ask on: run plat5 init -y to take the defaults (every module), or pass the --no-* flags")
+		return errors.New("no terminal to ask on: run plat5 init -y to take the defaults (" + template.Official[0].Name + ", every module), or pass --template and the --no-* flags")
 	}
 	return err
 }
@@ -278,8 +357,9 @@ func resolveVersions(ch initChoices) (map[string]string, error) {
 	return out, nil
 }
 
-// renderDevYML is plat5.dev.yml: how plat5 start runs the project.
-func renderDevYML(projectID string, ch initChoices, versions map[string]string) string {
+// renderDevYML is plat5.dev.yml: how plat5 start runs the project. lay is the
+// starter's layout, nil with --template none.
+func renderDevYML(projectID string, ch initChoices, versions map[string]string, lay *layout) string {
 	var b strings.Builder
 	p := func(format string, a ...any) { fmt.Fprintf(&b, format, a...) }
 
@@ -312,9 +392,23 @@ func renderDevYML(projectID string, ch initChoices, versions map[string]string) 
 	p("  %-20s # Plat5 Auth: sign-in for your users (dev mode)\n", fmt.Sprintf("auth: %t", ch.modules[config.ModuleAuth]))
 	p("  %-20s # Grafana with logs, traces, metrics\n\n", fmt.Sprintf("observability: %t", ch.modules[config.ModuleObservability]))
 
-	p("# Your app. Set compose: and plat5 start runs it after Plat5 (-x app to run it\n")
-	p("# yourself). A service file's url names its compose service (http://api:3000).\n")
-	p("# app:\n#   compose: ./docker-compose.yml\n#   web: http://localhost:3001\n")
+	if lay != nil {
+		folders := apiDir + "/"
+		if lay.customerConsole != nil {
+			folders += ", " + customerConsoleDir + "/"
+		}
+		p("# Your apps: %s. plat5 start runs docker-compose.yml\n", folders)
+		p("# after Plat5 (-x app to run them yourself). %s's url names\n", lay.serviceRel())
+		p("# the API's compose service.\n")
+		p("app:\n  compose: ./%s\n", projectCompose)
+		if web := lay.web(); web != "" {
+			p("  web: %s  # customer-console/: may sign in with local Auth\n", yamlString(web))
+		}
+	} else {
+		p("# Your app. Set compose: and plat5 start runs it after Plat5 (-x app to run it\n")
+		p("# yourself). A service file's url names its compose service (http://api:3000).\n")
+		p("# app:\n#   compose: ./docker-compose.yml\n#   web: http://localhost:3001\n")
+	}
 
 	p(`
 # --- Optional ---

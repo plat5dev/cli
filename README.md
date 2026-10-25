@@ -3,22 +3,31 @@
 Run Plat5 locally, and manage a deployment's config. Everything runs in Docker: the CLI is one binary and needs nothing else.
 
 ```bash
-plat5 init my-app       # a project: the config, its service files, and how to run it
+plat5 init my-app       # a project: your API from a starter, a customer console, the config
 cd my-app
-plat5 start             # Plat5 and its modules; applies the config; prints links, logins, a key
+plat5 start             # Plat5 and its modules; applies the config; runs your apps; prints links, logins, a key
 ```
 
-`plat5 init` writes a project you own:
+`plat5 init` writes a project you own. With an API starter (`--template go-fiber-api`, the default):
 
 ```
 my-app/
-  plat5.yml               the deployment's config: organization and project kinds, roles
+  plat5.yml               the deployment's config: organization and project kinds, roles, the
+                          customer console's origin under cors, the service files
   services/identity.yml   identity's service file: its url, and overrides of its resources
   services/audit.yml      audit's
+  services/api.yml        your API's: its url and its routes, from the starter
   plat5.dev.yml           how plat5 start runs it on your machine
+  api/                    your API, from the starter
+  customer-console/       your customers' console (--no-customer-console: none)
+  docker-compose.yml      runs your apps: includes api/'s and customer-console/'s compose files
+  operator.routes.yml     the route list for an operator gateway, with your API's operator routes
+  README.md               what's here, and how to extend it
 ```
 
-Starters (an API and consoles to copy into the project) aren't available yet: `--template none`, the default, is the only one. Add your own API as a service file in `services/`, list it in `plat5.yml`'s `services`, and point `app.compose` in `plat5.dev.yml` at its compose file. A service file's routes sit in a kind's scope, relative to its node (`/orgs/{organization}/…`), in the `user` scope for the person's own data, such as `/user/notification-settings` (the service gets `X-Plat5-User-Id`), or in `public` ([plat5 `docs/reference/config/services.md`](https://github.com/plat5dev/plat5/blob/master/docs/reference/config/services.md)).
+Each app is a starting point the project owns, not a dependency. The starters are `go-fiber-api`, `node-fastify-api` and `bun-effect-api`: the same API (tasks inside a project, and the person's profile) in three stacks, which the customer console works with. A starter can also be `owner/repo` on GitHub, or a `.tar.gz` URL ([starters](#starters)).
+
+`--template none` is Plat5 alone: `plat5.yml`, `services/identity.yml`, `services/audit.yml` and `plat5.dev.yml`. Add your own API as a service file in `services/`, list it in `plat5.yml`'s `services`, and point `app.compose` in `plat5.dev.yml` at its compose file. A service file's routes sit in a kind's scope, relative to its node (`/orgs/{organization}/…`), in the `user` scope for the person's own data, such as `/user/notification-settings` (the service gets `X-Plat5-User-Id`), or in `public` ([plat5 `docs/reference/config/services.md`](https://github.com/plat5dev/plat5/blob/master/docs/reference/config/services.md)).
 
 Self-hosting a deployment is compose, not this CLI: [plat5 `docs/guides/deploy.md`](https://github.com/plat5dev/plat5/blob/master/docs/guides/deploy.md).
 
@@ -76,7 +85,7 @@ Local Auth runs in dev mode: `POST /dev/token` mints a token for any email, and 
 
 | Command | |
 |---------|--|
-| `plat5 init [dir]` | Create a project. Asks for the modules; `-y` takes the defaults. `--template none` (the default) is the only starter |
+| `plat5 init [dir] [--template <starter>]` | Create a project. Asks for the starter and the modules; `-y` takes the defaults (`go-fiber-api`, every module). `--template none` for Plat5 alone, `--no-customer-console` for the API alone |
 | `plat5 start [-x module,…] [-v]` | Run the stack and your app, apply `plat5.yml`, seed the dev person, print the summary |
 | `plat5 status` | The summary again, and container health |
 | `plat5 stop` | Stop everything. Data (volumes) is kept |
@@ -154,6 +163,35 @@ The template contract for an app's compose file: `plat5 start` runs it with `doc
 | `PLAT5_AUTH_CLIENT_ID` | The OAuth client id (`plat5`) |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Where to send traces and metrics (Alloy on the host, `http://host.docker.internal:4318`), or empty |
 
+## Starters
+
+`--template` takes a first-party name (`go-fiber-api`, `node-fastify-api`, `bun-effect-api`: the repo `plat5dev/template-<name>`), `owner/repo` on GitHub, or a `.tar.gz` URL. A starter and the customer console (`plat5dev/template-customer-console`) are downloaded as GitHub archives at `--template-ref` (or `PLAT5_TEMPLATE_REF`; default `master`; a branch, tag, or commit), and nothing is cached: each `init` fetches again. `init` prints the commit each came from. It refuses a directory that already has any file a starter writes, before writing anything.
+
+From an API starter, `init`:
+
+- copies the starter into `api/` and the customer console into `customer-console/`, each without its own project files (`plat5.yml`, `plat5.dev.yml`, `services/`, `plat5.template.yml`), its operator routes, `.github`, the manifest's `exclude`, or local state (`.git`, `node_modules`, `dist`, `.env`, `*.local`, `*.log`, `.DS_Store`, `data/*.db`), and replaces `{{project_id}}` in each `substitute` file with the project id;
+- writes the starter's service file as `services/<service>.yml` and lists it in `plat5.yml`, beside identity's and audit's, with the console's `app.web` under `cors.allowed_origins` ([plat5 `docs/reference/config/cors.md`](https://github.com/plat5dev/plat5/blob/master/docs/reference/config/cors.md));
+- writes `docker-compose.yml`, which `include:`s each app's compose file, and `plat5.dev.yml` with `app.compose: ./docker-compose.yml` and `app.web` the console's origin;
+- writes `operator.routes.yml`: operator's shipped route list (operator `routes.yml`) with the starter's operator routes added under its `services:`, in operator's route format (operator [`docs/reference/routes.md`](https://github.com/plat5dev/operator/blob/master/docs/reference/routes.md)). `plat5 start` runs no operator gateway; an operator gateway you run mounts the file as its `ROUTES_FILE`.
+
+A template's manifest, `plat5.template.yml` at its root. Unknown keys are errors.
+
+```yaml
+name: go-fiber-api
+kind: api                              # api: an API starter; customer-console: the console
+description: Go + Fiber reference API
+service: services/api.yml              # api: its service file, one service, keyed by its name
+operator_routes: ./routes.operator.yml # api, optional: a services: block in operator's route format
+substitute: [go.mod]                   # files whose {{project_id}} becomes the project id
+app:
+  compose: docker-compose.yml          # how plat5 start runs it, to the contract above
+  web: http://localhost:3001           # customer-console: its browser origin
+next: [go mod tidy, go run .]          # how to run it yourself with plat5 start -x app
+exclude: [AGENTS.md]                   # paths, from its root, not to copy
+```
+
+The service file's `url` names the app's compose service (`http://api:3000`), so `plat5 start` joins it to the Plat5 network ([your app and its url](#your-app-and-its-url)). Each starter's repo root is also a project you can run alone: its own `plat5.yml`, `plat5.dev.yml` and `services/`, which `init` leaves out.
+
 ## Contributors: build from checkouts
 
 `source:` builds a module's images from a local checkout instead of pulling them, on the same embedded stack (prod targets: what ships). Keys are the `versions:` keys; a sourced module needs no version.
@@ -169,9 +207,15 @@ A CLI built from this checkout reports a pseudo-version older than the `cli:` fl
 go build -ldflags "-X github.com/plat5dev/cli/internal/cmd.Version=0.8.0" -o plat5 ./cmd/plat5
 ```
 
+`--templates-dir` (or `PLAT5_TEMPLATES_DIR`) reads first-party templates from checkouts instead of GitHub, each in its repo's folder: with `--templates-dir ..`, `go-fiber-api` is `../template-go-fiber-api` and the console is `../template-customer-console`.
+
+```bash
+plat5 init my-app --templates-dir .. --template go-fiber-api -y
+```
+
 The embedded compose files (`internal/bundle/stack`) track plat5 HEAD, so a `plat5` checkout at HEAD runs as it will ship. For hot reload of one service, use that repo's own dev compose.
 
-Two copies track plat5 too: the config schema (`internal/schema`, plat5's `schema/`, for offline `validate`) and the files `init` writes (`internal/cmd/initfiles`, which load into the config plat5's e2e applies, `e2e/testdata/config.json`). Their tests compare them with a `plat5` checkout beside the CLI, and skip without one.
+Two copies track plat5 too: the config schema (`internal/schema`, plat5's `schema/`, for offline `validate`) and the files `init` writes (`internal/cmd/initfiles`, which load into the config plat5's e2e applies, `e2e/testdata/config.json`). One tracks operator: its shipped route list (`internal/cmd/operatorfiles/routes.yml`, operator's `routes.yml`), which `operator.routes.yml` starts from. Their tests compare them with a `plat5` and an `operator` checkout beside the CLI, and skip without one. So do the tests that init a project from each first-party template checkout beside the CLI.
 
 ## State
 
