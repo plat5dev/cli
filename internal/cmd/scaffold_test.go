@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -60,7 +61,7 @@ func runStarterInit(t *testing.T, templates, starter, dir string, noConsole bool
 	initTemplate, initTemplatesDir, initYes, initNoCustomerConsole = starter, templates, true, noConsole
 	initVersions = []string{"plat5=v0.8.0", "auth=v0.2.2"}
 	defer func() {
-		initTemplate, initTemplatesDir, initYes, initNoCustomerConsole = template.Official[0].Name, "", false, false
+		initTemplate, initTemplatesDir, initYes, initNoCustomerConsole = noTemplate, "", false, false
 		initVersions = nil
 	}()
 	var err error
@@ -191,6 +192,29 @@ func TestInitStarterNoCustomerConsole(t *testing.T) {
 		if b, _ := os.ReadFile(filepath.Join(dir, file)); strings.Contains(string(b), unwanted) {
 			t.Errorf("%s mentions %s:\n%s", file, unwanted, b)
 		}
+	}
+}
+
+// -y without --template is Plat5 alone: the config and plat5.dev.yml, no apps.
+func TestInitYesIsPlat5Alone(t *testing.T) {
+	if def := initCmd.Flags().Lookup("template").DefValue; def != noTemplate {
+		t.Fatalf("--template defaults to %q", def)
+	}
+	dir := filepath.Join(t.TempDir(), "alone")
+	if err := runStarterInit(t, fixtureTemplates(t), noTemplate, dir, false); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			rel, _ := filepath.Rel(dir, path)
+			got[filepath.ToSlash(rel)] = true
+		}
+		return err
+	})
+	want := map[string]bool{"plat5.yml": true, "services/identity.yml": true, "services/audit.yml": true, config.FileName: true}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("wrote %v, want %v", got, want)
 	}
 }
 

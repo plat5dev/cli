@@ -3,12 +3,12 @@
 Run Plat5 locally, and manage a deployment's config. Everything runs in Docker: the CLI is one binary and needs nothing else.
 
 ```bash
-plat5 init my-app       # a project: your API from a starter, a customer console, the config
+plat5 init my-app       # a project: the config, plus an API starter and a customer console if you pick one
 cd my-app
 plat5 start             # Plat5 and its modules; applies the config; runs your apps; prints links, logins, a key
 ```
 
-`plat5 init` writes a project you own. With an API starter (`--template go-fiber-api`, the default):
+`plat5 init` writes a project you own. It asks for a starter; `-y` takes `--template none`, Plat5 alone. With an API starter (`--template go-fiber-api`):
 
 ```
 my-app/
@@ -85,7 +85,7 @@ Local Auth runs in dev mode: `POST /dev/token` mints a token for any email, and 
 
 | Command | |
 |---------|--|
-| `plat5 init [dir] [--template <starter>]` | Create a project. Asks for the starter and the modules; `-y` takes the defaults (`go-fiber-api`, every module). `--template none` for Plat5 alone, `--no-customer-console` for the API alone |
+| `plat5 init [dir] [--template <starter>]` | Create a project. Asks for the starter and the modules; `-y` takes the defaults (`--template none`, Plat5 alone, and every module). `--no-customer-console` with a starter for the API alone |
 | `plat5 start [-x module,…] [-v]` | Run the stack and your app, apply `plat5.yml`, seed the dev person, print the summary |
 | `plat5 status` | The summary again, and container health |
 | `plat5 stop` | Stop everything. Data (volumes) is kept |

@@ -46,9 +46,13 @@ var initCmd = &cobra.Command{
 
   plat5.yml            the deployment's config: organization and project kinds,
                        roles, the service files
-  services/            identity's and audit's service files, and your API's
+  services/            identity's and audit's service files
   plat5.dev.yml        how plat5 start runs it on your machine
-  api/                 your API, from a starter
+
+With an API starter (--template go-fiber-api), also:
+
+  services/<name>.yml  your API's service file
+  api/                 your API, from the starter
   customer-console/    a console for your customers (--no-customer-console: none)
   docker-compose.yml   runs your apps
   operator.routes.yml  the route list for an operator gateway
@@ -57,9 +61,8 @@ var initCmd = &cobra.Command{
 Each app is a starting point the project owns, not a dependency.
 
   plat5 init my-app                           asks for a starter and modules
-  plat5 init my-app -y                        the defaults: go-fiber-api, every module
-  plat5 init my-app --template node-fastify-api -y
-  plat5 init my-app --template none -y        Plat5 alone: the config, no apps
+  plat5 init my-app -y                        the defaults: Plat5 alone, every module
+  plat5 init my-app --template go-fiber-api -y
 
 Without a directory, the project is the current directory. An existing
 plat5.yml or service file is kept with --template none; a starter refuses a
@@ -80,8 +83,8 @@ plat5=../plat5 builds that module from a checkout instead of pulling its image
 
 func init() {
 	f := initCmd.Flags()
-	f.StringVar(&initTemplate, "template", template.Official[0].Name, "Starter: "+strings.Join(template.OfficialNames(), ", ")+", owner/repo, a .tar.gz URL, or none")
-	f.BoolVarP(&initYes, "yes", "y", false, "Don't ask; take the defaults ("+template.Official[0].Name+", every module)")
+	f.StringVar(&initTemplate, "template", noTemplate, "Starter: "+strings.Join(template.OfficialNames(), ", ")+", owner/repo, a .tar.gz URL, or none")
+	f.BoolVarP(&initYes, "yes", "y", false, "Don't ask; take the defaults (--template none, every module)")
 	f.BoolVar(&initForce, "force", false, "Overwrite an existing plat5.dev.yml")
 	f.BoolVar(&initNoAuth, "no-auth", false, "Turn the auth module off (then set idp: in plat5.dev.yml)")
 	f.BoolVar(&initNoObservability, "no-observability", false, "Turn the observability module off")
@@ -310,7 +313,7 @@ func runForm(fields []huh.Field) error {
 		return errors.New("cancelled")
 	}
 	if err != nil && strings.Contains(err.Error(), "TTY") {
-		return errors.New("no terminal to ask on: run plat5 init -y to take the defaults (" + template.Official[0].Name + ", every module), or pass --template and the --no-* flags")
+		return errors.New("no terminal to ask on: run plat5 init -y to take the defaults (--template none, every module), or pass --template and the --no-* flags")
 	}
 	return err
 }
