@@ -183,7 +183,7 @@ var keyOrder = []string{
 	"url", "timeouts", "max_body_bytes", "resources",
 	"deletion_grace", "reserved_slugs", "users", "name_claim", "kinds", "roles", "creator_role",
 	"defaults", "rate_limits", "cors", "services",
-	"parent", "path", "list_permission", "includes", "permissions", "bindable_at",
+	"parent", "path", "permission_name", "list_permission", "bind_creator", "includes", "permissions", "bindable_at",
 	"connect", "read", "requests", "window_seconds", "count_at", "allowed_origins", "allowed_headers",
 	"scopes", "upstream_prefix", "routes", "upstream", "methods",
 	"required_permissions", "rate_limit", "audit", "allow_deleted",
