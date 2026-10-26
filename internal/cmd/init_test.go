@@ -170,3 +170,51 @@ func captureStdout(t *testing.T, f func()) string {
 	data, _ := io.ReadAll(r)
 	return string(data)
 }
+
+// A --source path must be a directory; the flag repeats, one checkout each.
+func TestResolveSources(t *testing.T) {
+	tmp := t.TempDir()
+	for _, d := range []string{"work", "plat5", "operator"} {
+		if err := os.Mkdir(filepath.Join(tmp, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Chdir(filepath.Join(tmp, "work"))
+
+	out := map[string]string{}
+	if err := parsePairs("--source", []string{"plat5=../plat5", "operator=../operator"}, config.Sources, out); err != nil {
+		t.Fatal(err)
+	}
+	if err := resolveSources(out); err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(tmp, "operator"); !samePath(out["operator"], want) {
+		t.Fatalf("operator: %q, want %q", out["operator"], want)
+	}
+
+	out = map[string]string{}
+	if err := parsePairs("--source", []string{"plat5=../plat5,operator=../operator"}, config.Sources, out); err != nil {
+		t.Fatal(err)
+	}
+	err := resolveSources(out)
+	if err == nil {
+		t.Fatal("comma form: want an error")
+	}
+	for _, want := range []string{"--source plat5=../plat5,operator=../operator", "no directory at", "plat5,operator=", "one --source per checkout"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q lacks %q", err, want)
+		}
+	}
+
+	out = map[string]string{"auth": "../auth"}
+	if err := resolveSources(out); err == nil || !strings.Contains(err.Error(), "--source auth=../auth: no directory at ") {
+		t.Fatalf("missing checkout: %v", err)
+	}
+}
+
+// samePath compares paths through symlinks (macOS's temp dir is under /private).
+func samePath(a, b string) bool {
+	ra, errA := filepath.EvalSymlinks(a)
+	rb, errB := filepath.EvalSymlinks(b)
+	return errA == nil && errB == nil && ra == rb
+}

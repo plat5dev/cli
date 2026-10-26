@@ -226,7 +226,7 @@ The service file's `url` names the app's compose service (`http://api:3000`), so
 
 ## Contributors: build from checkouts
 
-`source:` builds a module's images from a local checkout instead of pulling them, on the same embedded stack (prod targets: what ships). Keys are the `versions:` keys; a sourced module needs no version.
+`source:` builds a module's images from a local checkout instead of pulling them, on the same embedded stack (prod targets: what ships). Keys are the `versions:` keys; a sourced module needs no version. `init`'s `--source` takes one `key=path` per checkout and repeats; it fails on a path that isn't a directory.
 
 ```bash
 plat5 init my-app --source plat5=../plat5 --source auth=../auth --source operator=../operator

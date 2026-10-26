@@ -259,12 +259,8 @@ func initChoose(cmd *cobra.Command, args []string) (initChoices, error) {
 	if err := parsePairs("--version", initVersions, config.Sources, ch.versions); err != nil {
 		return ch, err
 	}
-	for k, v := range ch.sources {
-		abs, err := filepath.Abs(prompt.ExpandPath(v))
-		if err != nil {
-			return ch, err
-		}
-		ch.sources[k] = abs
+	if err := resolveSources(ch.sources); err != nil {
+		return ch, err
 	}
 
 	dir := ""
@@ -353,6 +349,26 @@ func parsePairs(flag string, pairs, allowed []string, out map[string]string) err
 			return fmt.Errorf("%s %s: unknown (want %s)", flag, k, strings.Join(allowed, ", "))
 		}
 		out[k] = strings.TrimSpace(v)
+	}
+	return nil
+}
+
+// resolveSources makes each --source path absolute, and fails on one that isn't a
+// directory, naming it.
+func resolveSources(sources map[string]string) error {
+	for k, v := range sources {
+		abs, err := filepath.Abs(prompt.ExpandPath(v))
+		if err != nil {
+			return err
+		}
+		if fi, err := os.Stat(abs); err != nil || !fi.IsDir() {
+			msg := fmt.Sprintf("--source %s=%s: no directory at %s", k, v, abs)
+			if strings.Contains(v, ",") {
+				msg += " (one --source per checkout: --source plat5=../plat5 --source operator=../operator)"
+			}
+			return errors.New(msg)
+		}
+		sources[k] = abs
 	}
 	return nil
 }
