@@ -61,6 +61,7 @@ func TestApplyForStart(t *testing.T) {
 		plan    map[string]any
 		applied bool
 		out     string
+		notOut  string
 		err     string
 	}{
 		"no changes": {plan: map[string]any{"revision": 7, "summary": map[string]any{}, "changes": []any{}}},
@@ -70,6 +71,12 @@ func TestApplyForStart(t *testing.T) {
 			"summary":  map[string]any{"remove": 1},
 			"changes":  []any{map[string]any{"op": "remove", "what": "kind", "name": "folder", "before": map[string]any{"parent": "organization"}}},
 		}, applied: true, out: "  Applied revision 8.\n  gateway: 1/1 replicas on revision 8\n"},
+		// The first apply adds the whole config: only its summary prints.
+		"first apply": {plan: map[string]any{
+			"revision": 0,
+			"summary":  map[string]any{"add": 1},
+			"changes":  []any{map[string]any{"op": "add", "what": "kind", "name": "folder", "after": map[string]any{"parent": "organization"}}},
+		}, applied: true, out: "  First apply: 1 to add.\n  Applied revision 8.\n", notOut: "+ kind folder"},
 		"blocked": {plan: map[string]any{
 			"revision": 7,
 			"summary":  map[string]any{"blocked": 1},
@@ -92,6 +99,9 @@ func TestApplyForStart(t *testing.T) {
 			if !strings.Contains(out.String(), tc.out) {
 				t.Errorf("want %q in:\n%s", tc.out, out.String())
 			}
+			if tc.notOut != "" && strings.Contains(out.String(), tc.notOut) {
+				t.Errorf("want no %q in:\n%s", tc.notOut, out.String())
+			}
 			if got := len(f.applies) == 1; got != tc.applied {
 				t.Fatalf("applied %v, want %v\n%s", got, tc.applied, out.String())
 			}
@@ -99,7 +109,7 @@ func TestApplyForStart(t *testing.T) {
 				body := f.applies[0]
 				expect, _ := body["expect"].(map[string]any)
 				// The config plus expect, nothing else.
-				if expect["revision"] != float64(7) || len(body) != len(cfg.Flat)+1 || body["kinds"] == nil {
+				if expect["revision"] != float64(tc.plan["revision"].(int)) || len(body) != len(cfg.Flat)+1 || body["kinds"] == nil {
 					t.Fatalf("apply body: %v", body)
 				}
 			}

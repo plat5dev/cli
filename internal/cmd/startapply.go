@@ -13,7 +13,8 @@ import (
 )
 
 // applyForStart applies plat5.yml as plat5 apply does, without the prompt: start
-// is not interactive. A blocked plan is printed and refused. Then it reports
+// is not interactive. The first apply, against revision 0, prints only the
+// summary: the whole config is new. A blocked plan is printed and refused. Then it reports
 // where the gateway's replicas stand (plat5 docs/reference/cli.md#the-local-stack).
 func applyForStart(client *controlplane.Client, path string, w io.Writer) (*plat5yml.Config, error) {
 	cfg, err := loadValid(path)
@@ -28,7 +29,12 @@ func applyForStart(client *controlplane.Client, path string, w io.Writer) (*plat
 		fmt.Fprintf(w, "  No changes: revision %d matches %s.\n", p.Revision, path)
 		return cfg, nil
 	}
-	printPlan(w, p)
+	if p.Revision == 0 && p.Summary.Blocked == 0 {
+		s := p.Summary
+		fmt.Fprintf(w, "  First apply: %d to add.\n", s.Add)
+	} else {
+		printPlan(w, p)
+	}
 	if p.Summary.Blocked > 0 {
 		return nil, fmt.Errorf("the plan has blocked changes; nothing applied")
 	}

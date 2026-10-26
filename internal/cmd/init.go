@@ -20,6 +20,9 @@ import (
 // noTemplate is --template none: Plat5 alone, with organization and project kinds.
 const noTemplate = "none"
 
+// defaultStarter is the starter the init prompt highlights first.
+const defaultStarter = "bun-effect-api"
+
 // initFiles is the config init writes: organization and project kinds, the
 // example roles, and identity's and audit's service files at their defaults.
 //
@@ -269,6 +272,9 @@ func initChoose(cmd *cobra.Command, args []string) (initChoices, error) {
 	}
 	starter := initTemplate
 	if !initYes && prompt.Interactive() {
+		if !cmd.Flags().Changed("template") {
+			starter = defaultStarter
+		}
 		var fields []huh.Field
 		if dir == "" {
 			dir = "my-app"
