@@ -71,7 +71,7 @@ func runStarterInit(t *testing.T, templates, starter, dir string, noConsole bool
 func runOperatorInit(t *testing.T, templates, starter, dir string, noConsole, noOperatorConsole bool) error {
 	t.Helper()
 	initTemplate, initTemplatesDir, initYes, initNoCustomerConsole, initNoOperatorConsole = starter, templates, true, noConsole, noOperatorConsole
-	initVersions = []string{"plat5=v0.8.1", "auth=v0.2.2", "operator=v0.5.0"}
+	initVersions = []string{"plat5=v0.9.0", "auth=v0.2.2", "operator=v0.5.0"}
 	defer func() {
 		initTemplate, initTemplatesDir, initYes, initNoCustomerConsole, initNoOperatorConsole = noTemplate, "", false, false, false
 		initVersions = nil

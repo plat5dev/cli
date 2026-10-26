@@ -96,7 +96,7 @@ func init() {
 	f.StringVar(&initTemplatesDir, "templates-dir", "", "Read first-party templates from checkouts in this directory (or PLAT5_TEMPLATES_DIR)")
 	f.StringVar(&initTemplateRef, "template-ref", "", "Git ref of downloaded templates (default master; or PLAT5_TEMPLATE_REF)")
 	f.StringArrayVar(&initSources, "source", nil, "Build a module from a checkout: plat5=../plat5 (repeatable)")
-	f.StringArrayVar(&initVersions, "version", nil, "Pin an image: plat5=v0.8.1 (repeatable; default the latest tag)")
+	f.StringArrayVar(&initVersions, "version", nil, "Pin an image: plat5=v0.9.0 (repeatable; default the latest tag)")
 }
 
 type initChoices struct {

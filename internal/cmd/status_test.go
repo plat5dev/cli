@@ -14,7 +14,7 @@ func summaryStack(t *testing.T, exclude ...string) *stack.Stack {
 	t.Helper()
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	f, err := config.Parse([]byte(`project_id: demo
-versions: {plat5: v0.8.1, auth: v0.2.2, operator: v0.5.0}
+versions: {plat5: v0.9.0, auth: v0.2.2, operator: v0.5.0}
 app: {compose: ./docker-compose.yml, web: "http://localhost:3001"}
 operator:
   routes: ./operator.routes.yml

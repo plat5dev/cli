@@ -40,7 +40,7 @@ brew install plat5dev/tap/plat5
 curl -fsSL https://plat5.com/install.sh | sh
 ```
 
-macOS and Linux, amd64 and arm64. On Windows, use WSL2. The script verifies the release's checksum and installs to `/usr/local/bin` (or `~/.local/bin`); `PLAT5_CLI_VERSION=v0.9.0` pins a release, `PLAT5_INSTALL_DIR` picks the directory. Or download a tarball from [GitHub Releases](https://github.com/plat5dev/cli/releases). `plat5 --version` prints `plat5 0.9.0` (no leading `v`); `plat5 version` adds the image versions the project pins.
+macOS and Linux, amd64 and arm64. On Windows, use WSL2. The script verifies the release's checksum and installs to `/usr/local/bin` (or `~/.local/bin`); `PLAT5_CLI_VERSION=v0.10.0` pins a release, `PLAT5_INSTALL_DIR` picks the directory. Or download a tarball from [GitHub Releases](https://github.com/plat5dev/cli/releases). `plat5 --version` prints `plat5 0.9.0` (no leading `v`); `plat5 version` adds the image versions the project pins.
 
 From source: `go install github.com/plat5dev/cli/cmd/plat5@latest`.
 
@@ -129,7 +129,7 @@ project_id: my-app                 # default: the directory name
 cli: ">=0.9.0"                     # the oldest plat5 CLI that reads this file
 
 versions:                          # image tags; plat5 init writes the latest of each
-  plat5: v0.8.1
+  plat5: v0.9.0
   auth: v0.2.2                     # also the operator IdP's
   operator: v0.5.0
 

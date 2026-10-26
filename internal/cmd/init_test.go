@@ -17,7 +17,7 @@ func allModules() map[string]bool {
 	return map[string]bool{config.ModuleAuth: true, config.ModuleObservability: true, config.ModuleOperator: true}
 }
 
-var pins = map[string]string{"plat5": "v0.8.1", "auth": "v0.2.2", "operator": "v0.5.0"}
+var pins = map[string]string{"plat5": "v0.9.0", "auth": "v0.2.2", "operator": "v0.5.0"}
 
 // What init writes is what start reads.
 func TestRenderedDevYMLResolves(t *testing.T) {
