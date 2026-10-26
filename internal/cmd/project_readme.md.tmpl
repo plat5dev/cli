@@ -1,6 +1,6 @@
 # {{.Project}}
 
-Your API{{if .Web}} and a console for your customers{{end}}, behind Plat5. Plat5 signs people in, keeps the tree of organizations and projects with their members, roles and keys, checks every request at its gateway, and records an audit log. Your API does none of that: it reads the node ids the gateway writes into its path.
+Your API{{if .Web}}, a console for your customers{{end}}{{if .Operator}}, a console for your operators{{end}}, behind Plat5. Plat5 signs people in, keeps the tree of organizations and projects with their members, roles and keys, checks every request at its gateway, and records an audit log. Your API does none of that: it reads the node ids the gateway writes into its path.
 
 Everything here is yours to change: a starting point, not a dependency.
 
@@ -14,6 +14,8 @@ plat5 stop        # data is kept
 ```
 {{if .Web}}
 The customer console is at {{.Web}}: sign in as `{{.DevEmail}}` / `{{.Password}}`.
+{{end}}{{if .Operator}}
+The operator console is at {{.Operator}}: sign in as `{{.OpEmail}}` / `{{.Password}}`. It runs with the operator module, on the operator gateway.
 {{end}}
 ## What's here
 
@@ -23,12 +25,15 @@ The customer console is at {{.Web}}: sign in as `{{.DevEmail}}` / `{{.Password}}
 {{- if .Web}}
 | `customer-console/` | Your customers' console: Vite + React, calling the gateway. `customer-console/README.md` says how it's laid out |
 {{- end}}
+{{- if .Operator}}
+| `operator-console/` | Your operators' console: Vite + React, calling the operator gateway. `operator-console/README.md` says how it's laid out |
+{{- end}}
 | `plat5.yml` | The deployment's config: settings, the `organization` and `project` kinds, the roles, rate limits{{if .Web}}, the console's origin under `cors`{{end}}, and the service files. `plat5 start` applies it; `plat5 apply` applies it to any deployment |
 | `services/{{.Service}}.yml` | Your API's service file: its url and its routes, by scope |
 | `services/identity.yml`, `services/audit.yml` | Identity's and audit's service files, at their default resources |
 | `plat5.dev.yml` | How `plat5 start` runs the project on your machine: image versions, modules, your apps |
 | `docker-compose.yml` | Runs your apps: it includes each folder's own compose file |
-| `operator.routes.yml` | The route list for an operator gateway: what operators may call, with your API's paths from the starter. `plat5 start` runs no operator gateway; one you run mounts this file |
+| `operator.routes.yml` | The operator gateway's route list: what operators may call, with your API's paths from the starter. `plat5 start`'s operator gateway mounts it |
 
 ## Extend it
 
@@ -46,12 +51,12 @@ The customer console is at {{.Web}}: sign in as `{{.DevEmail}}` / `{{.Password}}
 {{end}}
 ### Let operators call your API
 
-List your API's own paths, by node id, under `services.{{.Service}}` in `operator.routes.yml` (operator `docs/reference/routes.md`). The operator gateway forwards them unchanged.
+List your API's own paths, by node id, under `services.{{.Service}}` in `operator.routes.yml` (operator `docs/reference/routes.md`). The operator gateway forwards them unchanged; `plat5 start` again restarts it on the new list.
 
 ### Remove what you don't need
 
-- **An app**: delete its folder and its line in `docker-compose.yml`.{{if .Web}} Without `customer-console/`, also remove `app.web` from `plat5.dev.yml` and its origin from `cors` in `plat5.yml`.{{end}}
-- **A module** (sign-in, Grafana): turn it off under `modules:` in `plat5.dev.yml`.
+- **An app**: delete its folder and its line in `docker-compose.yml`.{{if .Web}} Without `customer-console/`, also remove `app.web` from `plat5.dev.yml` and its origin from `cors` in `plat5.yml`.{{end}}{{if .Operator}} Without `operator-console/`, also remove `operator.console` from `plat5.dev.yml`.{{end}}
+- **A module** (sign-in, Grafana, the operator plane): turn it off under `modules:` in `plat5.dev.yml`.{{if .Operator}} Without the operator module, `plat5 start` doesn't run `operator-console/`.{{end}}
 - **Run your apps yourself**, with your own tools: `plat5 start -x app` runs Plat5 alone{{if .Next}}, then, in `api/`:{{else}}.{{end}}
 {{- if .Next}}
 

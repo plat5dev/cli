@@ -102,6 +102,8 @@ type UpOptions struct {
 	Wait time.Duration
 	// RemoveOrphans removes services no longer in Files (a module turned off).
 	RemoveOrphans bool
+	// Services is the services to run. Empty: all of them.
+	Services []string
 }
 
 // Up runs docker compose up -d.
@@ -116,7 +118,12 @@ func (r Runner) Up(o UpOptions) error {
 	if o.RemoveOrphans {
 		args = append(args, "--remove-orphans")
 	}
-	return run(r.cmd(args...))
+	return run(r.cmd(append(args, o.Services...)...))
+}
+
+// Remove stops and removes services' containers. Their volumes are kept.
+func (r Runner) Remove(services ...string) error {
+	return run(r.cmd(append([]string{"rm", "--stop", "--force"}, services...)...))
 }
 
 // MissingImages is the images the project pulls (not builds) that aren't local yet.

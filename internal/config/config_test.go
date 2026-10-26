@@ -12,6 +12,7 @@ const fullYML = `project_id: My App
 versions:
   plat5: v0.7.0
   auth: v0.2.0
+  operator: v0.5.0
 app:
   compose: ./docker-compose.yml
   web: http://localhost:3001/
@@ -60,7 +61,7 @@ func TestResolveDefaults(t *testing.T) {
 }
 
 func TestUnknownKeysAreErrors(t *testing.T) {
-	for _, key := range []string{"routes", "roles", "upstreams", "operator"} {
+	for _, key := range []string{"routes", "roles", "upstreams", "billing"} {
 		if _, err := Parse([]byte(key + ": x\n")); err == nil || !strings.Contains(err.Error(), `unknown key "`+key+`"`) {
 			t.Errorf("%s: want unknown key error, got %v", key, err)
 		}
@@ -69,13 +70,16 @@ func TestUnknownKeysAreErrors(t *testing.T) {
 		t.Fatalf("want unknown key error, got %v", err)
 	}
 	for yml, want := range map[string]string{
-		fullYML + "modules: {operator: true}\n":                                 "modules.operator",
-		fullYML + "ports: {console: 5411}\n":                                    "ports.console",
-		fullYML + "source: {operator: ../operator}\n":                           "source.operator",
-		fullYML + "ports: {gateway: 5401}\n":                                    "both 5401",
-		"versions: {auth: v0.2.2}\n":                                            "versions.plat5 is required",
-		"versions: {plat5: v0.8.0, auth: v0.2.2}\napp: {web: localhost:3001}\n": "app.web",
-		fullYML + "idp: {issuer: https://x.test}\n":                             "turn modules.auth off",
+		fullYML + "modules: {billing: true}\n":                                                    "modules.billing",
+		fullYML + "ports: {console: 5412}\n":                                                      "ports.console",
+		fullYML + "source: {billing: ../billing}\n":                                               "source.billing",
+		fullYML + "ports: {gateway: 5401}\n":                                                      "both 5401",
+		fullYML + "ports: {operator_auth: 5400}\n":                                                "both 5400",
+		"versions: {auth: v0.2.2}\n":                                                              "versions.plat5 is required",
+		"versions: {plat5: v0.8.0, auth: v0.2.2}\n":                                               "versions.operator is required (plat5 init writes the latest tag, or turn modules.operator off)",
+		"versions: {plat5: v0.8.0, auth: v0.2.2, operator: v0.5.0}\napp: {web: localhost:3001}\n": "app.web",
+		fullYML + "operator: {console: {web: localhost:5412}}\n":                                  "operator.console.web",
+		fullYML + "idp: {issuer: https://x.test}\n":                                               "turn modules.auth off",
 	} {
 		f, err := Parse([]byte(yml))
 		if err == nil {
@@ -89,7 +93,7 @@ func TestUnknownKeysAreErrors(t *testing.T) {
 
 func TestModulesOffNeedFewerPins(t *testing.T) {
 	r, err := resolve(t, `versions: {plat5: v0.8.0, auth: v0.2.2}
-modules: {observability: false}
+modules: {observability: false, operator: false}
 `)
 	if err != nil {
 		t.Fatal(err)
@@ -103,12 +107,12 @@ modules: {observability: false}
 }
 
 func TestAuthOffNeedsAnIdP(t *testing.T) {
-	_, err := resolve(t, "versions: {plat5: v0.8.0}\nmodules: {auth: false}\n")
+	_, err := resolve(t, "versions: {plat5: v0.8.0}\nmodules: {auth: false, operator: false}\n")
 	if err == nil || !strings.Contains(err.Error(), "idp.issuer") {
 		t.Fatalf("want idp error, got %v", err)
 	}
 	r, err := resolve(t, `versions: {plat5: v0.8.0}
-modules: {auth: false}
+modules: {auth: false, operator: false}
 idp:
   issuer: https://idp.test
   jwks_uri: https://idp.test/jwks
@@ -125,13 +129,48 @@ idp:
 
 func TestSourceReplacesAVersion(t *testing.T) {
 	r, err := resolve(t, `versions: {auth: v0.2.2}
-source: {plat5: ../plat5}
+source: {plat5: ../plat5, operator: ../operator}
 `)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Source[VersionPlat5] != filepath.Clean("/plat5") {
+	if r.Source[VersionPlat5] != filepath.Clean("/plat5") || r.Source[VersionOperator] != filepath.Clean("/operator") {
 		t.Fatalf("source: %v", r.Source)
+	}
+}
+
+// The operator module: on by default, its IdP on the auth pin, its files and
+// the console's origin from operator:.
+func TestOperator(t *testing.T) {
+	r, err := resolve(t, fullYML+`operator:
+  routes: ./operator.routes.yml
+  console:
+    compose: ./operator-console/docker-compose.yml
+    web: http://localhost:5412/
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.Modules[ModuleOperator] || strings.Join(r.NeededVersions(), ",") != "plat5,auth,operator" {
+		t.Fatalf("modules %v, needed %v", r.Modules, r.NeededVersions())
+	}
+	if r.OperatorRoutes != filepath.Clean("/proj/operator.routes.yml") || r.OperatorConsole != filepath.Clean("/proj/operator-console/docker-compose.yml") {
+		t.Fatalf("files: %q %q", r.OperatorRoutes, r.OperatorConsole)
+	}
+	if r.OperatorWeb != "http://localhost:5412" || strings.Join(r.OperatorRedirectURIs(), ",") != "http://localhost:5412/callback" {
+		t.Fatalf("console: %q %v", r.OperatorWeb, r.OperatorRedirectURIs())
+	}
+	if r.Ports[ports.Operator] != 5410 || r.Ports[ports.OperatorAuth] != 5411 {
+		t.Fatalf("ports: %v", r.Ports)
+	}
+
+	// With auth off, the operator IdP still needs the auth pin.
+	r, err = resolve(t, `versions: {plat5: v0.8.0, auth: v0.2.2, operator: v0.5.0}
+modules: {auth: false}
+idp: {issuer: "https://idp.test", jwks_uri: "https://idp.test/jwks", audiences: [api]}
+`)
+	if err != nil || strings.Join(r.NeededVersions(), ",") != "plat5,auth,operator" {
+		t.Fatalf("auth off: %v %v", r.NeededVersions(), err)
 	}
 }
 

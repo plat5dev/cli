@@ -18,6 +18,7 @@ import (
 const (
 	apiDir             = "api"
 	customerConsoleDir = template.KindCustomerConsole
+	operatorConsoleDir = template.KindOperatorConsole
 	projectCompose     = "docker-compose.yml"
 	operatorRoutesFile = "operator.routes.yml"
 	projectReadmeFile  = "README.md"
@@ -30,13 +31,15 @@ const (
 var operatorShippedRoutes []byte
 
 // layout is a project laid out from an API starter: the starter in api/, the
-// customer console in customer-console/, the starter's service file in
-// services/, a docker-compose.yml that includes each app's, and
-// operator.routes.yml.
+// customer console in customer-console/, the operator console in
+// operator-console/, the starter's service file in services/, a
+// docker-compose.yml that includes each app's, and operator.routes.yml.
 type layout struct {
 	starter *template.Template
 	// customerConsole is nil with --no-customer-console.
 	customerConsole *template.Template
+	// operatorConsole is nil with --no-operator-console.
+	operatorConsole *template.Template
 	// service is the starter's service name; serviceFile, its service file.
 	service     string
 	serviceFile []byte
@@ -44,9 +47,9 @@ type layout struct {
 	operatorRoutes []byte
 }
 
-// loadLayout fetches the starter and the customer console, and reads what init
-// writes from them, before anything is written.
-func loadLayout(opts template.ResolveOptions, starter string, customerConsole bool) (_ *layout, err error) {
+// loadLayout fetches the starter and the consoles, and reads what init writes
+// from them, before anything is written.
+func loadLayout(opts template.ResolveOptions, starter string, customerConsole, operatorConsole bool) (_ *layout, err error) {
 	l := &layout{}
 	defer func() {
 		if err != nil {
@@ -64,6 +67,14 @@ func loadLayout(opts template.ResolveOptions, starter string, customerConsole bo
 			return nil, err
 		}
 		if err := l.customerConsole.Check(template.KindCustomerConsole); err != nil {
+			return nil, err
+		}
+	}
+	if operatorConsole {
+		if l.operatorConsole, err = template.ResolveOperatorConsole(opts); err != nil {
+			return nil, err
+		}
+		if err := l.operatorConsole.Check(template.KindOperatorConsole); err != nil {
 			return nil, err
 		}
 	}
@@ -90,6 +101,7 @@ func loadLayout(opts template.ResolveOptions, starter string, customerConsole bo
 func (l *layout) close() {
 	l.starter.Close()
 	l.customerConsole.Close()
+	l.operatorConsole.Close()
 }
 
 // serviceName is a service file's one top-level key. Identity's and audit's
@@ -117,6 +129,9 @@ func (l *layout) targets() []string {
 	if l.customerConsole != nil {
 		out = append(out, customerConsoleDir)
 	}
+	if l.operatorConsole != nil {
+		out = append(out, operatorConsoleDir)
+	}
 	return append(out, projectCompose, operatorRoutesFile, projectReadmeFile)
 }
 
@@ -128,6 +143,23 @@ func (l *layout) web() string {
 		return ""
 	}
 	return strings.TrimRight(l.customerConsole.Manifest.App.Web, "/")
+}
+
+// operatorWeb is the operator console's origin, or empty without one.
+func (l *layout) operatorWeb() string {
+	if l.operatorConsole == nil {
+		return ""
+	}
+	return strings.TrimRight(l.operatorConsole.Manifest.App.Web, "/")
+}
+
+// operatorConsoleCompose is the operator console's compose file, relative to
+// the project, or empty without one.
+func (l *layout) operatorConsoleCompose() string {
+	if l.operatorConsole == nil {
+		return ""
+	}
+	return operatorConsoleDir + "/" + filepath.ToSlash(filepath.Clean(l.operatorConsole.Manifest.App.Compose))
 }
 
 // checkFree refuses a project that has any of the layout's files: a starter
@@ -150,7 +182,11 @@ func (l *layout) write(dir, projectID string) error {
 	apps := []struct {
 		folder, what string
 		t            *template.Template
-	}{{apiDir, "your API (" + l.starter.Manifest.Name + ")", l.starter}, {customerConsoleDir, "your customers' console", l.customerConsole}}
+	}{
+		{apiDir, "your API (" + l.starter.Manifest.Name + ")", l.starter},
+		{customerConsoleDir, "your customers' console", l.customerConsole},
+		{operatorConsoleDir, "your operators' console", l.operatorConsole},
+	}
 	for _, app := range apps {
 		if app.t == nil {
 			continue
@@ -217,6 +253,10 @@ func (l *layout) compose() string {
 	if l.customerConsole != nil {
 		fmt.Fprintf(&b, "  - %s/%s\n", customerConsoleDir, filepath.ToSlash(filepath.Clean(l.customerConsole.Manifest.App.Compose)))
 	}
+	if c := l.operatorConsoleCompose(); c != "" {
+		b.WriteString("  # Runs with the operator module (operator.console in plat5.dev.yml).\n")
+		fmt.Fprintf(&b, "  - %s\n", c)
+	}
 	return b.String()
 }
 
@@ -225,11 +265,17 @@ func (l *layout) compose() string {
 // under its services:.
 func operatorRoutes(shipped []byte, starter string, starterRoutes []byte) ([]byte, error) {
 	var b bytes.Buffer
-	b.WriteString("# The route list for an operator gateway (operator docs/reference/routes.md):\n")
-	b.WriteString("# what operators may call, by service, at each service's own paths. plat5 init\n")
-	b.WriteString("# wrote operator's shipped list and the starter's operator routes. The project\n")
-	b.WriteString("# owns it: plat5 start runs no operator gateway; one you run mounts this file\n")
-	b.WriteString("# as its ROUTES_FILE.\n#\n")
+	b.WriteString("# The operator gateway's route list (operator docs/reference/routes.md): what\n")
+	b.WriteString("# operators may call, by service, at each service's own paths. plat5 init wrote\n")
+	if starterRoutes == nil {
+		b.WriteString("# operator's shipped list. The project owns it: plat5 start's operator gateway\n")
+		b.WriteString("# mounts it as its ROUTES_FILE (operator.routes in plat5.dev.yml); a deployed\n")
+		b.WriteString("# one mounts a copy with the deployment's addresses.\n#\n")
+	} else {
+		b.WriteString("# operator's shipped list and the starter's operator routes. The project owns\n")
+		b.WriteString("# it: plat5 start's operator gateway mounts it as its ROUTES_FILE (operator.routes\n")
+		b.WriteString("# in plat5.dev.yml); a deployed one mounts a copy with the deployment's addresses.\n#\n")
+	}
 	b.Write(shipped)
 	if starterRoutes == nil {
 		return b.Bytes(), nil
@@ -279,6 +325,8 @@ func (l *layout) readme(projectID string) (string, error) {
 		"Starter":  l.starter.Manifest.Name,
 		"Service":  l.service,
 		"Web":      l.web(),
+		"Operator": l.operatorWeb(),
+		"OpEmail":  config.OperatorEmail,
 		"Next":     l.starter.Manifest.Next,
 		"DevEmail": config.DevEmail,
 		"Password": config.DevPassword,

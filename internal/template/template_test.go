@@ -107,14 +107,17 @@ func TestCheck(t *testing.T) {
 	for name, tc := range map[string]struct {
 		manifest, want, err string
 	}{
-		"api":             {apiManifest, KindAPI, ""},
-		"console":         {"kind: customer-console\napp: {compose: docker-compose.yml, web: \"http://localhost:3001\"}\n", KindCustomerConsole, ""},
-		"wrong kind":      {"kind: customer-console\napp: {compose: c.yml, web: \"http://x\"}\n", KindAPI, `kind is "customer-console", want api`},
-		"no kind":         {"service: s.yml\napp: {compose: c.yml}\n", KindAPI, `kind is "", want api`},
-		"api, no service": {"kind: api\napp: {compose: c.yml}\n", KindAPI, "needs service"},
-		"console, no web": {"kind: customer-console\napp: {compose: c.yml}\n", KindCustomerConsole, "needs app.web"},
-		"outside":         {"kind: api\nservice: ../s.yml\napp: {compose: c.yml}\n", KindAPI, "not a path inside"},
-		"unknown key":     {"kind: api\nroutes: [./routes.yml]\n", KindAPI, "field routes not found"},
+		"api":                  {apiManifest, KindAPI, ""},
+		"console":              {"kind: customer-console\napp: {compose: docker-compose.yml, web: \"http://localhost:3001\"}\n", KindCustomerConsole, ""},
+		"wrong kind":           {"kind: customer-console\napp: {compose: c.yml, web: \"http://x\"}\n", KindAPI, `kind is "customer-console", want api`},
+		"no kind":              {"service: s.yml\napp: {compose: c.yml}\n", KindAPI, `kind is "", want api`},
+		"api, no service":      {"kind: api\napp: {compose: c.yml}\n", KindAPI, "needs service"},
+		"console, no web":      {"kind: customer-console\napp: {compose: c.yml}\n", KindCustomerConsole, "needs app.web"},
+		"operator":             {"kind: operator-console\napp: {compose: docker-compose.yml, web: \"http://localhost:5412\"}\n", KindOperatorConsole, ""},
+		"operator, no web":     {"kind: operator-console\napp: {compose: c.yml}\n", KindOperatorConsole, "needs app.web"},
+		"operator as customer": {"kind: operator-console\napp: {compose: c.yml, web: \"http://x\"}\n", KindCustomerConsole, `kind is "operator-console", want customer-console`},
+		"outside":              {"kind: api\nservice: ../s.yml\napp: {compose: c.yml}\n", KindAPI, "not a path inside"},
+		"unknown key":          {"kind: api\nroutes: [./routes.yml]\n", KindAPI, "field routes not found"},
 	} {
 		dir := t.TempDir()
 		writeFiles(t, dir, map[string]string{ManifestName: tc.manifest})

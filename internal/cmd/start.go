@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -33,7 +34,10 @@ var startCmd = &cobra.Command{
 Plat5 always runs. Beside it, the modules plat5.dev.yml turns on (all by default):
   auth           Plat5 Auth, the customer IdP, in dev mode
   observability  Grafana with logs, traces, and metrics (grafana/otel-lgtm + Alloy)
-Then your app, from app.compose in plat5.dev.yml.
+  operator       the operator gateway on operator.routes.yml, operator-audit, and
+                 the operator IdP (a second Plat5 Auth, in dev mode)
+Then your app, from app.compose in plat5.dev.yml. The operator console, which
+app.compose includes, runs only with the operator module.
 
 start applies plat5.yml as plat5 apply does, without a prompt; a blocked plan
 is printed and refused. Then, through identity's user routes like any client,
@@ -50,13 +54,14 @@ container: start maps the name to your machine instead, so the app must listen
 there on the url's port (beyond loopback on Linux).
 
   plat5 start -x observability    skip a module for this run
+  plat5 start -x operator         no operator gateway, IdP, audit log, or console
   plat5 start -x app              run your app yourself`,
 	Args: cobra.NoArgs,
 	RunE: runStart,
 }
 
 func init() {
-	startCmd.Flags().StringSliceVarP(&startExclude, "exclude", "x", nil, "Skip modules for this run: auth, observability, app")
+	startCmd.Flags().StringSliceVarP(&startExclude, "exclude", "x", nil, "Skip modules for this run: auth, observability, operator, app")
 	startCmd.Flags().DurationVar(&startWait, "wait", 10*time.Minute, "How long to wait for the stack to be healthy")
 	startCmd.Flags().BoolVarP(&startVerbose, "verbose", "v", false, "Show docker compose's pull, build, and container output (otherwise it goes to a log file)")
 }
@@ -87,6 +92,9 @@ func runStart(cmd *cobra.Command, args []string) error {
 	}
 	stk, err := stack.New(cfg, exclude)
 	if err != nil {
+		return err
+	}
+	if err := stk.CheckOperator(); err != nil {
 		return err
 	}
 	app := stk.AppRunner()
@@ -197,12 +205,18 @@ func runStart(cmd *cobra.Command, args []string) error {
 	if app != nil {
 		fmt.Printf("Starting your app (%s)…\n", relPath(cfg.Dir, cfg.AppCompose))
 		app.Output = out.w
-		if err := pullMissing(*app, out); err != nil {
+		run, err := appServices(stk, *app)
+		if err != nil {
 			return err
 		}
-		if err := app.Up(compose.UpOptions{Build: true, Wait: startWait}); err != nil {
-			_ = state.Save(st)
-			return out.failed(fmt.Errorf("your app: %w", err), "plat5 logs --app")
+		if run == nil || len(run) > 0 {
+			if err := pullMissing(*app, out); err != nil {
+				return err
+			}
+			if err := app.Up(compose.UpOptions{Build: true, Wait: startWait, Services: run}); err != nil {
+				_ = state.Save(st)
+				return out.failed(fmt.Errorf("your app: %w", err), "plat5 logs --app")
+			}
 		}
 		st.AppCompose = cfg.AppCompose
 		st.AppJoined = joined
@@ -215,4 +229,30 @@ func runStart(cmd *cobra.Command, args []string) error {
 	printSummary(stk, st)
 	printWhatYouGot(stk, st)
 	return nil
+}
+
+// appServices is the app's services to run: nil for all of them, or, without
+// the operator module, every one but the operator console's (empty when that is
+// all there is), whose last containers it removes.
+func appServices(stk *stack.Stack, app compose.Runner) ([]string, error) {
+	skip, err := stk.SkippedAppServices()
+	if err != nil || len(skip) == 0 {
+		return nil, err
+	}
+	networks, err := app.ServiceNetworks()
+	if err != nil {
+		return nil, fmt.Errorf("your app: %w", err)
+	}
+	run := []string{}
+	for name := range networks {
+		if !contains(skip, name) {
+			run = append(run, name)
+		}
+	}
+	sort.Strings(run)
+	fmt.Printf("  %s: the operator console, which runs with the operator module: skipped\n", strings.Join(skip, ", "))
+	if err := app.Remove(skip...); err != nil {
+		fmt.Println("warning:", err)
+	}
+	return run, nil
 }

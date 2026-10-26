@@ -36,29 +36,40 @@ const (
 	DevNodeName = "Dev"
 )
 
+// The operator module's local login: the operator IdP's dev user, and the public
+// client the operator console signs in with, which is also the operator gateway's
+// audience. Its password is DevPassword.
+const (
+	OperatorEmail  = "operator@example.com"
+	OperatorClient = "operator-console"
+)
+
 // Modules run beside Plat5. All on unless plat5.dev.yml turns one off.
 const (
 	ModuleAuth          = "auth"
 	ModuleObservability = "observability"
+	ModuleOperator      = "operator"
 )
 
 // Modules is every module, in start order.
-var Modules = []string{ModuleAuth, ModuleObservability}
+var Modules = []string{ModuleAuth, ModuleObservability, ModuleOperator}
 
 // Image pins: versions: keys, and the repos plat5 init reads the latest tag from.
 const (
-	VersionPlat5 = "plat5"
-	VersionAuth  = "auth"
+	VersionPlat5    = "plat5"
+	VersionAuth     = "auth"
+	VersionOperator = "operator"
 )
 
 // VersionRepos is each pin's GitHub repo.
 var VersionRepos = map[string]string{
-	VersionPlat5: "plat5dev/plat5",
-	VersionAuth:  "plat5dev/auth",
+	VersionPlat5:    "plat5dev/plat5",
+	VersionAuth:     "plat5dev/auth",
+	VersionOperator: "plat5dev/operator",
 }
 
 // Sources are the checkouts source: may build from, by the same keys as versions.
-var Sources = []string{VersionPlat5, VersionAuth}
+var Sources = []string{VersionPlat5, VersionAuth, VersionOperator}
 
 // FileName is the project file; ConfigFileName is the deployment's config beside it.
 const (
@@ -84,7 +95,18 @@ type File struct {
 	Auth        AuthBlock         `yaml:"auth"`
 	IdP         IdPBlock          `yaml:"idp"`
 	Otel        OtelBlock         `yaml:"otel"`
+	Operator    OperatorBlock     `yaml:"operator"`
 	Source      map[string]string `yaml:"source"`
+}
+
+// OperatorBlock is what the operator module runs from the project.
+type OperatorBlock struct {
+	// Routes is the operator gateway's route list, its ROUTES_FILE.
+	Routes string `yaml:"routes"`
+	// Console is the operator console: its compose file, which app.compose
+	// includes and plat5 start runs only with the module, and its browser origin,
+	// allowed to sign in with the operator IdP and to call the operator gateway.
+	Console AppBlock `yaml:"console"`
 }
 
 // AppBlock is the project's own app, which plat5 start runs after Plat5.
@@ -152,6 +174,13 @@ type Resolved struct {
 	Auth         AuthBlock
 	IdP          IdPBlock
 	OtelEndpoint string
+
+	// OperatorRoutes is the operator gateway's route file. Absolute; empty = unset.
+	OperatorRoutes string
+	// OperatorConsole is the operator console's compose file (absolute), and
+	// OperatorWeb its origin. Empty: no operator console.
+	OperatorConsole string
+	OperatorWeb     string
 
 	// Source is checkouts to build images from, by version key. Absolute.
 	Source map[string]string
@@ -227,6 +256,16 @@ func Resolve(f *File, path string, o Overrides) (Resolved, error) {
 		r.Versions[k] = strings.TrimSpace(v)
 	}
 
+	r.OperatorRoutes = resolveAgainst(dir, strings.TrimSpace(f.Operator.Routes))
+	r.OperatorConsole = resolveAgainst(dir, strings.TrimSpace(f.Operator.Console.Compose))
+	if web := strings.TrimSpace(f.Operator.Console.Web); web != "" {
+		origin, err := parseOrigin(web)
+		if err != nil {
+			return Resolved{}, fmt.Errorf("operator.console.web: %w", err)
+		}
+		r.OperatorWeb = origin
+	}
+
 	r.AppCompose = resolveAgainst(dir, strings.TrimSpace(f.App.Compose))
 	if web := strings.TrimSpace(f.App.Web); web != "" {
 		origin, err := parseOrigin(web)
@@ -237,7 +276,11 @@ func Resolve(f *File, path string, o Overrides) (Resolved, error) {
 	}
 	for _, k := range r.NeededVersions() {
 		if r.Versions[k] == "" && r.Source[k] == "" {
-			return Resolved{}, fmt.Errorf("versions.%s is required (plat5 init writes the latest tag)", k)
+			hint := ""
+			if k == VersionOperator {
+				hint = ", or turn modules.operator off"
+			}
+			return Resolved{}, fmt.Errorf("versions.%s is required (plat5 init writes the latest tag%s)", k, hint)
 		}
 	}
 
@@ -292,11 +335,15 @@ func Resolve(f *File, path string, o Overrides) (Resolved, error) {
 	return r, nil
 }
 
-// NeededVersions is the image pins the enabled modules need.
+// NeededVersions is the image pins the enabled modules need. The operator IdP
+// is Plat5 Auth at the auth pin.
 func (r Resolved) NeededVersions() []string {
 	need := []string{VersionPlat5}
-	if r.Modules[ModuleAuth] {
+	if r.Modules[ModuleAuth] || r.Modules[ModuleOperator] {
 		need = append(need, VersionAuth)
+	}
+	if r.Modules[ModuleOperator] {
+		need = append(need, VersionOperator)
 	}
 	return need
 }
@@ -331,6 +378,24 @@ func (r Resolved) AuthRedirectURIs() []string {
 		out = append(out, o+"/callback")
 	}
 	return uniq(append(out, r.Auth.RedirectURIs...))
+}
+
+// OperatorOrigins is the browser origins the operator IdP and the operator
+// gateway allow: the operator console's.
+func (r Resolved) OperatorOrigins() []string {
+	if r.OperatorWeb == "" {
+		return nil
+	}
+	return []string{r.OperatorWeb}
+}
+
+// OperatorRedirectURIs is <origin>/callback for each operator origin.
+func (r Resolved) OperatorRedirectURIs() []string {
+	var out []string
+	for _, o := range r.OperatorOrigins() {
+		out = append(out, o+"/callback")
+	}
+	return out
 }
 
 var unknownFieldRE = regexp.MustCompile(`^line (\d+): field (\S+) not found in type `)

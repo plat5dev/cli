@@ -81,6 +81,16 @@ func printSummary(stk *stack.Stack, st state.State) {
 	}
 	w.row("Control plane", c.ControlPlaneURL, "admin token "+c.AdminToken)
 
+	if stk.Has(config.ModuleOperator) {
+		login := config.OperatorEmail + " / " + config.DevPassword
+		w.section("Operator")
+		w.row("Gateway", c.URL(ports.Operator), "routes: "+relPath(c.Dir, c.OperatorRoutes))
+		w.row("IdP", c.URL(ports.OperatorAuth), login)
+		if st.AppCompose != "" && c.OperatorWeb != "" {
+			w.row("Console", c.OperatorWeb, login)
+		}
+	}
+
 	if stk.Has(config.ModuleObservability) {
 		w.section("Observability")
 		w.row("Grafana", c.URL(ports.Grafana), "Plat5 folder: Service Health, Auth, Debug")
@@ -102,6 +112,16 @@ func printSummary(stk *stack.Stack, st state.State) {
 			path = d.Nodes[0].Path
 		}
 		fmt.Printf("\nTry it:\n  curl %s%s -H \"Authorization: Bearer %s\"\n", c.GatewayURL(), path, d.Key)
+	}
+	if stk.Has(config.ModuleOperator) {
+		path := "/nodes"
+		if d := st.Dev; d != nil && len(d.Nodes) > 0 {
+			path = "/nodes/" + d.Nodes[0].ID
+		}
+		fmt.Printf("\nAs an operator, with a dev token from the operator IdP:\n")
+		fmt.Printf("  TOKEN=$(curl -s %s/dev/token -H 'Content-Type: application/json' \\\n", c.URL(ports.OperatorAuth))
+		fmt.Printf("    -d '{\"email\":\"%s\",\"client_id\":\"%s\"}' | jq -r .access_token)\n", config.OperatorEmail, config.OperatorClient)
+		fmt.Printf("  curl %s%s -H \"Authorization: Bearer $TOKEN\"\n", c.URL(ports.Operator), path)
 	}
 	fmt.Println()
 }
@@ -181,6 +201,10 @@ func printWhatYouGot(stk *stack.Stack, st state.State) {
 	fmt.Printf("  Permissions    required_permissions in your routes, granted by roles in %s, are checked before your code runs.\n", file)
 	fmt.Printf("  Rate limits    Policies in %s, per caller unless count_at shares one budget, across every gateway replica.\n", file)
 	fmt.Println("  Audit          Every write is recorded: who, where, and what changed (GET /orgs/{organization}/audit-events).")
+	if stk.Has(config.ModuleOperator) {
+		fmt.Printf("  Operators      Your operators reach your API by node id through the operator gateway, on the routes in\n")
+		fmt.Printf("                 %s. Every call is in the operator audit log (GET /operator-audit-events).\n", relPath(c.Dir, c.OperatorRoutes))
+	}
 	if stk.Has(config.ModuleObservability) {
 		fmt.Printf("  Traces         One request, gateway to your SQL, in Grafana, %s.\n", c.URL(ports.Grafana))
 	}

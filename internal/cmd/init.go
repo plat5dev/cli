@@ -34,7 +34,9 @@ var (
 	initForce             bool
 	initNoAuth            bool
 	initNoObservability   bool
+	initNoOperator        bool
 	initNoCustomerConsole bool
+	initNoOperatorConsole bool
 	initSources           []string
 	initVersions          []string
 )
@@ -48,14 +50,15 @@ var initCmd = &cobra.Command{
                        roles, the service files
   services/            identity's and audit's service files
   plat5.dev.yml        how plat5 start runs it on your machine
+  operator.routes.yml  the operator gateway's route list
 
 With an API starter (--template go-fiber-api), also:
 
   services/<name>.yml  your API's service file
   api/                 your API, from the starter
   customer-console/    a console for your customers (--no-customer-console: none)
+  operator-console/    a console for your operators (--no-operator-console: none)
   docker-compose.yml   runs your apps
-  operator.routes.yml  the route list for an operator gateway
   README.md            what's here, and how to extend it
 
 Each app is a starting point the project owns, not a dependency.
@@ -65,18 +68,17 @@ Each app is a starting point the project owns, not a dependency.
   plat5 init my-app --template go-fiber-api -y
 
 Without a directory, the project is the current directory. An existing
-plat5.yml or service file is kept with --template none; a starter refuses a
-project that has any of its files.
+plat5.yml, service file or operator.routes.yml is kept with --template none; a
+starter refuses a project that has any of its files.
 
 A starter is a first-party name (go-fiber-api, node-fastify-api,
 bun-effect-api), owner/repo on GitHub, or a .tar.gz URL. Starters and the
-customer console are downloaded at --template-ref (default master); nothing is
-cached.
+consoles are downloaded at --template-ref (default master); nothing is cached.
 
 Contributors: --templates-dir .. reads first-party templates from checkouts
-(../template-go-fiber-api, ../template-customer-console), and --source
-plat5=../plat5 builds that module from a checkout instead of pulling its image
-(plat5, auth).`,
+(../template-go-fiber-api, ../template-customer-console,
+../template-operator-console), and --source plat5=../plat5 builds that module
+from a checkout instead of pulling its image (plat5, auth, operator).`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runInit,
 }
@@ -88,11 +90,13 @@ func init() {
 	f.BoolVar(&initForce, "force", false, "Overwrite an existing plat5.dev.yml")
 	f.BoolVar(&initNoAuth, "no-auth", false, "Turn the auth module off (then set idp: in plat5.dev.yml)")
 	f.BoolVar(&initNoObservability, "no-observability", false, "Turn the observability module off")
+	f.BoolVar(&initNoOperator, "no-operator", false, "Turn the operator module off")
 	f.BoolVar(&initNoCustomerConsole, "no-customer-console", false, "Don't add the customer console (customer-console/)")
+	f.BoolVar(&initNoOperatorConsole, "no-operator-console", false, "Don't add the operator console (operator-console/)")
 	f.StringVar(&initTemplatesDir, "templates-dir", "", "Read first-party templates from checkouts in this directory (or PLAT5_TEMPLATES_DIR)")
 	f.StringVar(&initTemplateRef, "template-ref", "", "Git ref of downloaded templates (default master; or PLAT5_TEMPLATE_REF)")
 	f.StringArrayVar(&initSources, "source", nil, "Build a module from a checkout: plat5=../plat5 (repeatable)")
-	f.StringArrayVar(&initVersions, "version", nil, "Pin an image: plat5=v0.8.0 (repeatable; default the latest tag)")
+	f.StringArrayVar(&initVersions, "version", nil, "Pin an image: plat5=v0.8.1 (repeatable; default the latest tag)")
 }
 
 type initChoices struct {
@@ -100,6 +104,7 @@ type initChoices struct {
 	// starter is --template; empty for none.
 	starter           string
 	noCustomerConsole bool
+	noOperatorConsole bool
 	modules           map[string]bool
 	sources           map[string]string
 	versions          map[string]string
@@ -138,7 +143,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		if lay, err = loadLayout(opts, ch.starter, !ch.noCustomerConsole); err != nil {
+		if lay, err = loadLayout(opts, ch.starter, !ch.noCustomerConsole, !ch.noOperatorConsole); err != nil {
 			return err
 		}
 		defer lay.close()
@@ -158,6 +163,8 @@ func runInit(cmd *cobra.Command, args []string) error {
 		if err := lay.write(ch.dir, projectID); err != nil {
 			return err
 		}
+	} else if err := writeOperatorRoutes(ch.dir); err != nil {
+		return err
 	}
 	if err := os.WriteFile(devPath, []byte(renderDevYML(projectID, ch, versions, lay)), 0o644); err != nil {
 		return err
@@ -218,6 +225,20 @@ func writeInitFiles(dir string, plat5YML []byte) error {
 	})
 }
 
+// writeOperatorRoutes writes operator.routes.yml from operator's shipped list
+// alone, keeping one that exists: --template none has no starter routes.
+func writeOperatorRoutes(dir string) error {
+	if _, err := os.Stat(filepath.Join(dir, operatorRoutesFile)); err == nil {
+		fmt.Println("  kept", operatorRoutesFile)
+		return nil
+	}
+	routes, err := operatorRoutes(operatorShippedRoutes, "", nil)
+	if err != nil {
+		return err
+	}
+	return writeFile(dir, operatorRoutesFile, routes)
+}
+
 // initChoose settles the directory, starter, modules, sources, and pins from
 // args, flags, and (on a terminal, without -y) prompts.
 func initChoose(cmd *cobra.Command, args []string) (initChoices, error) {
@@ -225,8 +246,10 @@ func initChoose(cmd *cobra.Command, args []string) (initChoices, error) {
 		modules: map[string]bool{
 			config.ModuleAuth:          !initNoAuth,
 			config.ModuleObservability: !initNoObservability,
+			config.ModuleOperator:      !initNoOperator,
 		},
 		noCustomerConsole: initNoCustomerConsole,
+		noOperatorConsole: initNoOperatorConsole,
 		sources:           map[string]string{},
 		versions:          map[string]string{},
 	}
@@ -269,14 +292,15 @@ func initChoose(cmd *cobra.Command, args []string) (initChoices, error) {
 			opts = append(opts, huh.NewOption(fmt.Sprintf("%-18s %s", noTemplate, "Plat5 alone: the config, no apps"), noTemplate))
 			fields = append(fields, huh.NewSelect[string]().Title("Starter").Options(opts...).Value(&starter))
 		}
-		askModules := !cmd.Flags().Changed("no-auth") && !cmd.Flags().Changed("no-observability")
-		picked := []string{config.ModuleAuth, config.ModuleObservability}
+		askModules := !cmd.Flags().Changed("no-auth") && !cmd.Flags().Changed("no-observability") && !cmd.Flags().Changed("no-operator")
+		picked := []string{config.ModuleAuth, config.ModuleObservability, config.ModuleOperator}
 		if askModules {
 			fields = append(fields, huh.NewMultiSelect[string]().
 				Title("Modules (space toggles)").
 				Options(
 					huh.NewOption("auth           sign-in for your users (Plat5 Auth)", config.ModuleAuth).Selected(true),
 					huh.NewOption("observability  Grafana: logs, traces, metrics", config.ModuleObservability).Selected(true),
+					huh.NewOption("operator       the operator gateway, its sign-in and audit log, the operator console", config.ModuleOperator).Selected(true),
 				).
 				Value(&picked))
 		}
@@ -393,7 +417,21 @@ func renderDevYML(projectID string, ch initChoices, versions map[string]string, 
 	p("# What plat5 start runs beside Plat5. plat5 start -x <module> skips one for a run.\n")
 	p("modules:\n")
 	p("  %-20s # Plat5 Auth: sign-in for your users (dev mode)\n", fmt.Sprintf("auth: %t", ch.modules[config.ModuleAuth]))
-	p("  %-20s # Grafana with logs, traces, metrics\n\n", fmt.Sprintf("observability: %t", ch.modules[config.ModuleObservability]))
+	p("  %-20s # Grafana with logs, traces, metrics\n", fmt.Sprintf("observability: %t", ch.modules[config.ModuleObservability]))
+	p("  %-20s # the operator gateway, its IdP and audit log, the operator console\n\n", fmt.Sprintf("operator: %t", ch.modules[config.ModuleOperator]))
+
+	if lay != nil && lay.operatorConsole != nil {
+		p("# The operator module: the operator gateway on operator.routes.yml, its IdP and\n")
+		p("# audit log, and operator-console/, which docker-compose.yml includes and plat5\n")
+		p("# start runs only with the module.\n")
+		p("operator:\n  routes: ./%s\n", operatorRoutesFile)
+		p("  console:\n    compose: ./%s\n", lay.operatorConsoleCompose())
+		p("    web: %s  # may sign in with the operator IdP and call the operator gateway\n\n", yamlString(lay.operatorWeb()))
+	} else {
+		p("# The operator module: the operator gateway on operator.routes.yml, its IdP and\n")
+		p("# audit log.\n")
+		p("operator:\n  routes: ./%s\n\n", operatorRoutesFile)
+	}
 
 	if lay != nil {
 		folders := apiDir + "/"
@@ -416,7 +454,8 @@ func renderDevYML(projectID string, ch initChoices, versions map[string]string, 
 	p(`
 # --- Optional ---
 # ports:                 # host ports (defaults: gateway 5400, auth 5401, control_plane 5402,
-#   gateway: 5400        #   grafana 5403, otlp_grpc 4317, otlp_http 4318)
+#   gateway: 5400        #   grafana 5403, otlp_grpc 4317, otlp_http 4318, operator 5410,
+#                        #   operator_auth 5411)
 # admin_token: dev-admin-token
 # apikey_brand: plat5    # keys are {brand}-k-2-…
 # auth:                  # local Auth, beyond app.web

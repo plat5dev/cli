@@ -20,10 +20,12 @@ const (
 	Grafana      Name = "grafana"
 	OTLPGRPC     Name = "otlp_grpc"
 	OTLPHTTP     Name = "otlp_http"
+	Operator     Name = "operator"
+	OperatorAuth Name = "operator_auth"
 )
 
-// Defaults is the block: Plat5 is 540x. OTLP keeps its conventional ports so SDK
-// defaults work.
+// Defaults is the block: Plat5 is 540x, the operator module 541x. OTLP keeps its
+// conventional ports so SDK defaults work.
 var Defaults = Set{
 	Gateway:      5400,
 	Auth:         5401,
@@ -31,6 +33,8 @@ var Defaults = Set{
 	Grafana:      5403,
 	OTLPGRPC:     4317,
 	OTLPHTTP:     4318,
+	Operator:     5410,
+	OperatorAuth: 5411,
 }
 
 // Names is every port name, in the block's order.

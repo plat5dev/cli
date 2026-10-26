@@ -71,6 +71,12 @@ func ResolveCustomerConsole(opts ResolveOptions) (*Template, error) {
 	return resolveOfficial(opts, CustomerConsole)
 }
 
+// ResolveOperatorConsole loads the operator console as ResolveCustomerConsole
+// loads the customer console.
+func ResolveOperatorConsole(opts ResolveOptions) (*Template, error) {
+	return resolveOfficial(opts, OperatorConsole)
+}
+
 func resolveOfficial(opts ResolveOptions, off OfficialTemplate) (*Template, error) {
 	if opts.LocalRoot != "" {
 		dir := filepath.Join(opts.LocalRoot, off.Folder())

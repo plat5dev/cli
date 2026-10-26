@@ -24,6 +24,14 @@ var customerPlane = plane{
 	dark:   "#9b7bff",
 }
 
+// The operator plane matches the operator console (amber).
+var operatorPlane = plane{
+	tag:    "operator",
+	banner: "local stack · operator sign-in · " + config.OperatorEmail + " / " + config.DevPassword,
+	light:  "#b45309",
+	dark:   "#f59e0b",
+}
+
 const (
 	paper = "#f2f2ef"
 	ink   = "#0f1013"

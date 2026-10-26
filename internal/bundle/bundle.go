@@ -1,6 +1,6 @@
 // Package bundle holds the local stack's compose files, embedded in the CLI so
 // plat5 start needs no checkout. One file per module, all in one compose project:
-// core.yml (Plat5 and the shared Postgres), auth.yml, observability.yml.
+// core.yml (Plat5 and the shared Postgres), auth.yml, observability.yml, operator.yml.
 package bundle
 
 import (
@@ -21,6 +21,7 @@ var Files = map[string]string{
 	"core":          "core.yml",
 	"auth":          "auth.yml",
 	"observability": "observability.yml",
+	"operator":      "operator.yml",
 }
 
 // Materialize writes the embedded stack under destDir, replacing what an older

@@ -14,10 +14,10 @@ import (
 )
 
 func allModules() map[string]bool {
-	return map[string]bool{config.ModuleAuth: true, config.ModuleObservability: true}
+	return map[string]bool{config.ModuleAuth: true, config.ModuleObservability: true, config.ModuleOperator: true}
 }
 
-var pins = map[string]string{"plat5": "v0.8.0", "auth": "v0.2.2"}
+var pins = map[string]string{"plat5": "v0.8.1", "auth": "v0.2.2", "operator": "v0.5.0"}
 
 // What init writes is what start reads.
 func TestRenderedDevYMLResolves(t *testing.T) {
@@ -25,6 +25,7 @@ func TestRenderedDevYMLResolves(t *testing.T) {
 		"default":   {modules: allModules(), sources: map[string]string{}},
 		"from-src":  {modules: allModules(), sources: map[string]string{"plat5": "/src/plat5"}},
 		"fewer-mod": {modules: map[string]bool{config.ModuleAuth: true}, sources: map[string]string{}},
+		"op-src":    {modules: allModules(), sources: map[string]string{"operator": "/src/operator"}},
 	} {
 		yml := renderDevYML("demo", ch, pins, nil)
 		f, err := config.Parse([]byte(yml))
@@ -38,8 +39,14 @@ func TestRenderedDevYMLResolves(t *testing.T) {
 		if r.ProjectID != "demo" || r.ConfigPath != filepath.Clean("/proj/plat5.yml") {
 			t.Fatalf("%s: %+v", name, r)
 		}
-		if ch.modules[config.ModuleObservability] != r.Modules[config.ModuleObservability] {
+		if ch.modules[config.ModuleObservability] != r.Modules[config.ModuleObservability] || ch.modules[config.ModuleOperator] != r.Modules[config.ModuleOperator] {
 			t.Fatalf("%s: modules %v", name, r.Modules)
+		}
+		if r.OperatorRoutes != filepath.Clean("/proj/operator.routes.yml") || r.OperatorConsole != "" {
+			t.Fatalf("%s: operator: %q %q", name, r.OperatorRoutes, r.OperatorConsole)
+		}
+		if !strings.Contains(yml, `cli: ">=0.9.0"`) {
+			t.Fatalf("%s: cli floor:\n%s", name, yml)
 		}
 	}
 }
@@ -141,7 +148,10 @@ func TestParsePairs(t *testing.T) {
 	if err := parsePairs("--source", []string{"plat5=../plat5"}, config.Sources, out); err != nil || out["plat5"] != "../plat5" {
 		t.Fatalf("%v %v", out, err)
 	}
-	if err := parsePairs("--source", []string{"operator=../operator"}, config.Sources, out); err == nil {
+	if err := parsePairs("--source", []string{"operator=../operator"}, config.Sources, out); err != nil || out["operator"] != "../operator" {
+		t.Fatalf("%v %v", out, err)
+	}
+	if err := parsePairs("--source", []string{"billing=../billing"}, config.Sources, out); err == nil {
 		t.Fatal("unknown key")
 	}
 	if err := parsePairs("--source", []string{"plat5"}, config.Sources, out); err == nil {

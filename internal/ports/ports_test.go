@@ -13,8 +13,11 @@ func TestDefaultsAreTheBlock(t *testing.T) {
 	if Defaults[Gateway] != 5400 || Defaults[Auth] != 5401 || Defaults[ControlPlane] != 5402 {
 		t.Fatalf("defaults moved: %v", Defaults)
 	}
+	if Defaults[Operator] != 5410 || Defaults[OperatorAuth] != 5411 {
+		t.Fatalf("operator defaults moved: %v", Defaults)
+	}
 	names := Names()
-	if names[0] != OTLPGRPC || names[len(names)-1] != Grafana {
+	if names[0] != OTLPGRPC || names[len(names)-1] != OperatorAuth {
 		t.Fatalf("order: %v", names)
 	}
 }

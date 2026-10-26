@@ -4,6 +4,7 @@
 package stack
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,6 +20,10 @@ import (
 
 // themeContainerPath is where the override mounts the sign-in theme.
 const themeContainerPath = "/config/theme.json"
+
+// operatorRoutesPath is where the override mounts operator.routes.yml, the
+// operator gateway's ROUTES_FILE.
+const operatorRoutesPath = "/etc/operator/routes.yml"
 
 // Stack is one project's local stack.
 type Stack struct {
@@ -72,6 +77,11 @@ func (s *Stack) Prepare() error {
 			return err
 		}
 	}
+	if s.Has(config.ModuleOperator) {
+		if err := writeTheme(filepath.Join(s.Dir, "operator-auth-theme.json"), s.operatorAuthTitle(), operatorPlane); err != nil {
+			return err
+		}
+	}
 	return os.WriteFile(filepath.Join(s.Dir, "override.yml"), []byte(s.override()), 0o644)
 }
 
@@ -116,7 +126,57 @@ func (s *Stack) Ports() map[ports.Name]int {
 	if s.Has(config.ModuleObservability) {
 		add(ports.Grafana, ports.OTLPGRPC, ports.OTLPHTTP)
 	}
+	if s.Has(config.ModuleOperator) {
+		add(ports.Operator, ports.OperatorAuth)
+	}
 	return want
+}
+
+// CheckOperator says whether the project has what the operator module runs: the
+// route file, and the operator console's compose file if it names one. Nil
+// without the module.
+func (s *Stack) CheckOperator() error {
+	if !s.Has(config.ModuleOperator) {
+		return nil
+	}
+	c := s.Config
+	if c.OperatorRoutes == "" {
+		return fmt.Errorf("operator.routes: the operator gateway's route list is required with the operator module (plat5 init writes operator.routes.yml); or turn modules.operator off")
+	}
+	if err := config.CheckFile("operator.routes", c.OperatorRoutes); err != nil {
+		return err
+	}
+	return config.CheckFile("operator.console.compose", c.OperatorConsole)
+}
+
+// RunsOperatorConsole reports whether start runs the operator console: the
+// module is on for this run and the project has one.
+func (s *Stack) RunsOperatorConsole() bool {
+	return s.Has(config.ModuleOperator) && s.Config.OperatorConsole != ""
+}
+
+// SkippedAppServices is the app's services start leaves out this run: the
+// operator console's, which the app's compose file includes, when the operator
+// module doesn't run. The console's folder stays; it just doesn't run.
+func (s *Stack) SkippedAppServices() ([]string, error) {
+	c := s.Config
+	if c.OperatorConsole == "" || s.Has(config.ModuleOperator) {
+		return nil, nil
+	}
+	if _, err := os.Stat(c.OperatorConsole); err != nil {
+		return nil, nil
+	}
+	r := compose.Runner{Dir: filepath.Dir(c.OperatorConsole), Files: []string{c.OperatorConsole}, Env: s.AppEnv()}
+	networks, err := r.ServiceNetworks()
+	if err != nil {
+		return nil, fmt.Errorf("the operator console (operator.console.compose): %w", err)
+	}
+	out := make([]string, 0, len(networks))
+	for name := range networks {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out, nil
 }
 
 // OtelEndpoint is where Plat5's containers send telemetry: the project's own
@@ -143,6 +203,11 @@ func (s *Stack) Env() []string {
 		"AUTH_CLIENTS":      strings.Join(c.AuthClients(), ","),
 		"AUTH_ORIGINS":      strings.Join(c.AuthOrigins(), ","),
 		"AUTH_DEV_USERS":    config.DevEmail + ":" + config.DevPassword,
+
+		"OPERATOR_AUTH_DISPLAY_NAME": s.operatorAuthTitle(),
+		"OPERATOR_ORIGINS":           strings.Join(c.OperatorOrigins(), ","),
+		"OPERATOR_REDIRECT_URIS":     strings.Join(c.OperatorRedirectURIs(), ","),
+		"OPERATOR_DEV_USERS":         config.OperatorEmail + ":" + config.DevPassword,
 	}
 	env["AUTH_REDIRECT_URIS"] = strings.Join(c.AuthRedirectURIs(), ",")
 
@@ -160,8 +225,9 @@ func (s *Stack) Env() []string {
 	}
 
 	for key, name := range map[string]string{
-		config.VersionPlat5: "PLAT5_VERSION",
-		config.VersionAuth:  "AUTH_VERSION",
+		config.VersionPlat5:    "PLAT5_VERSION",
+		config.VersionAuth:     "AUTH_VERSION",
+		config.VersionOperator: "OPERATOR_VERSION",
 	} {
 		v := c.Versions[key]
 		if c.Source[key] != "" {
@@ -190,6 +256,10 @@ func (s *Stack) AppEnv() []string {
 		"PLAT5_AUTH_URL":              "",
 		"PLAT5_AUTH_CLIENT_ID":        config.DefaultAuthClient,
 		"OTEL_EXPORTER_OTLP_ENDPOINT": otel,
+		// The operator module, for the operator console.
+		"PLAT5_OPERATOR_URL":       c.URL(ports.Operator),
+		"PLAT5_OPERATOR_AUTH_URL":  c.URL(ports.OperatorAuth),
+		"PLAT5_OPERATOR_CLIENT_ID": config.OperatorClient,
 	}
 	if s.Has(config.ModuleAuth) {
 		env["PLAT5_AUTH_URL"] = c.URL(ports.Auth)
@@ -202,9 +272,13 @@ func (s *Stack) AppEnv() []string {
 // authTitle is the sign-in page's title: the project's.
 func (s *Stack) authTitle() string { return s.Config.ProjectID }
 
+// operatorAuthTitle is the operator IdP's sign-in page title.
+func (s *Stack) operatorAuthTitle() string { return s.Config.ProjectID + " operator" }
+
 // svcOverride is what the override sets on one service.
 type svcOverride struct {
 	env        map[string]string
+	labels     map[string]string
 	volumes    []string
 	extraHosts bool
 	// hostAliases are more names for host-gateway.
@@ -219,7 +293,7 @@ func (s *Stack) override() string {
 	svcs := map[string]*svcOverride{}
 	get := func(name string) *svcOverride {
 		if svcs[name] == nil {
-			svcs[name] = &svcOverride{env: map[string]string{}}
+			svcs[name] = &svcOverride{env: map[string]string{}, labels: map[string]string{}}
 		}
 		return svcs[name]
 	}
@@ -235,6 +309,17 @@ func (s *Stack) override() string {
 		}
 		get("auth").env["AUTH_THEME_FILE"] = themeContainerPath
 		mount("auth", theme, themeContainerPath)
+	}
+	if s.Has(config.ModuleOperator) {
+		get("operator-auth").env["AUTH_THEME_FILE"] = themeContainerPath
+		mount("operator-auth", filepath.Join(s.Dir, "operator-auth-theme.json"), themeContainerPath)
+		if c.OperatorRoutes != "" {
+			mount("operator", c.OperatorRoutes, operatorRoutesPath)
+			// The gateway reads its routes at boot: a changed file recreates it.
+			if data, err := os.ReadFile(c.OperatorRoutes); err == nil {
+				get("operator").labels["dev.plat5.routes-sha256"] = fmt.Sprintf("%x", sha256.Sum256(data))
+			}
+		}
 	}
 	// The app on your machine (-x app): its compose service names reach the host.
 	if len(s.OnHost) > 0 {
@@ -275,6 +360,13 @@ func (s *Stack) override() string {
 				fmt.Fprintf(&b, "      %s: %q\n", k, v)
 			}
 		}
+		if len(o.labels) > 0 {
+			b.WriteString("    labels:\n")
+			for _, kv := range sortedEnv(o.labels) {
+				k, v, _ := strings.Cut(kv, "=")
+				fmt.Fprintf(&b, "      %s: %q\n", k, v)
+			}
+		}
 		if len(o.volumes) > 0 {
 			b.WriteString("    volumes:\n")
 			for _, v := range o.volumes {
@@ -308,6 +400,9 @@ func (s *Stack) services() []string {
 	if s.Has(config.ModuleAuth) {
 		out = append(out, "auth")
 	}
+	if s.Has(config.ModuleOperator) {
+		out = append(out, "operator", "operator-audit", "operator-audit-migrate", "operator-auth")
+	}
 	return out
 }
 
@@ -335,6 +430,18 @@ func (s *Stack) sourceBuilds() []sourceBuild {
 	}
 	if dir := src[config.VersionAuth]; dir != "" && s.Has(config.ModuleAuth) {
 		out = append(out, sourceBuild{service: "auth", context: filepath.Join(dir, "issuer"), target: "prod"})
+	}
+	if s.Has(config.ModuleOperator) {
+		if dir := src[config.VersionAuth]; dir != "" {
+			out = append(out, sourceBuild{service: "operator-auth", context: filepath.Join(dir, "issuer"), target: "prod"})
+		}
+		if dir := src[config.VersionOperator]; dir != "" {
+			out = append(out,
+				sourceBuild{service: "operator", context: dir, target: "prod"},
+				sourceBuild{service: "operator-audit", context: dir, target: "operator-audit"},
+				sourceBuild{service: "operator-audit-migrate", context: dir, target: "operator-audit"},
+			)
+		}
 	}
 	return out
 }

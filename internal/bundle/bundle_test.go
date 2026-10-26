@@ -104,6 +104,36 @@ func TestCoreEnvMatchesPlat5(t *testing.T) {
 	}
 }
 
+// The operator module sets only env that operator's dev compose sets, service by
+// service, beside the telemetry every local Plat5 Auth gets. Checked when
+// operator is checked out beside the CLI, as in plat5dev.
+func TestOperatorEnvMatchesOperator(t *testing.T) {
+	theirs, err := os.ReadFile(filepath.Join("..", "..", "..", "operator", "compose", "docker-compose.yml"))
+	if err != nil {
+		t.Skipf("no operator compose beside the CLI: %v", err)
+	}
+	ours, _ := content.ReadFile("stack/operator.yml")
+	op, cli := composeEnv(t, theirs), composeEnv(t, ours)
+	telemetry := map[string]bool{"OTEL_EXPORTER_OTLP_ENDPOINT": true, "OTEL_SERVICE_NAME": true, "OTEL_SERVICE_NAMESPACE": true, "DEPLOYMENT_ENV": true}
+	for svc, env := range cli {
+		known, ok := op[svc]
+		if !ok {
+			t.Errorf("operator.yml runs %s; operator's compose doesn't", svc)
+			continue
+		}
+		for k := range env {
+			if !known[k] && !(svc == "operator-auth" && telemetry[k]) {
+				t.Errorf("operator.yml sets %s on %s; operator's compose doesn't", k, svc)
+			}
+		}
+		for k := range known {
+			if !env[k] {
+				t.Errorf("operator's compose sets %s on %s; operator.yml doesn't", k, svc)
+			}
+		}
+	}
+}
+
 func composeEnv(t *testing.T, data []byte) map[string]map[string]bool {
 	t.Helper()
 	var doc struct {
@@ -129,7 +159,7 @@ func TestServices(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"gateway", "identity", "auth", "lgtm"} {
+	for _, want := range []string{"gateway", "identity", "auth", "lgtm", "operator", "operator-audit", "operator-auth"} {
 		found := false
 		for _, n := range names {
 			found = found || n == want

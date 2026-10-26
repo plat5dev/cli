@@ -1,5 +1,5 @@
 // Package template loads the starters plat5 init copies into a project: an API
-// starter, and the customer console beside it. Each is a repo with a manifest,
+// starter, and the customer and operator consoles beside it. Each is a repo with a manifest,
 // plat5.template.yml, at its root.
 package template
 
@@ -24,6 +24,9 @@ const (
 	// KindCustomerConsole is the customer console, which plat5 init puts in
 	// customer-console/ beside an API starter.
 	KindCustomerConsole = "customer-console"
+	// KindOperatorConsole is the operator console, which plat5 init puts in
+	// operator-console/ beside an API starter.
+	KindOperatorConsole = "operator-console"
 )
 
 // Manifest is a template's plat5.template.yml.
@@ -124,7 +127,7 @@ func (t *Template) Check(want string) error {
 		if m.Service == "" {
 			missing = append(missing, "service")
 		}
-	case KindCustomerConsole:
+	case KindCustomerConsole, KindOperatorConsole:
 		if m.App.Web == "" {
 			missing = append(missing, "app.web")
 		}

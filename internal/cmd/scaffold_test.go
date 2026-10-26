@@ -51,17 +51,29 @@ func fixtureTemplates(t *testing.T) string {
 		"src/appName.ts":     "export const appName = \"{{project_id}}\"\n",
 		".env.local":         "SECRET=1\n",
 	})
+	writeFiles(t, filepath.Join(root, "template-operator-console"), map[string]string{
+		"plat5.template.yml": "name: operator-console\nkind: operator-console\napp:\n  compose: docker-compose.yml\n  web: http://localhost:5412\nexclude: [.github, AGENTS.md]\n",
+		"docker-compose.yml": "services:\n  operator-console: {}\n",
+		"src/main.ts":        "export {}\n",
+		"AGENTS.md":          "# contract\n",
+	})
 	return root
 }
 
 // runStarterInit runs plat5 init dir -y with a starter from the templates
-// directory, pinned so nothing is fetched.
+// directory, pinned so nothing is fetched. noConsole leaves the customer
+// console out; --no-operator-console is runOperatorInit's.
 func runStarterInit(t *testing.T, templates, starter, dir string, noConsole bool) error {
 	t.Helper()
-	initTemplate, initTemplatesDir, initYes, initNoCustomerConsole = starter, templates, true, noConsole
-	initVersions = []string{"plat5=v0.8.0", "auth=v0.2.2"}
+	return runOperatorInit(t, templates, starter, dir, noConsole, false)
+}
+
+func runOperatorInit(t *testing.T, templates, starter, dir string, noConsole, noOperatorConsole bool) error {
+	t.Helper()
+	initTemplate, initTemplatesDir, initYes, initNoCustomerConsole, initNoOperatorConsole = starter, templates, true, noConsole, noOperatorConsole
+	initVersions = []string{"plat5=v0.8.1", "auth=v0.2.2", "operator=v0.5.0"}
 	defer func() {
-		initTemplate, initTemplatesDir, initYes, initNoCustomerConsole = noTemplate, "", false, false
+		initTemplate, initTemplatesDir, initYes, initNoCustomerConsole, initNoOperatorConsole = noTemplate, "", false, false, false
 		initVersions = nil
 	}()
 	var err error
@@ -84,6 +96,10 @@ func TestInitStarter(t *testing.T) {
 		"api/main.go":                         true,
 		"api/docker-compose.yml":              true,
 		"customer-console/docker-compose.yml": true,
+		"operator-console/docker-compose.yml": true,
+		"operator-console/src/main.ts":        true,
+		"operator-console/AGENTS.md":          false,
+		"operator-console/plat5.template.yml": false,
 		"services/api.yml":                    true,
 		"services/identity.yml":               true,
 		"services/audit.yml":                  true,
@@ -127,7 +143,8 @@ func TestInitStarter(t *testing.T) {
 	}
 
 	compose, _ := os.ReadFile(filepath.Join(dir, "docker-compose.yml"))
-	if !strings.Contains(string(compose), "include:\n  - api/docker-compose.yml\n  - customer-console/docker-compose.yml\n") {
+	if !strings.Contains(string(compose), "include:\n  - api/docker-compose.yml\n  - customer-console/docker-compose.yml\n") ||
+		!strings.Contains(string(compose), "\n  - operator-console/docker-compose.yml\n") {
 		t.Errorf("compose:\n%s", compose)
 	}
 
@@ -159,9 +176,17 @@ func TestInitStarter(t *testing.T) {
 	if r.AppCompose != filepath.Join(dir, "docker-compose.yml") || r.AppWeb != "http://localhost:3001" {
 		t.Errorf("app: %q %q", r.AppCompose, r.AppWeb)
 	}
+	if !r.Modules[config.ModuleOperator] || r.Versions["operator"] != "v0.5.0" {
+		t.Errorf("operator module: %v %v", r.Modules, r.Versions)
+	}
+	if r.OperatorRoutes != filepath.Join(dir, operatorRoutesFile) ||
+		r.OperatorConsole != filepath.Join(dir, "operator-console", "docker-compose.yml") ||
+		r.OperatorWeb != "http://localhost:5412" {
+		t.Errorf("operator: %q %q %q", r.OperatorRoutes, r.OperatorConsole, r.OperatorWeb)
+	}
 
 	readme, _ := os.ReadFile(filepath.Join(dir, "README.md"))
-	for _, want := range []string{"# demo", "`services/api.yml`", "http://localhost:3001", "go run ."} {
+	for _, want := range []string{"# demo", "`services/api.yml`", "http://localhost:3001", "go run .", "http://localhost:5412", "`operator-console/`", "operator@example.com"} {
 		if !strings.Contains(string(readme), want) {
 			t.Errorf("README lacks %q:\n%s", want, readme)
 		}
@@ -186,12 +211,94 @@ func TestInitStarterNoCustomerConsole(t *testing.T) {
 	for file, unwanted := range map[string]string{
 		"docker-compose.yml": "customer-console",
 		"plat5.yml":          "cors",
-		config.FileName:      "web:",
+		config.FileName:      "3001",
 		"README.md":          "customer-console/",
 	} {
 		if b, _ := os.ReadFile(filepath.Join(dir, file)); strings.Contains(string(b), unwanted) {
 			t.Errorf("%s mentions %s:\n%s", file, unwanted, b)
 		}
+	}
+}
+
+// --no-operator-console: no operator-console/, and nothing names it; the
+// module still runs on operator.routes.yml.
+func TestInitStarterNoOperatorConsole(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "lean")
+	if err := runOperatorInit(t, fixtureTemplates(t), "go-fiber-api", dir, false, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, operatorConsoleDir)); err == nil {
+		t.Error("operator-console/ written")
+	}
+	if _, err := os.Stat(filepath.Join(dir, operatorRoutesFile)); err != nil {
+		t.Error(err)
+	}
+	for _, file := range []string{"docker-compose.yml", config.FileName, "README.md"} {
+		if b, _ := os.ReadFile(filepath.Join(dir, file)); strings.Contains(string(b), "operator-console") {
+			t.Errorf("%s mentions operator-console:\n%s", file, b)
+		}
+	}
+	dev, _ := os.ReadFile(filepath.Join(dir, config.FileName))
+	f, err := config.Parse(dev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := config.Resolve(f, filepath.Join(dir, config.FileName), config.Overrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.Modules[config.ModuleOperator] || r.OperatorRoutes == "" || r.OperatorConsole != "" || r.OperatorWeb != "" {
+		t.Errorf("operator: %v %q %q %q", r.Modules, r.OperatorRoutes, r.OperatorConsole, r.OperatorWeb)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, customerConsoleDir, "docker-compose.yml")); len(b) == 0 {
+		t.Error("the customer console went with the operator console")
+	}
+}
+
+// --no-operator turns the module off; the console is still the project's.
+func TestInitNoOperator(t *testing.T) {
+	initNoOperator = true
+	defer func() { initNoOperator = false }()
+	dir := filepath.Join(t.TempDir(), "noop")
+	if err := runStarterInit(t, fixtureTemplates(t), "go-fiber-api", dir, false); err != nil {
+		t.Fatal(err)
+	}
+	dev, _ := os.ReadFile(filepath.Join(dir, config.FileName))
+	if !strings.Contains(string(dev), "operator: false") {
+		t.Errorf("module on:\n%s", dev)
+	}
+	if _, err := os.Stat(filepath.Join(dir, operatorConsoleDir, "docker-compose.yml")); err != nil {
+		t.Error(err)
+	}
+}
+
+// --template none writes operator.routes.yml from operator's shipped list
+// alone, so the module has a route list, and keeps one that's there.
+func TestInitNoneWritesOperatorRoutes(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "alone")
+	if err := runStarterInit(t, fixtureTemplates(t), noTemplate, dir, false); err != nil {
+		t.Fatal(err)
+	}
+	routes, err := os.ReadFile(filepath.Join(dir, operatorRoutesFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.HasSuffix(routes, operatorShippedRoutes) || !strings.HasPrefix(string(routes), "# The operator gateway's route list") {
+		t.Errorf("operator.routes.yml is not the shipped list:\n%s", routes)
+	}
+	dev, _ := os.ReadFile(filepath.Join(dir, config.FileName))
+	if !strings.Contains(string(dev), "operator:\n  routes: ./operator.routes.yml\n") || strings.Contains(string(dev), "console:") {
+		t.Errorf("plat5.dev.yml:\n%s", dev)
+	}
+
+	mine := []byte("services: {}\n")
+	other := filepath.Join(t.TempDir(), "kept")
+	writeFiles(t, other, map[string]string{operatorRoutesFile: string(mine)})
+	if err := runStarterInit(t, fixtureTemplates(t), noTemplate, other, false); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(other, operatorRoutesFile)); !bytes.Equal(got, mine) {
+		t.Errorf("an existing operator.routes.yml was replaced:\n%s", got)
 	}
 }
 
@@ -212,7 +319,7 @@ func TestInitYesIsPlat5Alone(t *testing.T) {
 		}
 		return err
 	})
-	want := map[string]bool{"plat5.yml": true, "services/identity.yml": true, "services/audit.yml": true, config.FileName: true}
+	want := map[string]bool{"plat5.yml": true, "services/identity.yml": true, "services/audit.yml": true, config.FileName: true, operatorRoutesFile: true}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("wrote %v, want %v", got, want)
 	}
@@ -273,7 +380,7 @@ func TestOperatorRoutesMatchOperator(t *testing.T) {
 // project whose config passes the schema and whose operator routes fit.
 func TestInitFirstPartyStarters(t *testing.T) {
 	templates, _ := filepath.Abs(filepath.Join("..", "..", ".."))
-	for _, o := range append(template.Official, template.CustomerConsole) {
+	for _, o := range append(template.Official, template.CustomerConsole, template.OperatorConsole) {
 		if _, err := os.Stat(filepath.Join(templates, o.Folder(), template.ManifestName)); err != nil {
 			t.Skipf("no %s checkout beside the CLI: %v", o.Folder(), err)
 		}
@@ -299,6 +406,12 @@ func TestInitFirstPartyStarters(t *testing.T) {
 		}
 		if b, _ := os.ReadFile(filepath.Join(dir, "customer-console", "src", "appName.ts")); !strings.Contains(string(b), `"demo"`) {
 			t.Errorf("%s: console app name not substituted", o.Name)
+		}
+		if _, err := os.Stat(filepath.Join(dir, operatorConsoleDir, "docker-compose.yml")); err != nil {
+			t.Errorf("%s: operator console: %v", o.Name, err)
+		}
+		if _, err := os.Stat(filepath.Join(dir, operatorConsoleDir, "node_modules")); err == nil {
+			t.Errorf("%s: operator console copied node_modules", o.Name)
 		}
 	}
 }

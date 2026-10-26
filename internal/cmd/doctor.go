@@ -3,6 +3,8 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/plat5dev/cli/internal/compose"
@@ -55,6 +57,9 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		fmt.Printf("· %s: %s\n", k, cfg.Versions[k])
 	}
 	check("app.compose", config.CheckFile("app.compose", cfg.AppCompose))
+	if stk.Has(config.ModuleOperator) {
+		check("operator.routes", stk.CheckOperator())
+	}
 	if conf, err := plat5yml.Load(cfg.ConfigPath); err != nil {
 		check(config.ConfigFileName, err)
 	} else if problems, err := conf.Validate(); err != nil || len(problems) > 0 {
@@ -72,6 +77,15 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		check("ports", fmt.Errorf("in use: %s%s", strings.Join(busy, ", "), portHolders(stk.Ports(), cfg.ComposeProject)))
 	} else {
 		check("ports free", nil)
+	}
+	// The operator console's port is its compose file's: free before a start,
+	// its own once running.
+	if p := originPort(cfg.OperatorWeb); stk.RunsOperatorConsole() && p > 0 && !running {
+		if ports.Free(p) {
+			check(fmt.Sprintf("operator console port %d free", p), nil)
+		} else {
+			check("operator console port", fmt.Errorf("%d (%s) in use", p, cfg.OperatorWeb))
+		}
 	}
 
 	if running {
@@ -92,4 +106,14 @@ func doctorExit(failed bool) error {
 		return errors.New("doctor found problems")
 	}
 	return nil
+}
+
+// originPort is an origin's port, or 0.
+func originPort(origin string) int {
+	u, err := url.Parse(origin)
+	if err != nil || u.Port() == "" {
+		return 0
+	}
+	p, _ := strconv.Atoi(u.Port())
+	return p
 }

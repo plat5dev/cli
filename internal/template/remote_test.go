@@ -63,6 +63,17 @@ func TestResolveOfficial(t *testing.T) {
 	if console.Origin != "plat5dev/template-customer-console@dev (0123456)" || console.Manifest.App.Web != "http://localhost:3001" {
 		t.Fatalf("%+v", console)
 	}
+
+	srv = archiveServer(t, map[string]string{"/plat5dev/template-operator-console/archive/dev.tar.gz": "template-operator-console-dev"},
+		map[string]string{ManifestName: "kind: operator-console\napp: {compose: docker-compose.yml, web: \"http://localhost:5412\"}\n"})
+	ops, err := ResolveOperatorConsole(ResolveOptions{Ref: "dev", GitHubBase: srv.URL, HTTPClient: srv.Client()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ops.Close()
+	if ops.Origin != "plat5dev/template-operator-console@dev (0123456)" || ops.Manifest.App.Web != "http://localhost:5412" {
+		t.Fatalf("%+v", ops)
+	}
 }
 
 // A downloaded template is extracted to its own temp dir each time, and Close
