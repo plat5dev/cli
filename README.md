@@ -12,8 +12,8 @@ plat5 start             # Plat5 and its modules; applies the config; runs your a
 
 ```
 my-app/
-  plat5.yml               the deployment's config: organization and project kinds, roles, the
-                          customer console's origin under cors, the service files
+  plat5.yml               the deployment's config: organization, project and environment kinds,
+                          roles, the customer console's origin under cors, the service files
   services/identity.yml   identity's service file: its url, and overrides of its resources
   services/audit.yml      audit's
   services/api.yml        your API's: its url and its routes, from the starter
@@ -26,7 +26,7 @@ my-app/
   README.md               what's here, and how to extend it
 ```
 
-Each app is a starting point the project owns, not a dependency. The starters are `go-fiber-api`, `node-fastify-api` and `bun-effect-api`: the same API (tasks inside a project, and the person's profile) in three stacks, which both consoles work with. A starter can also be `owner/repo` on GitHub, or a `.tar.gz` URL ([starters](#starters)).
+Each app is a starting point the project owns, not a dependency. The starters are `go-fiber-api`, `node-fastify-api` and `bun-effect-api`: the same API (tasks inside an environment, and the person's profile) in three stacks, which both consoles work with. A starter can also be `owner/repo` on GitHub, or a `.tar.gz` URL ([starters](#starters)).
 
 `--template none` is Plat5 alone: `plat5.yml`, `services/identity.yml`, `services/audit.yml`, `plat5.dev.yml`, and `operator.routes.yml` from operator's shipped route list. Add your own API as a service file in `services/`, list it in `plat5.yml`'s `services`, and point `app.compose` in `plat5.dev.yml` at its compose file. A service file's routes sit in a kind's scope, relative to its node (`/orgs/{organization}/…`), in the `user` scope for the person's own data, such as `/user/notification-settings` (the service gets `X-Plat5-User-Id`), or in `public` ([plat5 `docs/reference/config/services.md`](https://github.com/plat5dev/plat5/blob/master/docs/reference/config/services.md)).
 
