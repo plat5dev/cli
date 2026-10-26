@@ -107,6 +107,7 @@ Local Auth runs in dev mode: `POST /dev/token` mints a token for any email, and 
 | `plat5 start [-x module,…] [-v]` | Run the stack and your app, apply `plat5.yml`, seed the dev person, print the summary |
 | `plat5 status` | The summary again, and container health |
 | `plat5 stop` | Stop everything. Data (volumes) is kept |
+| `plat5 reset [-y]` | Stop everything and delete the project's volumes: Plat5's and the operator's databases, your apps' volumes, Grafana's data. The next `start` seeds a fresh dev person. Asks first unless `-y` |
 | `plat5 logs [service…]` | Container logs. Follows on a terminal; piped, prints and exits. `--app` for your app; `-f` / `-f=false` to choose |
 | `plat5 doctor` | Check Docker, `plat5.dev.yml`, `plat5.yml`, `operator.routes.yml`, and ports, the operator console's included (naming the Plat5 project that holds a busy one) |
 | `plat5 validate [plat5.yml]` | Check a deployment's config against the schema, offline |

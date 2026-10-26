@@ -56,7 +56,7 @@ func init() {
 	rootCmd.Version = cliVersion()
 	config.CLIVersion = cliVersion()
 	rootCmd.SetVersionTemplate("plat5 {{.Version}}\n")
-	rootCmd.AddCommand(initCmd, startCmd, stopCmd, statusCmd, logsCmd, doctorCmd, validateCmd, planCmd, applyCmd, routesCmd, configCmd, versionCmd)
+	rootCmd.AddCommand(initCmd, startCmd, stopCmd, resetCmd, statusCmd, logsCmd, doctorCmd, validateCmd, planCmd, applyCmd, routesCmd, configCmd, versionCmd)
 }
 
 func loadConfig() (config.Resolved, error) {

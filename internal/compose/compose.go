@@ -168,6 +168,11 @@ func (r Runner) Down() error {
 	return run(r.cmd("down", "--remove-orphans"))
 }
 
+// DownVolumes runs docker compose down and deletes the project's volumes.
+func (r Runner) DownVolumes() error {
+	return run(r.cmd("down", "--remove-orphans", "--volumes"))
+}
+
 // Logs runs docker compose logs.
 func (r Runner) Logs(follow bool, services ...string) error {
 	args := []string{"logs"}
