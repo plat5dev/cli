@@ -426,11 +426,13 @@ func renderDevYML(projectID string, ch initChoices, versions map[string]string, 
 		p("# start runs only with the module.\n")
 		p("operator:\n  routes: ./%s\n", operatorRoutesFile)
 		p("  console:\n    compose: ./%s\n", lay.operatorConsoleCompose())
-		p("    web: %s  # may sign in with the operator IdP and call the operator gateway\n\n", yamlString(lay.operatorWeb()))
+		p("    web: %s  # may sign in with the operator IdP and call the operator gateway\n", yamlString(lay.operatorWeb()))
+		p("  # origins: []          # more origins the operator side allows, each with <origin>/callback\n\n")
 	} else {
 		p("# The operator module: the operator gateway on operator.routes.yml, its IdP and\n")
 		p("# audit log.\n")
-		p("operator:\n  routes: ./%s\n\n", operatorRoutesFile)
+		p("operator:\n  routes: ./%s\n", operatorRoutesFile)
+		p("  # origins: []          # browser origins the operator side allows, each with <origin>/callback\n\n")
 	}
 
 	if lay != nil {

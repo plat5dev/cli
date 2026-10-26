@@ -107,6 +107,8 @@ type OperatorBlock struct {
 	// includes and plat5 start runs only with the module, and its browser origin,
 	// allowed to sign in with the operator IdP and to call the operator gateway.
 	Console AppBlock `yaml:"console"`
+	// Origins is more browser origins the operator side allows, beyond the console's.
+	Origins []string `yaml:"origins"`
 }
 
 // AppBlock is the project's own app, which plat5 start runs after Plat5.
@@ -181,6 +183,8 @@ type Resolved struct {
 	// OperatorWeb its origin. Empty: no operator console.
 	OperatorConsole string
 	OperatorWeb     string
+	// OperatorExtraOrigins is operator.origins: more origins the operator side allows.
+	OperatorExtraOrigins []string
 
 	// Source is checkouts to build images from, by version key. Absolute.
 	Source map[string]string
@@ -265,6 +269,7 @@ func Resolve(f *File, path string, o Overrides) (Resolved, error) {
 		}
 		r.OperatorWeb = origin
 	}
+	r.OperatorExtraOrigins = trimOrigins(f.Operator.Origins)
 
 	r.AppCompose = resolveAgainst(dir, strings.TrimSpace(f.App.Compose))
 	if web := strings.TrimSpace(f.App.Web); web != "" {
@@ -381,12 +386,13 @@ func (r Resolved) AuthRedirectURIs() []string {
 }
 
 // OperatorOrigins is the browser origins the operator IdP and the operator
-// gateway allow: the operator console's.
+// gateway allow: the operator console's, and any extra.
 func (r Resolved) OperatorOrigins() []string {
-	if r.OperatorWeb == "" {
-		return nil
+	var out []string
+	if r.OperatorWeb != "" {
+		out = append(out, r.OperatorWeb)
 	}
-	return []string{r.OperatorWeb}
+	return uniq(append(out, r.OperatorExtraOrigins...))
 }
 
 // OperatorRedirectURIs is <origin>/callback for each operator origin.

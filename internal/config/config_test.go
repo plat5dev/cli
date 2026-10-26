@@ -164,6 +164,29 @@ func TestOperator(t *testing.T) {
 		t.Fatalf("ports: %v", r.Ports)
 	}
 
+	// operator.origins adds to the console's origin, each with its /callback.
+	r, err = resolve(t, fullYML+`operator:
+  routes: ./operator.routes.yml
+  console: {web: "http://localhost:5412"}
+  origins: ["http://localhost:5173/", "http://localhost:5412"]
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(r.OperatorOrigins(), ","); got != "http://localhost:5412,http://localhost:5173" {
+		t.Fatalf("origins: %s", got)
+	}
+	if got := strings.Join(r.OperatorRedirectURIs(), ","); got != "http://localhost:5412/callback,http://localhost:5173/callback" {
+		t.Fatalf("redirect uris: %s", got)
+	}
+
+	// Without a console, only operator.origins.
+	r, err = resolve(t, fullYML+`operator: {routes: ./operator.routes.yml, origins: ["http://localhost:5173"]}
+`)
+	if err != nil || strings.Join(r.OperatorOrigins(), ",") != "http://localhost:5173" {
+		t.Fatalf("no console: %v %v", r.OperatorOrigins(), err)
+	}
+
 	// With auth off, the operator IdP still needs the auth pin.
 	r, err = resolve(t, `versions: {plat5: v0.8.0, auth: v0.2.2, operator: v0.5.0}
 modules: {auth: false}

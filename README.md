@@ -147,6 +147,7 @@ operator:                          # the operator module
   console:                         # the operator console: app.compose includes it, start runs it with the module
     compose: ./operator-console/docker-compose.yml
     web: http://localhost:5412     # its origin: allowed to sign in with the operator IdP and call the operator gateway
+  origins: []                      # more origins the operator IdP and gateway allow; each also allows <origin>/callback
 
 # Optional
 ports:                             # host ports; these are the defaults
