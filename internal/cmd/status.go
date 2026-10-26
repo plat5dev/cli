@@ -196,8 +196,8 @@ func printWhatYouGot(stk *stack.Stack, st state.State) {
 	} else {
 		fmt.Println("  Sign-in        The gateway checks every token and key. Your API never sees one.")
 	}
-	fmt.Println("  Tenancy        The path names the node: /orgs/acme/projects/web reaches your API with the org's and")
-	fmt.Println("                 project's ids and the caller's member id. Your handler reads them; no membership checks.")
+	fmt.Println("  Tenancy        The path names the node: /orgs/acme/projects/web/envs/prod reaches your API with the")
+	fmt.Println("                 environment's id and the caller's member id. Your handler reads them; no membership checks.")
 	fmt.Printf("  Permissions    required_permissions in your routes, granted by roles in %s, are checked before your code runs.\n", file)
 	fmt.Printf("  Rate limits    Policies in %s, per caller unless count_at shares one budget, across every gateway replica.\n", file)
 	fmt.Println("  Audit          Every write is recorded: who, where, and what changed (GET /orgs/{organization}/audit-events).")
