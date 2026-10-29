@@ -1,5 +1,5 @@
 // Package devseed gives a fresh local stack something to call with: the dev
-// person and their name, a node named Dev of each root kind, and a personal
+// person and, unless the IdP names people, their name, a node named Dev of each root kind, and a personal
 // key, which reaches every tree its person can. It goes through identity's
 // routes at the gateway like any client, with a token from local Auth's dev
 // mode. Nothing here reaches past the gateway (plat5 docs/reference/cli.md#the-local-stack).
@@ -36,6 +36,9 @@ type Client struct {
 	// Name is the dev person's name, set with PATCH /user while they have none:
 	// local Auth's tokens carry no name.
 	Name string
+	// IdPNames is users.name.sync: each_sign_in, where the IdP's token names a
+	// person on every sign-in: the seed leaves the name alone and says nothing.
+	IdPNames bool
 	// NodeName is the display_name of the node seeded of each root kind.
 	NodeName string
 	Roots    []RootKind
@@ -59,8 +62,8 @@ func (c Client) http() *http.Client {
 
 // Ensure returns working dev data: prev's while its key still works, else new.
 // Nodes are reused by display name, so a lost state file does not make a second one.
-// Either way the dev person ends up named, unless the IdP owns the name
-// (users.name.sync: each_sign_in): that is a warning, not an error.
+// Either way the dev person ends up named, unless the IdP names people
+// (IdPNames), when the seed doesn't touch the name.
 func Ensure(c Client, prev *state.Dev) (*state.Dev, error) {
 	if prev != nil && prev.Email == c.Email {
 		if u, ok := c.works(prev); ok {
@@ -109,14 +112,17 @@ type user struct {
 
 // ensureName names the dev person with credential, a token or their key, while
 // they have no name. A name already set, by the seed or by the person, stays.
+// A 409 is identity running with each_sign_in while plat5.yml has
+// first_sign_in, its config not yet the one just applied: a warning, and the
+// next start names them.
 func (c Client) ensureName(credential string, u user) error {
-	if u.Name != nil || c.Name == "" {
+	if c.IdPNames || u.Name != nil || c.Name == "" {
 		return nil
 	}
 	err := c.call("PATCH", "/user", credential, map[string]string{"name": c.Name}, nil)
 	switch {
 	case isStatus(err, http.StatusConflict):
-		c.warn("the dev person has no name: users.name.sync is each_sign_in, so only the IdP's token names a person, and local Auth's tokens carry no name")
+		c.warn("the dev person has no name: identity refused PATCH /user (409), so it is running with users.name.sync: each_sign_in, not plat5.yml's first_sign_in; the next plat5 start names them")
 		return nil
 	case IsNotFound(err):
 		c.warn("the dev person has no name: the config has no PATCH /user")

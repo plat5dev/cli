@@ -67,6 +67,14 @@ func rootKinds(flat map[string]any) []devseed.RootKind {
 	return out
 }
 
+// idpNames reports users.name.sync: each_sign_in, where the IdP's token names
+// a person on every sign-in. Absent, it is first_sign_in.
+func idpNames(flat map[string]any) bool {
+	users, _ := flat["users"].(map[string]any)
+	name, _ := users["name"].(map[string]any)
+	return name["sync"] == "each_sign_in"
+}
+
 // urlHosts is the host of every service's url in the config, sorted.
 func urlHosts(flat map[string]any) []string {
 	services, _ := flat["services"].(map[string]any)

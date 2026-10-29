@@ -151,3 +151,21 @@ func TestRootKinds(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 }
+
+// Only each_sign_in has the IdP name people; first_sign_in is the default.
+func TestIdPNames(t *testing.T) {
+	for _, tc := range []struct {
+		flat map[string]any
+		want bool
+	}{
+		{map[string]any{"users": map[string]any{"name": map[string]any{"sync": "each_sign_in"}}}, true},
+		{map[string]any{"users": map[string]any{"name": map[string]any{"sync": "first_sign_in"}}}, false},
+		{map[string]any{"users": map[string]any{"name": map[string]any{"claims": []any{"name"}}}}, false},
+		{map[string]any{"users": map[string]any{}}, false},
+		{map[string]any{}, false},
+	} {
+		if got := idpNames(tc.flat); got != tc.want {
+			t.Errorf("%v: %v", tc.flat, got)
+		}
+	}
+}

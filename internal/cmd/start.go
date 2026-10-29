@@ -190,6 +190,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 			ClientID:   config.DefaultAuthClient,
 			Email:      config.DevEmail,
 			Name:       config.DevName,
+			IdPNames:   idpNames(applied.Flat),
 			NodeName:   config.DevNodeName,
 			Roots:      rootKinds(applied.Flat),
 			Warn:       func(msg string) { fmt.Printf("warning: %s\n", msg) },

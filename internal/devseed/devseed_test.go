@@ -200,10 +200,36 @@ func TestEnsureKeepsAName(t *testing.T) {
 	}
 }
 
-// Under each_sign_in the IdP owns the name: PATCH /user is 409, a warning, and
-// the rest is seeded. A later start, the config changed, names the person with
-// the key it kept.
-func TestEnsureWarnsWhenTheIdPOwnsTheName(t *testing.T) {
+// Under each_sign_in the IdP names people: the seed doesn't call PATCH /user
+// and says nothing about names, on a first start or a later one.
+func TestEnsureLeavesTheNameToTheIdP(t *testing.T) {
+	f, c := newFake(t)
+	f.ownsName = true
+	c.IdPNames = true
+	var warnings []string
+	c.Warn = func(msg string) { warnings = append(warnings, msg) }
+	dev, err := Ensure(c, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := Ensure(c, dev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dev.Key == "" || len(dev.Nodes) != 1 || again != dev || f.name != nil || len(warnings) != 0 {
+		t.Fatalf("%+v, reused %v, name %v, warnings %v", dev, again == dev, f.name, warnings)
+	}
+	for _, r := range f.requests {
+		if r == "PATCH /user" {
+			t.Fatalf("named: %v", f.requests)
+		}
+	}
+}
+
+// Under first_sign_in, identity still running with each_sign_in refuses
+// PATCH /user with a 409: a warning, and the rest is seeded. A later start,
+// identity caught up, names the person with the key it kept.
+func TestEnsureWarnsWhenIdentityRefusesTheName(t *testing.T) {
 	f, c := newFake(t)
 	f.ownsName = true
 	var warnings []string
@@ -215,7 +241,7 @@ func TestEnsureWarnsWhenTheIdPOwnsTheName(t *testing.T) {
 	if dev.Key == "" || len(dev.Nodes) != 1 || f.name != nil {
 		t.Fatalf("%+v, name %v", dev, f.name)
 	}
-	if len(warnings) != 1 || !strings.Contains(warnings[0], "each_sign_in") {
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "409") {
 		t.Fatalf("warnings %v", warnings)
 	}
 
