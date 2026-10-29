@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -130,6 +131,36 @@ func TestUsersName(t *testing.T) {
 		c["users"] = users
 		if errs, _ := ValidateConfig(c); len(errs) == 0 {
 			t.Errorf("%v: accepted", users)
+		}
+	}
+}
+
+func TestRouteChecks(t *testing.T) {
+	c := sample()
+	c["services"] = map[string]any{}
+	for _, rc := range []any{
+		map[string]any{},
+		map[string]any{"path": "/access/routes"},
+		map[string]any{"path": "/v1/can_i.check"},
+	} {
+		c["route_checks"] = rc
+		if errs, _ := ValidateConfig(c); len(errs) != 0 {
+			t.Fatalf("%v: %v", rc, errs)
+		}
+	}
+	for _, rc := range []any{
+		"/access/routes",
+		map[string]any{"path": "access/routes"},
+		map[string]any{"path": "/Access"},
+		map[string]any{"path": "/access/{id}"},
+		map[string]any{"path": "/.well-known"},
+		map[string]any{"path": "/access/"},
+		map[string]any{"path": "/" + strings.Repeat("a", 256)},
+		map[string]any{"path": "/access", "method": "POST"},
+	} {
+		c["route_checks"] = rc
+		if errs, _ := ValidateConfig(c); len(errs) == 0 {
+			t.Errorf("%v: accepted", rc)
 		}
 	}
 }
