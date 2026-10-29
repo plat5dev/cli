@@ -65,11 +65,12 @@ services:
       - path: /nodes/{node_id}/invites/{invite_id}
         node: node_id
         methods: [DELETE]
-      # A person, by user id: ?issuer=&subject= finds one by IdP link.
+      # A person, by user id: ?issuer=&subject= finds one by IdP link. PATCH sets or clears
+      # their name, as an operator's edit: allowed whatever users.name.sync says.
       - path: /users
         methods: [GET]
       - path: /users/{user_id}
-        methods: [GET, DELETE]
+        methods: [GET, PATCH, DELETE]
       - path: /users/{user_id}/status
         methods: [PATCH]
       - path: /users/{user_id}/nodes
