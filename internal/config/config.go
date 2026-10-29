@@ -31,7 +31,7 @@ const (
 const (
 	DevEmail    = "dev@example.com"
 	DevPassword = "password"
-	DevName     = "Dev User"
+	DevName     = "Dev Person"
 	// DevNodeName is the display_name of the node start seeds of each root kind.
 	DevNodeName = "Dev"
 )

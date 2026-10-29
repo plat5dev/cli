@@ -41,10 +41,11 @@ app.compose includes, runs only with the operator module.
 
 start applies plat5.yml as plat5 apply does, without a prompt; a blocked plan
 is printed and refused. Then, through identity's user routes like any client,
-it seeds the dev person, a node named Dev of each root kind (found through
-/user/nodes, made at its collection, such as POST /orgs), and a personal key
-(POST /user/keys), which callers send as Authorization: Bearer. Running it
-again updates the stack in place.
+it seeds the dev person, named Dev Person with PATCH /user while they have no
+name, a node named Dev of each root kind (found through /user/nodes, made at
+its collection, such as POST /orgs), and a personal key (POST /user/keys),
+which callers send as Authorization: Bearer. Running it again updates the
+stack in place.
 
 A service file's url is what the gateway reaches, as in any deployment. When
 its host is a service in your app's compose file (http://api:3000), start puts
@@ -191,6 +192,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 			Name:       config.DevName,
 			NodeName:   config.DevNodeName,
 			Roots:      rootKinds(applied.Flat),
+			Warn:       func(msg string) { fmt.Printf("warning: %s\n", msg) },
 		}, prev.Dev)
 		if err != nil {
 			hint := ""

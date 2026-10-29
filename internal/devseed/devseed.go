@@ -1,8 +1,8 @@
 // Package devseed gives a fresh local stack something to call with: the dev
-// person, a node named Dev of each root kind, and a personal key, which reaches
-// every tree its person can. It goes through identity's routes at the gateway
-// like any client, with a token from local Auth's dev mode. Nothing here
-// reaches past the gateway (plat5 docs/reference/cli.md#the-local-stack).
+// person and their name, a node named Dev of each root kind, and a personal
+// key, which reaches every tree its person can. It goes through identity's
+// routes at the gateway like any client, with a token from local Auth's dev
+// mode. Nothing here reaches past the gateway (plat5 docs/reference/cli.md#the-local-stack).
 package devseed
 
 import (
@@ -33,13 +33,21 @@ type Client struct {
 	// ClientID is the Auth client the dev token is minted for (the gateway's audience).
 	ClientID string
 	Email    string
-	// Name is the dev person's name. A person's name comes only from the IdP, so
-	// it goes in the dev token as its name claim.
+	// Name is the dev person's name, set with PATCH /user while they have none:
+	// local Auth's tokens carry no name.
 	Name string
 	// NodeName is the display_name of the node seeded of each root kind.
 	NodeName string
 	Roots    []RootKind
 	HTTP     *http.Client
+	// Warn gets what the seed skipped and why; nil drops it.
+	Warn func(string)
+}
+
+func (c Client) warn(msg string) {
+	if c.Warn != nil {
+		c.Warn(msg)
+	}
 }
 
 func (c Client) http() *http.Client {
@@ -51,21 +59,29 @@ func (c Client) http() *http.Client {
 
 // Ensure returns working dev data: prev's while its key still works, else new.
 // Nodes are reused by display name, so a lost state file does not make a second one.
+// Either way the dev person ends up named, unless the IdP owns the name
+// (users.name.sync: each_sign_in): that is a warning, not an error.
 func Ensure(c Client, prev *state.Dev) (*state.Dev, error) {
-	if prev != nil && prev.Email == c.Email && c.works(prev) {
-		return prev, nil
+	if prev != nil && prev.Email == c.Email {
+		if u, ok := c.works(prev); ok {
+			if err := c.ensureName(prev.Key, u); err != nil {
+				return nil, err
+			}
+			return prev, nil
+		}
 	}
 	token, err := c.devToken()
 	if err != nil {
 		return nil, err
 	}
-	var user struct {
-		ID string `json:"id"`
-	}
-	if err := c.call("GET", "/user", token, nil, &user); err != nil {
+	var u user
+	if err := c.call("GET", "/user", token, nil, &u); err != nil {
 		return nil, err
 	}
-	dev := &state.Dev{Email: c.Email, UserID: user.ID}
+	if err := c.ensureName(token, u); err != nil {
+		return nil, err
+	}
+	dev := &state.Dev{Email: c.Email, UserID: u.ID}
 	for _, root := range c.Roots {
 		n, err := c.ensureRoot(token, root)
 		if err != nil {
@@ -84,6 +100,30 @@ func Ensure(c Client, prev *state.Dev) (*state.Dev, error) {
 }
 
 const keyName = "plat5 dev"
+
+// user is GET /user's answer: name is null until it's set.
+type user struct {
+	ID   string  `json:"id"`
+	Name *string `json:"name"`
+}
+
+// ensureName names the dev person with credential, a token or their key, while
+// they have no name. A name already set, by the seed or by the person, stays.
+func (c Client) ensureName(credential string, u user) error {
+	if u.Name != nil || c.Name == "" {
+		return nil
+	}
+	err := c.call("PATCH", "/user", credential, map[string]string{"name": c.Name}, nil)
+	switch {
+	case isStatus(err, http.StatusConflict):
+		c.warn("the dev person has no name: users.name.sync is each_sign_in, so only the IdP's token names a person, and local Auth's tokens carry no name")
+		return nil
+	case IsNotFound(err):
+		c.warn("the dev person has no name: the config has no PATCH /user")
+		return nil
+	}
+	return err
+}
 
 type node struct {
 	ID          string  `json:"id"`
@@ -126,13 +166,15 @@ func (r RootKind) devNode(n node) state.DevNode {
 	return state.DevNode{Kind: r.Kind, ID: n.ID, Slug: n.Slug, Path: "/" + r.Collection + "/" + n.Slug}
 }
 
-// works reports whether the key still authenticates (the data may have been reset).
-func (c Client) works(d *state.Dev) bool {
-	return d.Key != "" && c.call("GET", "/user", d.Key, nil, nil) == nil
+// works reports whether the key still authenticates (the data may have been
+// reset), and the person it acts as.
+func (c Client) works(d *state.Dev) (user, bool) {
+	var u user
+	return u, d.Key != "" && c.call("GET", "/user", d.Key, nil, &u) == nil
 }
 
 func (c Client) devToken() (string, error) {
-	body, _ := json.Marshal(map[string]string{"email": c.Email, "client_id": c.ClientID, "name": c.Name})
+	body, _ := json.Marshal(map[string]string{"email": c.Email, "client_id": c.ClientID})
 	resp, err := c.http().Post(strings.TrimRight(c.AuthURL, "/")+"/dev/token", "application/json", bytes.NewReader(body))
 	if err != nil {
 		return "", fmt.Errorf("dev token: %w", err)

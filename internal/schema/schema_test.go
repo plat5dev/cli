@@ -103,3 +103,33 @@ func TestMatchesPlat5(t *testing.T) {
 		}
 	}
 }
+
+// users.name: each field on its own, and nothing else; name_claim is unknown.
+func TestUsersName(t *testing.T) {
+	c := sample()
+	c["services"] = map[string]any{}
+	for _, users := range []any{
+		map[string]any{},
+		map[string]any{"name": map[string]any{}},
+		map[string]any{"name": map[string]any{"claims": []any{"profile.display_name"}}},
+		map[string]any{"name": map[string]any{"claims": []any{"name", "preferred_username"}, "sync": "each_sign_in"}},
+	} {
+		c["users"] = users
+		if errs, _ := ValidateConfig(c); len(errs) != 0 {
+			t.Fatalf("%v: %v", users, errs)
+		}
+	}
+	for _, users := range []any{
+		map[string]any{"name_claim": "name"},
+		map[string]any{"name": map[string]any{"sync": "never"}},
+		map[string]any{"name": map[string]any{"claims": []any{}}},
+		map[string]any{"name": map[string]any{"claims": []any{"name", "name"}}},
+		map[string]any{"name": map[string]any{"claims": []any{"a..b"}}},
+		map[string]any{"name": map[string]any{"claims": []any{"a", "b", "c", "d", "e", "f", "g", "h", "i"}}},
+	} {
+		c["users"] = users
+		if errs, _ := ValidateConfig(c); len(errs) == 0 {
+			t.Errorf("%v: accepted", users)
+		}
+	}
+}

@@ -19,6 +19,8 @@ type fake struct {
 	created  int
 	requests []string
 	token    map[string]string // the last /dev/token body
+	name     any               // the dev person's name: nil until set
+	ownsName bool              // users.name.sync is each_sign_in: PATCH /user is 409
 	missing  string            // a route the config leaves out: 404
 	failUser bool
 }
@@ -54,7 +56,16 @@ func (f *fake) handler() http.Handler {
 				write(503, map[string]any{"error": map[string]string{"code": "UNAVAILABLE"}})
 				return
 			}
-			write(200, map[string]any{"id": "01jbx9q3t5vk8m2n4p6r7s8t9w", "name": "Dev User", "status": "active"})
+			write(200, map[string]any{"id": "01jbx9q3t5vk8m2n4p6r7s8t9w", "name": f.name, "status": "active"})
+		case "PATCH /user":
+			if f.ownsName {
+				write(409, map[string]any{"error": map[string]string{"code": "CONFLICT"}})
+				return
+			}
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			f.name = body["name"]
+			write(200, map[string]any{"id": "01jbx9q3t5vk8m2n4p6r7s8t9w", "name": f.name, "status": "active"})
 		case "GET /user/nodes":
 			if r.URL.Query().Get("kind") != "organization" {
 				write(200, map[string]any{"nodes": []any{}, "has_more": false})
@@ -86,7 +97,7 @@ func newFake(t *testing.T) (*fake, Client) {
 		AuthURL:    srv.URL,
 		ClientID:   "plat5",
 		Email:      "dev@example.com",
-		Name:       "Dev User",
+		Name:       "Dev Person",
 		NodeName:   "Dev",
 		Roots:      []RootKind{{Kind: "organization", Collection: "orgs"}},
 	}
@@ -107,14 +118,16 @@ func TestEnsureSeedsOnce(t *testing.T) {
 	if f.roots[0]["display_name"] != "Dev" {
 		t.Fatalf("created %v", f.roots[0])
 	}
-	// The name rides in the dev token as its name claim; there is no name write.
-	if f.token["name"] != "Dev User" || f.token["email"] != "dev@example.com" || f.token["client_id"] != "plat5" {
+	// Local Auth's tokens carry no name: the seed asks for none, and sets it
+	// with PATCH /user after the first GET /user admits the person.
+	if _, ok := f.token["name"]; ok || f.token["email"] != "dev@example.com" || f.token["client_id"] != "plat5" || len(f.token) != 2 {
 		t.Fatalf("dev token body: %v", f.token)
 	}
-	for _, r := range f.requests {
-		if strings.HasPrefix(r, "PATCH") {
-			t.Fatalf("no writes beyond the node and key: %v", f.requests)
-		}
+	if f.name != "Dev Person" {
+		t.Fatalf("name %v", f.name)
+	}
+	if got := strings.Join(f.requests[:3], ","); got != "POST /dev/token,GET /user,PATCH /user" {
+		t.Fatalf("requests %v", f.requests)
 	}
 
 	// A second start reuses the state while the key works.
@@ -166,5 +179,68 @@ func TestEnsureEveryRootKind(t *testing.T) {
 	}
 	if len(dev.Nodes) != 0 || f.created != 0 || dev.Key == "" {
 		t.Fatalf("no root kinds: no nodes, still a key: %+v", dev)
+	}
+}
+
+// A name already set, by the person or an earlier seed, stays; a seed whose
+// state was lost, or whose key was reset, makes no second PATCH.
+func TestEnsureKeepsAName(t *testing.T) {
+	f, c := newFake(t)
+	f.name = "Ada"
+	if _, err := Ensure(c, nil); err != nil {
+		t.Fatal(err)
+	}
+	if f.name != "Ada" {
+		t.Fatalf("name %v", f.name)
+	}
+	for _, r := range f.requests {
+		if r == "PATCH /user" {
+			t.Fatalf("renamed: %v", f.requests)
+		}
+	}
+}
+
+// Under each_sign_in the IdP owns the name: PATCH /user is 409, a warning, and
+// the rest is seeded. A later start, the config changed, names the person with
+// the key it kept.
+func TestEnsureWarnsWhenTheIdPOwnsTheName(t *testing.T) {
+	f, c := newFake(t)
+	f.ownsName = true
+	var warnings []string
+	c.Warn = func(msg string) { warnings = append(warnings, msg) }
+	dev, err := Ensure(c, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dev.Key == "" || len(dev.Nodes) != 1 || f.name != nil {
+		t.Fatalf("%+v, name %v", dev, f.name)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "each_sign_in") {
+		t.Fatalf("warnings %v", warnings)
+	}
+
+	f.ownsName = false
+	f.requests = nil
+	again, err := Ensure(c, dev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again != dev || f.name != "Dev Person" || strings.Join(f.requests, ",") != "GET /user,PATCH /user" {
+		t.Fatalf("reused: %v, name %v, requests %v", again == dev, f.name, f.requests)
+	}
+}
+
+// A config without PATCH /user leaves the person unnamed, with a warning.
+func TestEnsureWithoutTheNameRoute(t *testing.T) {
+	f, c := newFake(t)
+	f.missing = "PATCH /user"
+	var warnings []string
+	c.Warn = func(msg string) { warnings = append(warnings, msg) }
+	dev, err := Ensure(c, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dev.Key == "" || f.name != nil || len(warnings) != 1 || !strings.Contains(warnings[0], "PATCH /user") {
+		t.Fatalf("%+v, name %v, warnings %v", dev, f.name, warnings)
 	}
 }

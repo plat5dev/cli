@@ -181,7 +181,7 @@ func Write(dir string, flat map[string]any) ([]string, error) {
 // (kinds, roles, services, policies) sort after, alphabetically.
 var keyOrder = []string{
 	"url", "timeouts", "max_body_bytes", "resources",
-	"deletion_grace", "reserved_slugs", "users", "name_claim", "kinds", "roles", "creator_role",
+	"deletion_grace", "reserved_slugs", "users", "name", "claims", "sync", "kinds", "roles", "creator_role",
 	"defaults", "rate_limits", "cors", "services",
 	"parent", "path", "permission_name", "list_permission", "bind_creator", "includes", "permissions", "bindable_at",
 	"connect", "read", "requests", "window_seconds", "count_at", "allowed_origins", "allowed_headers",
