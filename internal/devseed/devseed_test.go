@@ -241,7 +241,7 @@ func TestEnsureWarnsWhenIdentityRefusesTheName(t *testing.T) {
 	if dev.Key == "" || len(dev.Nodes) != 1 || f.name != nil {
 		t.Fatalf("%+v, name %v", dev, f.name)
 	}
-	if len(warnings) != 1 || !strings.Contains(warnings[0], "409") {
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "409") || !strings.Contains(warnings[0], "config other than this project's plat5.yml") || !strings.Contains(warnings[0], "plat5 apply") || !strings.Contains(warnings[0], "plat5 start") {
 		t.Fatalf("warnings %v", warnings)
 	}
 
