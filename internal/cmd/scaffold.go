@@ -104,8 +104,8 @@ func (l *layout) close() {
 	l.operatorConsole.Close()
 }
 
-// serviceName is a service file's one top-level key. Identity's and audit's
-// files are the project's own.
+// serviceName is a service file's one top-level key. It can't be identity or
+// audit: init writes services/identity.yml and services/audit.yml itself.
 func serviceName(rel string, data []byte) (string, error) {
 	var file map[string]any
 	if err := yaml.Unmarshal(data, &file); err != nil {
@@ -116,7 +116,7 @@ func serviceName(rel string, data []byte) (string, error) {
 	}
 	for name := range file {
 		if name == "identity" || name == "audit" {
-			return "", fmt.Errorf("the starter's service file %s: %s is Plat5's own service", rel, name)
+			return "", fmt.Errorf("the starter's service file %s: init writes services/%s.yml itself; name the starter's service otherwise", rel, name)
 		}
 		return name, nil
 	}

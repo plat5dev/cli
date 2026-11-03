@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/plat5dev/cli/internal/controlplane"
+	"github.com/plat5dev/cli/internal/routegen"
 	"github.com/spf13/cobra"
 )
 
@@ -28,8 +30,36 @@ deployed. Nothing is applied.`,
 	RunE: runRoutesList,
 }
 
+var routesGenerateCmd = &cobra.Command{
+	Use:   "generate [plat5.yml]",
+	Short: "Write identity's and audit's routes for every kind",
+	Long: `Write identity's and audit's routes for every kind in plat5.yml, overwriting
+services/identity.yml and services/audit.yml beside it. Each file's url,
+timeouts and max_body_bytes are kept when it exists; everything else is
+written afresh. Offline.
+
+Regenerate after adding or removing a kind, or changing a kind's path or
+list_permission. Then review the diff (git diff) and delete again any route
+you had dropped. plat5.yml isn't changed: the files publish their routes once
+its services list names them.`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runRoutesGenerate,
+}
+
 func init() {
-	routesCmd.AddCommand(routesListCmd)
+	routesCmd.AddCommand(routesListCmd, routesGenerateCmd)
+}
+
+func runRoutesGenerate(cmd *cobra.Command, args []string) error {
+	written, err := routegen.WriteFiles(configPath(args))
+	if err != nil {
+		return err
+	}
+	for _, rel := range written {
+		fmt.Println("  wrote", filepath.ToSlash(rel))
+	}
+	fmt.Println("Review the diff, and delete again any route you had dropped.")
+	return nil
 }
 
 func runRoutesList(cmd *cobra.Command, args []string) error {

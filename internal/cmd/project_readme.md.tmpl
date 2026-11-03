@@ -30,7 +30,7 @@ The operator console is at {{.Operator}}: sign in as `{{.OpEmail}}` / `{{.Passwo
 {{- end}}
 | `plat5.yml` | The deployment's config: settings, the `organization`, `project` and `environment` kinds, the roles, rate limits{{if .Web}}, the console's origin under `cors`{{end}}, and the service files. `plat5 start` applies it; `plat5 apply` applies it to any deployment |
 | `services/{{.Service}}.yml` | Your API's service file: its url and its routes, by scope |
-| `services/identity.yml`, `services/audit.yml` | Identity's and audit's service files, at their default resources |
+| `services/identity.yml`, `services/audit.yml` | Identity's and audit's service files: their routes for each kind, from `plat5 routes generate`. Drop a route by deleting it. After adding or removing a kind, or changing a kind's `path` or `list_permission`, run `plat5 routes generate`, review the diff, and delete again what you had dropped |
 | `plat5.dev.yml` | How `plat5 start` runs the project on your machine: image versions, modules, your apps |
 | `docker-compose.yml` | Runs your apps: it includes each folder's own compose file |
 | `operator.routes.yml` | The operator gateway's route list: what operators may call, with your API's paths from the starter. `plat5 start`'s operator gateway mounts it |

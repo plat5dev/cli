@@ -7,8 +7,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/plat5dev/cli/internal/controlplane"
 )
@@ -44,7 +47,8 @@ func routesConfig(t *testing.T) string {
 	plat5 := `kinds: { organization: { path: "/orgs/{organization}", list_permission: organization:read } }
 roles: { admin: { permissions: ["*"], bindable_at: [organization] } }
 creator_role: admin
-rate_limits: { default: { requests: 60, window_seconds: 60 } }
+rate_limits: { standard: { requests: 60, window_seconds: 60 } }
+defaults: { rate_limit: [standard] }
 services: [services/e10s.yml]
 `
 	e10s := "e10s:\n  url: http://e10s:3000\n  scopes:\n    public:\n      routes:\n        - { path: /health, methods: [GET] }\n"
@@ -79,10 +83,10 @@ func TestRoutesListPrintsTheDryRunsRoutes(t *testing.T) {
 	sent := dryRunServer(t, http.StatusOK, `{"revision": 3, "summary": {"add": 0, "change": 0, "remove": 0, "blocked": 0}, "changes": [],
 		"services": {
 			"e10s": {"url": "http://e10s:3000", "timeouts": {"connect": "10s", "read": "30s"}, "max_body_bytes": 10485760, "routes": [
-				{"path": "/health", "method": "GET", "scope": "public", "upstream": "/health", "required_permissions": null, "rate_limit": ["default"], "audit": false, "allow_deleted": false}
+				{"path": "/health", "method": "GET", "scope": "public", "upstream": "/health", "required_permissions": null, "rate_limit": ["standard"], "audit": false, "allow_deleted": false}
 			]},
 			"identity": {"url": "http://identity:3000", "timeouts": {"connect": "10s", "read": "30s"}, "max_body_bytes": 10485760, "routes": [
-				{"path": "/orgs/{organization}/members", "method": "GET", "scope": "organization", "upstream": "/nodes/{organization.id}/members", "required_permissions": "any_member", "rate_limit": ["default"], "audit": false, "allow_deleted": false}
+				{"path": "/orgs/{organization}/members", "method": "GET", "scope": "organization", "upstream": "/nodes/{organization.id}/members", "required_permissions": "any_member", "rate_limit": ["standard"], "audit": false, "allow_deleted": false}
 			]}
 		}}`)
 	path := routesConfig(t)
@@ -146,5 +150,119 @@ func TestFixtureFeedServicesDecode(t *testing.T) {
 		if len(services) == 0 {
 			t.Errorf("%s: no services", f)
 		}
+	}
+}
+
+// init's identity and audit files are routes generate's for init's plat5.yml,
+// less the routes init drops: service accounts on a project; invites and POST
+// on bindings on an environment. Comments aside, they're the same YAML.
+func TestInitServiceFilesAreGenerated(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "plat5.yml"), mustInitFile(t, "initfiles/plat5.yml"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	captureStdout(t, func() {
+		if err := runRoutesGenerate(routesGenerateCmd, []string{filepath.Join(dir, "plat5.yml")}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	parse := func(data []byte) map[string]any {
+		var v map[string]any
+		if err := yaml.Unmarshal(data, &v); err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	for _, svc := range []string{"identity", "audit"} {
+		generated, _ := os.ReadFile(filepath.Join(dir, "services", svc+".yml"))
+		want := parse(generated)
+		if svc == "identity" {
+			scopes := want["identity"].(map[string]any)["scopes"].(map[string]any)
+			dropRoutes(scopes["project"], func(path string) bool { return strings.HasPrefix(path, "/service-accounts") })
+			dropRoutes(scopes["environment"], func(path string) bool { return strings.HasPrefix(path, "/invites") })
+			for _, r := range scopes["environment"].(map[string]any)["routes"].([]any) {
+				if r := r.(map[string]any); r["path"] == "/bindings" {
+					delete(r["methods"].(map[string]any), "POST")
+				}
+			}
+		}
+		got := parse(mustInitFile(t, "initfiles/services/"+svc+".yml"))
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("initfiles/services/%s.yml isn't plat5 routes generate's output less init's drops:\ngot  %v\nwant %v", svc, got, want)
+		}
+	}
+}
+
+func dropRoutes(scope any, drop func(path string) bool) {
+	s := scope.(map[string]any)
+	var kept []any
+	for _, r := range s["routes"].([]any) {
+		if !drop(r.(map[string]any)["path"].(string)) {
+			kept = append(kept, r)
+		}
+	}
+	s["routes"] = kept
+}
+
+// routes generate writes both files beside plat5.yml, keeps an existing
+// file's url, timeouts and max_body_bytes, writes the same bytes each run, and
+// the config it makes passes the schema.
+func TestRoutesGenerate(t *testing.T) {
+	dir := t.TempDir()
+	plat5 := `kinds:
+  team: { path: "/teams/{team}" }
+  board: { parent: team, path: "/boards/{board}", list_permission: team:read }
+roles: { admin: { permissions: ["*"], bindable_at: [team, board] } }
+creator_role: admin
+rate_limits: { standard: { requests: 60, window_seconds: 60 } }
+defaults: { rate_limit: [standard] }
+services: [services/identity.yml, services/audit.yml]
+`
+	_ = os.WriteFile(filepath.Join(dir, "plat5.yml"), []byte(plat5), 0o644)
+	_ = os.MkdirAll(filepath.Join(dir, "services"), 0o755)
+	mine := "identity:\n  url: http://id:4000\n  timeouts: { read: 5s }\n  max_body_bytes: 1024\n  scopes: {}\n"
+	_ = os.WriteFile(filepath.Join(dir, "services", "identity.yml"), []byte(mine), 0o644)
+	gen := func() (string, string) {
+		out := captureStdout(t, func() {
+			if err := runRoutesGenerate(routesGenerateCmd, []string{filepath.Join(dir, "plat5.yml")}); err != nil {
+				t.Fatal(err)
+			}
+		})
+		if !strings.Contains(out, "wrote services/identity.yml") || !strings.Contains(out, "wrote services/audit.yml") {
+			t.Fatalf("out:\n%s", out)
+		}
+		a, _ := os.ReadFile(filepath.Join(dir, "services", "identity.yml"))
+		b, _ := os.ReadFile(filepath.Join(dir, "services", "audit.yml"))
+		return string(a), string(b)
+	}
+	id1, au1 := gen()
+	id2, au2 := gen()
+	if id1 != id2 || au1 != au2 {
+		t.Fatal("a second run wrote different files")
+	}
+	for _, want := range []string{
+		"# Identity's routes", "  url: http://id:4000\n  timeouts:\n    read: 5s\n  max_body_bytes: 1024\n",
+		"            POST: { required_permissions: [team:create] }",
+		"            GET: { required_permissions: [team:read] }",
+		"          upstream: /nodes/{team.id}/memberships/{member.id}",
+	} {
+		if !strings.Contains(id1, want) {
+			t.Errorf("identity.yml lacks %q:\n%s", want, id1)
+		}
+	}
+	if !strings.Contains(au1, "  url: http://audit:3002\n  scopes:\n") {
+		t.Errorf("audit.yml:\n%s", au1)
+	}
+	cfg, err := loadValid(filepath.Join(dir, "plat5.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Files["identity"] != "services/identity.yml" {
+		t.Fatalf("files %v", cfg.Files)
+	}
+
+	_ = os.WriteFile(filepath.Join(dir, "services", "audit.yml"), []byte("other: {}\n"), 0o644)
+	if err := runRoutesGenerate(routesGenerateCmd, []string{filepath.Join(dir, "plat5.yml")}); err == nil || !strings.Contains(err.Error(), "services/audit.yml") {
+		t.Fatalf("want a refusal naming services/audit.yml, got %v", err)
 	}
 }

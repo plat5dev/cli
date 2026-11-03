@@ -246,7 +246,8 @@ func TestExplainNamesTheFile(t *testing.T) {
 	plat5 := `kinds: { organization: { path: "/orgs/{organization}", list_permission: organization:read } }
 roles: { admin: { permissions: ["*"], bindable_at: [organization] } }
 creator_role: admin
-rate_limits: { default: { requests: 60, window_seconds: 60 } }
+rate_limits: { standard: { requests: 60, window_seconds: 60 } }
+defaults: { rate_limit: [standard] }
 services: [services/e10s.yml]
 `
 	e10s := "e10s:\n  url: http://e10s:3000\n  scopes:\n    team:\n      routes:\n        - { path: /h, methods: [GET] }\n"
@@ -280,10 +281,15 @@ func TestConfigPullWritesServiceFiles(t *testing.T) {
 		"kinds":        map[string]any{"organization": map[string]any{"path": "/orgs/{organization}", "list_permission": "organization:read"}},
 		"roles":        map[string]any{"admin": map[string]any{"permissions": []any{"*"}, "bindable_at": []any{"organization"}}},
 		"creator_role": "admin",
-		"rate_limits":  map[string]any{"default": map[string]any{"requests": 60, "window_seconds": 60}},
+		"rate_limits":  map[string]any{"standard": map[string]any{"requests": 60, "window_seconds": 60}},
+		"defaults":     map[string]any{"rate_limit": []any{"standard"}},
 		"services": map[string]any{
-			"identity": map[string]any{"url": "http://identity:3000"},
-			"audit":    map[string]any{"url": "http://audit:3002"},
+			"identity": map[string]any{"url": "http://identity:3000", "scopes": map[string]any{"user": map[string]any{"routes": []any{
+				map[string]any{"path": "/user", "upstream": "/users/{user.id}", "methods": []any{"GET"}},
+			}}}},
+			"audit": map[string]any{"url": "http://audit:3002", "scopes": map[string]any{"user": map[string]any{"routes": []any{
+				map[string]any{"path": "/user/audit-events", "upstream": "/users/{user.id}/audit-events", "methods": []any{"GET"}},
+			}}}},
 		},
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

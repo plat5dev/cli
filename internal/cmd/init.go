@@ -23,8 +23,10 @@ const noTemplate = "none"
 // defaultStarter is the starter the init prompt highlights first.
 const defaultStarter = "bun-effect-api"
 
-// initFiles is the config init writes: organization and project kinds, the
-// example roles, and identity's and audit's service files at their defaults.
+// initFiles is the config init writes: organization, project and environment
+// kinds, the example roles, and identity's and audit's service files: plat5
+// routes generate's output for these kinds, less the routes init drops
+// (TestInitServiceFilesAreGenerated).
 //
 //go:embed initfiles
 var initFiles embed.FS

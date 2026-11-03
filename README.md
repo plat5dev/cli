@@ -14,7 +14,7 @@ plat5 start             # Plat5 and its modules; applies the config; runs your a
 my-app/
   plat5.yml               the deployment's config: organization, project and environment kinds,
                           roles, the customer console's origin under cors, the service files
-  services/identity.yml   identity's service file: its url, and overrides of its resources
+  services/identity.yml   identity's service file: its routes for each kind, from plat5 routes generate
   services/audit.yml      audit's
   services/api.yml        your API's: its url and its routes, from the starter
   plat5.dev.yml           how plat5 start runs it on your machine
@@ -68,7 +68,7 @@ A busy port is an error naming it, never a silent move: stop what holds it, or p
 
 `start` prints its steps, and each image it has to pull, one per line. Docker compose's own pull, build, and container output goes to `start.log` in the stack dir; a failure prints its last lines and the path. `-v` / `--verbose` shows it all instead.
 
-Once the control plane is up, `start` applies `plat5.yml` as `plat5 apply` does ([plat5 `docs/reference/cli.md`](https://github.com/plat5dev/plat5/blob/master/docs/reference/cli.md#the-local-stack)). It applies without a prompt; a blocked plan (a kind removed, or its parent changed, while it has nodes) is printed and refused, and a gateway replica that refuses the new revision fails `start`. Apply checks the config's rules, as in any deployment: a permission a role grants that no route requires, and that is no kind's `list_permission`, is refused, so a typo in a role stops `start` here. A route permission no role grants is legal: only a `"*"` role holds it.
+Once the control plane is up, `start` applies `plat5.yml` as `plat5 apply` does ([plat5 `docs/reference/cli.md`](https://github.com/plat5dev/plat5/blob/master/docs/reference/cli.md#the-local-stack)). It applies without a prompt; a blocked plan (a kind removed, or its parent changed, while it has nodes) is printed and refused, and a gateway replica that refuses the new revision fails `start`. Apply checks the config's rules, as in any deployment. A role may grant any permission, and a route permission no role grants is legal: only a `"*"` role holds it.
 
 Then it makes sure there is something to call with, through identity's routes at the gateway like any client: the dev person (`dev@example.com`, signed in with a dev token from local Auth; `GET /user`), their name, "Dev Person" (`PATCH /user`, while they have none, since local Auth's tokens carry no name; a name already set stays; under `users.name.sync: each_sign_in` in `plat5.yml` only the IdP's token names a person, so the seed leaves the name alone and says nothing about it), a node named `Dev` of each root kind they own (found through `GET /user/nodes?kind=organization`, or made with `POST /orgs`; `/orgs/dev`), and one personal key (`POST /user/keys`), which acts as them in every tree. Every credential, token or key, is sent as `Authorization: Bearer`. It reuses them while the key works. A config without those routes gets a warning. Then it prints every link, login, and key; `plat5 status` prints them again.
 
@@ -114,10 +114,11 @@ Local Auth runs in dev mode: `POST /dev/token` mints a token for any email, and 
 | `plat5 plan [plat5.yml] [-out plan.json] [--detailed-exitcode]` | Dry run: the diff applying it would make |
 | `plat5 apply [plat5.yml \| plan.json] [--auto-approve]` | Plan, confirm, apply, or apply a saved plan; then wait up to 10s for the gateway's replicas to load it, and exit 1 if one refused it |
 | `plat5 routes list [plat5.yml]` | Every service's expanded routes, identity's and audit's included: method, public path, scope, upstream, permissions. A dry run: the routes the control plane expanded |
+| `plat5 routes generate [plat5.yml]` | Write identity's and audit's routes for every kind into `services/identity.yml` and `services/audit.yml`, overwriting them but keeping their `url`, `timeouts` and `max_body_bytes`. Offline. Run it after adding or removing a kind, or changing a kind's `path` or `list_permission`; review the diff, and delete again any route you had dropped |
 | `plat5 config pull [--revision n] [dir]` | Write an applied revision as `plat5.yml` and `services/<service>.yml` |
 | `plat5 version` / `--version` | The CLI version, and the image versions `plat5.dev.yml` pins |
 
-`validate`, `plan`, `apply`, `routes list` and `config pull` work on a deployment's config: `plat5.yml` and the service files it lists ([plat5 `docs/reference/cli.md`](https://github.com/plat5dev/plat5/blob/master/docs/reference/cli.md)). `validate` is offline; the others talk to the local control plane (`http://localhost:5402`, `dev-admin-token`) unless `--control-plane-url` / `--admin-token` (or `PLAT5_CONTROL_PLANE_URL` / `PLAT5_ADMIN_TOKEN`) point elsewhere.
+`validate`, `plan`, `apply`, `routes list`, `routes generate` and `config pull` work on a deployment's config: `plat5.yml` and the service files it lists ([plat5 `docs/reference/cli.md`](https://github.com/plat5dev/plat5/blob/master/docs/reference/cli.md)). `validate` and `routes generate` are offline; the others talk to the local control plane (`http://localhost:5402`, `dev-admin-token`) unless `--control-plane-url` / `--admin-token` (or `PLAT5_CONTROL_PLANE_URL` / `PLAT5_ADMIN_TOKEN`) point elsewhere.
 
 ## `plat5.dev.yml`
 
@@ -248,7 +249,7 @@ plat5 init my-app --templates-dir .. --template go-fiber-api -y
 
 The embedded compose files (`internal/bundle/stack`) track plat5 HEAD, so a `plat5` checkout at HEAD runs as it will ship. For hot reload of one service, use that repo's own dev compose.
 
-Two copies track plat5 too: the config schema (`internal/schema`, plat5's `schema/`, for offline `validate`) and the files `init` writes (`internal/cmd/initfiles`, which load into the config plat5's e2e applies, `e2e/testdata/config.json`). Two track operator: its shipped route list (`internal/cmd/operatorfiles/routes.yml`, operator's `routes.yml`), which `operator.routes.yml` starts from, and the operator module's compose file (`internal/bundle/stack/operator.yml`), whose env is operator's `compose/docker-compose.yml`'s. Their tests compare them with a `plat5` and an `operator` checkout beside the CLI, and skip without one. So do the tests that init a project from each first-party template checkout beside the CLI.
+Two copies track plat5 too: the config schema (`internal/schema`, plat5's `schema/`, for offline `validate`) and the files `init` writes (`internal/cmd/initfiles`, which load into the config plat5's e2e applies, `e2e/testdata/config.json`). Init's `services/identity.yml` and `services/audit.yml` are `plat5 routes generate`'s output for init's `plat5.yml`, less the routes init drops, with comments where they were; a test checks them against the generator, so regenerate and drop again after changing init's kinds. Two track operator: its shipped route list (`internal/cmd/operatorfiles/routes.yml`, operator's `routes.yml`), which `operator.routes.yml` starts from, and the operator module's compose file (`internal/bundle/stack/operator.yml`), whose env is operator's `compose/docker-compose.yml`'s. Their tests compare them with a `plat5` and an `operator` checkout beside the CLI, and skip without one. So do the tests that init a project from each first-party template checkout beside the CLI.
 
 ## State
 

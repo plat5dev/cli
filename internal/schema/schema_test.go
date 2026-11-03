@@ -18,8 +18,9 @@ func sample() map[string]any {
 		},
 		"creator_role": "admin",
 		"rate_limits": map[string]any{
-			"default": map[string]any{"requests": 60, "window_seconds": 60},
+			"standard": map[string]any{"requests": 60, "window_seconds": 60},
 		},
+		"defaults": map[string]any{"rate_limit": []any{"standard"}},
 		"services": map[string]any{
 			"e10s": map[string]any{
 				"url": "http://e10s:3000",
@@ -44,17 +45,46 @@ func TestErrorsNameFieldPaths(t *testing.T) {
 	}
 }
 
-// The default policy is required.
-func TestDefaultPolicy(t *testing.T) {
+// defaults.rate_limit is required, and no policy name is: default is ordinary.
+func TestDefaultsRateLimit(t *testing.T) {
 	c := sample()
 	c["services"] = map[string]any{}
-	c["rate_limits"] = map[string]any{}
-	errs, err := ValidateConfig(c)
-	if err != nil {
-		t.Fatal(err)
+	c["rate_limits"] = map[string]any{"default": map[string]any{"requests": 1, "window_seconds": 1}}
+	c["defaults"] = map[string]any{"rate_limit": []any{"default"}}
+	if errs, _ := ValidateConfig(c); len(errs) != 0 {
+		t.Fatalf("got %v", errs)
 	}
-	if len(errs) != 1 || errs[0].Path != "rate_limits" {
-		t.Errorf("got %v", errs)
+	for _, defaults := range []any{
+		nil,
+		map[string]any{},
+		map[string]any{"rate_limit": []any{}},
+		map[string]any{"rate_limit": []any{"a", "a"}},
+		map[string]any{"rate_limit": false},
+	} {
+		if defaults == nil {
+			delete(c, "defaults")
+		} else {
+			c["defaults"] = defaults
+		}
+		if errs, _ := ValidateConfig(c); len(errs) == 0 {
+			t.Errorf("defaults %v: accepted", defaults)
+		}
+	}
+}
+
+// What the config held before identity and audit were ordinary services is
+// unknown now: permission_name, and resources in identity's file.
+func TestNoResourcesOrPermissionName(t *testing.T) {
+	c := sample()
+	c["kinds"].(map[string]any)["organization"].(map[string]any)["permission_name"] = "org"
+	c["services"] = map[string]any{"identity": map[string]any{"url": "http://identity:3000", "resources": map[string]any{}}}
+	errs, _ := ValidateConfig(c)
+	paths := map[string]bool{}
+	for _, e := range errs {
+		paths[e.Path] = true
+	}
+	if !paths["kinds.organization"] || !paths["services.identity"] {
+		t.Fatalf("got %v", errs)
 	}
 }
 

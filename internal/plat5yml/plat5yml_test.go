@@ -16,7 +16,9 @@ roles:
   admin: { permissions: ["*"], bindable_at: [organization] }
 creator_role: admin
 rate_limits:
-  default: { requests: 60, window_seconds: 60 }
+  standard: { requests: 60, window_seconds: 60 }
+defaults:
+  rate_limit: [standard]
 services:
   - services/e10s.yml
   - services/api.billing.yml
