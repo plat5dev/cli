@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -16,8 +18,14 @@ import (
 const SchemaVersion = "0.9.0"
 
 // CLIVersion is the running CLI's version (cmd sets it). "dev", or anything
-// that isn't X.Y.Z, skips the cli: check.
+// that isn't X.Y.Z, is a dev build: it passes every cli: floor and says so once
+// on Notices.
 var CLIVersion = "dev"
+
+// Notices is where the dev build's one line goes.
+var Notices io.Writer = os.Stderr
+
+var devNoticeSaid bool
 
 // UpgradeHint is how to get a newer CLI.
 const UpgradeHint = "brew upgrade plat5, or curl -fsSL https://plat5.com/install.sh | sh"
@@ -61,6 +69,10 @@ func checkCLI(data []byte) error {
 	}
 	have, ok := parseSemver(CLIVersion)
 	if !ok {
+		if !devNoticeSaid {
+			devNoticeSaid = true
+			fmt.Fprintf(Notices, "plat5: a dev build (no release version), so plat5.dev.yml's cli: %s is not checked\n", req)
+		}
 		return nil
 	}
 	if semverLess(have, min) {

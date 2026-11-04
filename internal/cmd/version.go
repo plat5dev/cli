@@ -2,12 +2,15 @@ package cmd
 
 import (
 	"fmt"
+	"regexp"
 	"runtime/debug"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
 
-// Version is set via -ldflags at release build time.
+// Version is set via -ldflags at release build time. Unset, the build is a dev
+// build, unless go install stamped a release's module version.
 var Version = "dev"
 
 var versionCmd = &cobra.Command{
@@ -32,13 +35,24 @@ var versionCmd = &cobra.Command{
 	},
 }
 
-// cliVersion is the release version, or the module version of a go install.
+// cliVersion is the release version: the -ldflags one, or the module version of
+// a go install of a release. Anything else is "dev": a go build from a checkout
+// stamps a pseudo-version (or one marked +dirty), which names no release.
 func cliVersion() string {
-	v := Version
-	if v == "dev" {
-		if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
-			v = info.Main.Version
-		}
+	if Version != "dev" {
+		return Version
 	}
-	return v
+	if info, ok := debug.ReadBuildInfo(); ok && isRelease(info.Main.Version) {
+		return info.Main.Version
+	}
+	return "dev"
+}
+
+// pseudoRE matches the timestamp and commit that end a pseudo-version.
+var pseudoRE = regexp.MustCompile(`\d{14}-[0-9a-f]{12}$`)
+
+// isRelease is whether a module version names a tagged release: vX.Y.Z…, no
+// pseudo-version, no +dirty.
+func isRelease(v string) bool {
+	return strings.HasPrefix(v, "v") && !strings.Contains(v, "+") && !pseudoRE.MatchString(v)
 }

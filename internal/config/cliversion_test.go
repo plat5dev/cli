@@ -1,15 +1,18 @@
 package config
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 )
 
-func withCLI(t *testing.T, v string) {
+func withCLI(t *testing.T, v string) *bytes.Buffer {
 	t.Helper()
-	old := CLIVersion
-	CLIVersion = v
-	t.Cleanup(func() { CLIVersion = old })
+	old, oldOut := CLIVersion, Notices
+	var out bytes.Buffer
+	CLIVersion, Notices, devNoticeSaid = v, &out, false
+	t.Cleanup(func() { CLIVersion, Notices, devNoticeSaid = old, oldOut, false })
+	return &out
 }
 
 func TestCLIRequirement(t *testing.T) {
@@ -32,6 +35,28 @@ func TestCLIRequirement(t *testing.T) {
 		case c.err != "" && (err == nil || !strings.Contains(err.Error(), c.err)):
 			t.Errorf("%s: got %v, want %q", c.version, err, c.err)
 		}
+	}
+}
+
+// A dev build passes any floor and says so in one line, once; a release says
+// nothing.
+func TestDevBuildPassesFloors(t *testing.T) {
+	out := withCLI(t, "dev")
+	for range 2 {
+		if _, err := Parse([]byte("cli: \">=99.0.0\"\nproject_id: demo\n")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := out.String(); got != "plat5: a dev build (no release version), so plat5.dev.yml's cli: >=99.0.0 is not checked\n" {
+		t.Fatalf("got %q", got)
+	}
+	out = withCLI(t, "dev")
+	if _, err := Parse([]byte("project_id: demo\n")); err != nil || out.Len() != 0 {
+		t.Fatalf("no cli: key, yet %q %v", out.String(), err)
+	}
+	out = withCLI(t, "0.9.0")
+	if _, err := Parse([]byte("cli: \">=0.9.0\"\nproject_id: demo\n")); err != nil || out.Len() != 0 {
+		t.Fatalf("a release, yet %q %v", out.String(), err)
 	}
 }
 
