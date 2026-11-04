@@ -21,7 +21,7 @@ import (
 
 const (
 	DefaultAdminToken  = "dev-admin-token"
-	DefaultAPIKeyBrand = "plat5"
+	DefaultSecretBrand = "plat5"
 	// DefaultAuthClient is Plat5 Auth's default client, and so the gateway's audience.
 	DefaultAuthClient = "plat5"
 )
@@ -77,7 +77,7 @@ const (
 	ConfigFileName = "plat5.yml"
 )
 
-const maxAPIKeyBrandLen = 32
+const maxSecretBrandLen = 32
 
 var projectIDSanitizer = regexp.MustCompile(`[^a-zA-Z0-9_-]+`)
 
@@ -91,7 +91,7 @@ type File struct {
 	App         AppBlock          `yaml:"app"`
 	Ports       map[string]int    `yaml:"ports"`
 	AdminToken  string            `yaml:"admin_token"`
-	APIKeyBrand string            `yaml:"apikey_brand"`
+	SecretBrand string            `yaml:"secret_brand"`
 	Auth        AuthBlock         `yaml:"auth"`
 	IdP         IdPBlock          `yaml:"idp"`
 	Otel        OtelBlock         `yaml:"otel"`
@@ -171,7 +171,7 @@ type Resolved struct {
 
 	AdminToken      string
 	ControlPlaneURL string
-	APIKeyBrand     string
+	SecretBrand     string
 
 	Auth         AuthBlock
 	IdP          IdPBlock
@@ -314,7 +314,7 @@ func Resolve(f *File, path string, o Overrides) (Resolved, error) {
 	}
 
 	var err error
-	if r.APIKeyBrand, err = parseAPIKeyBrand(firstNonEmpty(f.APIKeyBrand, DefaultAPIKeyBrand)); err != nil {
+	if r.SecretBrand, err = parseSecretBrand(firstNonEmpty(f.SecretBrand, DefaultSecretBrand)); err != nil {
 		return Resolved{}, err
 	}
 
@@ -526,16 +526,16 @@ func resolveAgainst(base, p string) string {
 	return filepath.Clean(filepath.Join(base, p))
 }
 
-func parseAPIKeyBrand(raw string) (string, error) {
+func parseSecretBrand(raw string) (string, error) {
 	s := strings.TrimSpace(raw)
-	if len(s) > maxAPIKeyBrandLen {
-		return "", fmt.Errorf("apikey_brand longer than %d characters", maxAPIKeyBrandLen)
+	if len(s) > maxSecretBrandLen {
+		return "", fmt.Errorf("secret_brand longer than %d characters", maxSecretBrandLen)
 	}
 	for i, c := range s {
 		letter := c >= 'a' && c <= 'z'
 		digit := i > 0 && c >= '0' && c <= '9'
 		if !letter && !digit {
-			return "", fmt.Errorf("apikey_brand must be [a-z][a-z0-9]*, max %d", maxAPIKeyBrandLen)
+			return "", fmt.Errorf("secret_brand must be [a-z][a-z0-9]*, max %d", maxSecretBrandLen)
 		}
 	}
 	return s, nil

@@ -53,13 +53,13 @@ func (f *fake) handler() http.Handler {
 		switch route {
 		case "GET /user":
 			if f.failUser {
-				write(503, map[string]any{"error": map[string]string{"code": "UNAVAILABLE"}})
+				write(503, map[string]any{"error": map[string]string{"code": "SERVICE_UNAVAILABLE"}})
 				return
 			}
 			write(200, map[string]any{"id": "01jbx9q3t5vk8m2n4p6r7s8t9w", "name": f.name, "status": "active"})
 		case "PATCH /user":
 			if f.ownsName {
-				write(409, map[string]any{"error": map[string]string{"code": "CONFLICT"}})
+				write(409, map[string]any{"error": map[string]string{"code": "NAME_OWNED_BY_IDP"}})
 				return
 			}
 			var body map[string]any

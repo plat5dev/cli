@@ -209,13 +209,13 @@ func TestOverrides(t *testing.T) {
 	}
 }
 
-func TestAPIKeyBrand(t *testing.T) {
+func TestSecretBrand(t *testing.T) {
 	for _, bad := range []string{"Plat5", "9lives", "a-b"} {
-		if _, err := parseAPIKeyBrand(bad); err == nil {
+		if _, err := parseSecretBrand(bad); err == nil {
 			t.Errorf("%q should be rejected", bad)
 		}
 	}
-	if b, err := parseAPIKeyBrand("acme2"); err != nil || b != "acme2" {
+	if b, err := parseSecretBrand("acme2"); err != nil || b != "acme2" {
 		t.Fatalf("%q %v", b, err)
 	}
 }

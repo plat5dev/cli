@@ -196,7 +196,7 @@ func (s *Stack) Env() []string {
 	c := s.Config
 	env := map[string]string{
 		"ADMIN_TOKEN":                 c.AdminToken,
-		"APIKEY_BRAND":                c.APIKeyBrand,
+		"SECRET_BRAND":                c.SecretBrand,
 		"OTEL_EXPORTER_OTLP_ENDPOINT": s.OtelEndpoint(),
 
 		"AUTH_DISPLAY_NAME": s.authTitle(),

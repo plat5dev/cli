@@ -483,7 +483,7 @@ func renderDevYML(projectID string, ch initChoices, versions map[string]string, 
 #   gateway: 5400        #   grafana 5403, otlp_grpc 4317, otlp_http 4318, operator 5410,
 #                        #   operator_auth 5411)
 # admin_token: dev-admin-token
-# apikey_brand: plat5    # keys are {brand}-k-2-…
+# secret_brand: plat5    # API keys {brand}-k-2-…, invite tokens {brand}-i-1-…
 # auth:                  # local Auth, beyond app.web
 #   clients: [plat5]
 #   origins: []

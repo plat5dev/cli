@@ -162,7 +162,7 @@ ports:                             # host ports; these are the defaults
   operator: 5410
   operator_auth: 5411
 admin_token: dev-admin-token       # local only
-apikey_brand: plat5                # keys are {brand}-k-2-…
+secret_brand: plat5                # API keys are {brand}-k-2-…, invite tokens {brand}-i-1-…
 auth:                              # local Auth, beyond app.web
   clients: [plat5]                 # also the gateway's audiences (Plat5 Auth's aud is the client id)
   origins: []                      # each also allows <origin>/callback
