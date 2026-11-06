@@ -25,7 +25,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	st, err := state.Load(cfg.ProjectID)
+	st, err := loadOwned(cfg)
 	if err != nil {
 		return err
 	}

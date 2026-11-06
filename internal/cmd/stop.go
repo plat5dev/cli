@@ -18,15 +18,15 @@ var stopCmd = &cobra.Command{
 }
 
 func runStop(cmd *cobra.Command, args []string) error {
-	if err := compose.DockerAvailable(); err != nil {
-		return err
-	}
 	cfg, err := loadConfig()
 	if err != nil {
 		return err
 	}
-	st, err := state.Load(cfg.ProjectID)
+	st, err := loadOwned(cfg)
 	if err != nil {
+		return err
+	}
+	if err := compose.DockerAvailable(); err != nil {
 		return err
 	}
 	stk, err := stack.New(cfg, nil)

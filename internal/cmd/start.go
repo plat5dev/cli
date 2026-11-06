@@ -68,11 +68,15 @@ func init() {
 }
 
 func runStart(cmd *cobra.Command, args []string) error {
-	if err := compose.DockerAvailable(); err != nil {
-		return err
-	}
 	cfg, err := loadConfig()
 	if err != nil {
+		return err
+	}
+	prev, err := loadOwned(cfg)
+	if err != nil {
+		return err
+	}
+	if err := compose.DockerAvailable(); err != nil {
 		return err
 	}
 	// Offline first: a config that can't apply stops start before Docker does anything.
@@ -114,8 +118,8 @@ func runStart(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	prev, err := state.Load(cfg.ProjectID)
-	if err != nil {
+	// The first start from a folder owns the project id from here on.
+	if err := claimOwner(&prev, cfg.Dir); err != nil {
 		return err
 	}
 	// -x app: you run the app yourself, so the last start's app containers go,
@@ -181,7 +185,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return out.failed(err, "plat5 logs")
 	}
 
-	st := state.State{ProjectID: cfg.ProjectID, Path: cfg.Path, Modules: stk.Modules, StartedAt: time.Now().UTC()}
+	st := state.State{ProjectID: cfg.ProjectID, Owner: prev.Owner, Modules: stk.Modules, StartedAt: time.Now().UTC()}
 
 	if stk.Has(config.ModuleAuth) {
 		dev, err := devseed.Ensure(devseed.Client{

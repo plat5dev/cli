@@ -127,7 +127,7 @@ How `plat5 start` runs the project on your machine. A deployment never reads it,
 `cli:` is the oldest CLI that reads the file. `plat5 init` writes the version that introduced the newest key it uses (`internal/config.SchemaVersion`), not its own version, and every command checks it first: an older CLI says the project needs a newer one and how to upgrade, instead of failing on a key. Raise `SchemaVersion` in a release that adds a key. A dev build, one built without a release version (`go build` from a checkout), passes every floor and says so in one line: `plat5: a dev build (no release version), so plat5.dev.yml's cli: >=0.9.0 is not checked`.
 
 ```yaml
-project_id: my-app                 # default: the directory name
+project_id: my-app                 # default: the directory name; one folder per id, see State
 cli: ">=0.9.0"                     # the oldest plat5 CLI that reads this file
 
 versions:                          # image tags; plat5 init writes the latest of each
@@ -249,4 +249,10 @@ Two copies track plat5 too: the config schema (`internal/schema`, plat5's `schem
 
 ## State
 
-`$XDG_STATE_HOME/plat5/projects/<project_id>/` (default `~/.local/state/plat5/…`, on macOS too): `state.json` (what the last start ran, and the dev keys; mode 0600) and `stack/` (the compose files, the generated override, and the sign-in themes, the operator IdP's included).
+`$XDG_STATE_HOME/plat5/projects/<project_id>/` (default `~/.local/state/plat5/…`, on macOS too): `state.json` (the folder that owns the project id, what the last start ran, and the dev keys; mode 0600) and `stack/` (the compose files, the generated override, and the sign-in themes, the operator IdP's included).
+
+One folder per project id: the id names the compose project, its volumes and this state, so a second folder with the same id would take over the first one's stack. `state.json` records the owning folder (absolute, symlinks resolved), the first one to `plat5 start` the id, and `start`, `stop`, `reset`, `status`, `logs` and `init` from any other folder refuse, naming both folders; `doctor` reports it as a failed check. A state with no folder recorded is the next `start`'s. To run both, give one its own id in its `plat5.dev.yml`:
+
+```yaml
+project_id: b-work
+```

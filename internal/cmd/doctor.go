@@ -42,6 +42,11 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		return doctorExit(failed)
 	}
 	check(config.FileName+" "+cfg.Path, nil)
+	if _, err := loadOwned(cfg); err != nil {
+		check("project_id "+cfg.ProjectID, err)
+	} else {
+		check("project_id "+cfg.ProjectID+": this folder's", nil)
+	}
 
 	stk, err := stack.New(cfg, nil)
 	if err != nil {

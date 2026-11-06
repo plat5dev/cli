@@ -4,7 +4,6 @@ import (
 	"github.com/plat5dev/cli/internal/compose"
 	"github.com/plat5dev/cli/internal/prompt"
 	"github.com/plat5dev/cli/internal/stack"
-	"github.com/plat5dev/cli/internal/state"
 	"github.com/spf13/cobra"
 )
 
@@ -30,9 +29,6 @@ func init() {
 }
 
 func runLogs(cmd *cobra.Command, args []string) error {
-	if err := compose.DockerAvailable(); err != nil {
-		return err
-	}
 	if !cmd.Flags().Changed("follow") {
 		logsFollow = prompt.StdoutTerminal()
 	}
@@ -40,8 +36,11 @@ func runLogs(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	st, err := state.Load(cfg.ProjectID)
+	st, err := loadOwned(cfg)
 	if err != nil {
+		return err
+	}
+	if err := compose.DockerAvailable(); err != nil {
 		return err
 	}
 	var exclude []string

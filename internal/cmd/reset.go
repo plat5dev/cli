@@ -37,6 +37,10 @@ func runReset(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	st, err := loadOwned(cfg)
+	if err != nil {
+		return err
+	}
 	if !resetYes {
 		if !prompt.Interactive() {
 			return errors.New("reset deletes the project's data: pass -y to confirm")
@@ -55,10 +59,6 @@ func runReset(cmd *cobra.Command, args []string) error {
 		}
 	}
 	if err := compose.DockerAvailable(); err != nil {
-		return err
-	}
-	st, err := state.Load(cfg.ProjectID)
-	if err != nil {
 		return err
 	}
 	stk, err := stack.New(cfg, nil)

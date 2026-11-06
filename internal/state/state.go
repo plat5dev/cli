@@ -16,8 +16,10 @@ import (
 // State records what plat5 start did for one project.
 type State struct {
 	ProjectID string `json:"project_id"`
-	// Path is the project's plat5.dev.yml.
-	Path string `json:"path,omitempty"`
+	// Owner is the project folder (plat5.dev.yml's directory) that owns the
+	// project id: absolute, symlinks resolved. The first start records it;
+	// commands from any other folder refuse. Empty: no folder yet.
+	Owner string `json:"owner,omitempty"`
 	// Modules is the modules the last start ran (core is implied).
 	Modules []string `json:"modules,omitempty"`
 	// AppCompose is the app compose file the last start ran. Empty: none.

@@ -121,9 +121,6 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if err := os.MkdirAll(ch.dir, 0o755); err != nil {
-		return err
-	}
 	devPath := filepath.Join(ch.dir, config.FileName)
 	if _, err := os.Stat(devPath); err == nil && !initForce {
 		return fmt.Errorf("%s already exists (--force to overwrite it)", devPath)
@@ -131,6 +128,12 @@ func runInit(cmd *cobra.Command, args []string) error {
 	projectID := config.SanitizeProjectID(filepath.Base(ch.dir))
 	if projectID == "" {
 		return fmt.Errorf("can't make a project id from %q", filepath.Base(ch.dir))
+	}
+	if _, err := guardOwner(projectID, ch.dir, true); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(ch.dir, 0o755); err != nil {
+		return err
 	}
 
 	versions, err := resolveVersions(ch)
