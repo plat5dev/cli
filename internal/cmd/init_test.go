@@ -45,7 +45,7 @@ func TestRenderedDevYMLResolves(t *testing.T) {
 		if r.OperatorRoutes != filepath.Clean("/proj/operator.routes.yml") || r.OperatorConsole != "" {
 			t.Fatalf("%s: operator: %q %q", name, r.OperatorRoutes, r.OperatorConsole)
 		}
-		if !strings.Contains(yml, `cli: ">=0.9.0"`) {
+		if !strings.Contains(yml, `cli: ">=0.13.0"`) {
 			t.Fatalf("%s: cli floor:\n%s", name, yml)
 		}
 	}

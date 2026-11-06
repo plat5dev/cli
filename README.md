@@ -124,11 +124,11 @@ Local Auth runs in dev mode: `POST /dev/token` mints a token for any email, and 
 
 How `plat5 start` runs the project on your machine. A deployment never reads it, and it holds nothing that's in `plat5.yml`. Found by walking up from the working directory; `plat5.yml` is the file beside it. Relative paths resolve against its directory. Unknown keys are errors, with a hint that a newer CLI may know them.
 
-`cli:` is the oldest CLI that reads the file. `plat5 init` writes the version that introduced the newest key it uses (`internal/config.SchemaVersion`), not its own version, and every command checks it first: an older CLI says the project needs a newer one and how to upgrade, instead of failing on a key. Raise `SchemaVersion` in a release that adds a key. A dev build, one built without a release version (`go build` from a checkout), passes every floor and says so in one line: `plat5: a dev build (no release version), so plat5.dev.yml's cli: >=0.9.0 is not checked`.
+`cli:` is the oldest CLI that reads the file. `plat5 init` writes the version that introduced the newest key it uses (`internal/config.SchemaVersion`), not its own version, and every command checks it first: an older CLI says the project needs a newer one and how to upgrade, instead of failing on a key. Raise `SchemaVersion` in a release that adds a key. A dev build, one built without a release version (`go build` from a checkout), passes every floor and says so in one line: `plat5: a dev build (no release version), so plat5.dev.yml's cli: >=0.13.0 is not checked`.
 
 ```yaml
 project_id: my-app                 # plat5 init --project-id, else the directory name; one folder per id, see State
-cli: ">=0.9.0"                     # the oldest plat5 CLI that reads this file
+cli: ">=0.13.0"                    # the oldest plat5 CLI that reads this file
 
 versions:                          # image tags; plat5 init writes the latest of each
   plat5: v0.9.0
