@@ -176,32 +176,11 @@ func TestInitServiceFilesAreGenerated(t *testing.T) {
 	for _, svc := range []string{"identity", "audit"} {
 		generated, _ := os.ReadFile(filepath.Join(dir, "services", svc+".yml"))
 		want := parse(generated)
-		if svc == "identity" {
-			scopes := want["identity"].(map[string]any)["scopes"].(map[string]any)
-			dropRoutes(scopes["project"], func(path string) bool { return strings.HasPrefix(path, "/service-accounts") })
-			dropRoutes(scopes["environment"], func(path string) bool { return strings.HasPrefix(path, "/invites") })
-			for _, r := range scopes["environment"].(map[string]any)["routes"].([]any) {
-				if r := r.(map[string]any); r["path"] == "/bindings" {
-					delete(r["methods"].(map[string]any), "POST")
-				}
-			}
-		}
 		got := parse(mustInitFile(t, "initfiles/services/"+svc+".yml"))
 		if !reflect.DeepEqual(got, want) {
-			t.Errorf("initfiles/services/%s.yml isn't plat5 routes generate's output less init's drops:\ngot  %v\nwant %v", svc, got, want)
+			t.Errorf("initfiles/services/%s.yml isn't plat5 routes generate's output:\ngot  %v\nwant %v", svc, got, want)
 		}
 	}
-}
-
-func dropRoutes(scope any, drop func(path string) bool) {
-	s := scope.(map[string]any)
-	var kept []any
-	for _, r := range s["routes"].([]any) {
-		if !drop(r.(map[string]any)["path"].(string)) {
-			kept = append(kept, r)
-		}
-	}
-	s["routes"] = kept
 }
 
 // routes generate writes both files beside plat5.yml, keeps an existing

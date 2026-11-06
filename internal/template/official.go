@@ -2,9 +2,9 @@ package template
 
 // Official is the first-party API starters, in the order plat5 init offers them.
 var Official = []OfficialTemplate{
-	{Name: "go-fiber-api", Description: "Go + Fiber reference API (tasks inside a project, and the person's profile)"},
-	{Name: "node-fastify-api", Description: "Node + Fastify + TypeBox reference API (tasks inside a project, and the person's profile)"},
-	{Name: "bun-effect-api", Description: "Bun + Effect reference API (tasks inside a project, and the person's profile)"},
+	{Name: "go-fiber-api", Description: "Go + Fiber reference API"},
+	{Name: "node-fastify-api", Description: "Node + Fastify + TypeBox reference API"},
+	{Name: "bun-effect-api", Description: "Bun + Effect reference API"},
 }
 
 // CustomerConsole is the first-party customer console plat5 init adds beside an

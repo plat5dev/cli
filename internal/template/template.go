@@ -34,9 +34,10 @@ type Manifest struct {
 	Name        string `yaml:"name"`
 	Kind        string `yaml:"kind"`
 	Description string `yaml:"description"`
-	// Service is an API starter's service file, relative to its root. plat5 init
-	// writes it to the project's services/ and lists it in plat5.yml.
-	Service string `yaml:"service"`
+	// Config is an API starter's plat5.yml, relative to its root: the project's
+	// config. plat5 init copies it and the service files it lists, adding only
+	// the customer console's origin.
+	Config string `yaml:"config"`
 	// OperatorRoutes is an API starter's routes for an operator gateway: a
 	// services: block in operator's route format. plat5 init adds its services to
 	// operator.routes.yml.
@@ -81,7 +82,8 @@ func (t *Template) Close() {
 var noise = []string{".git", "node_modules", "dist", ".env", "*.local", ".DS_Store", "*.log"}
 
 // projectFiles are a template's own project, for running it alone, and its repo
-// setup, at its root. plat5 init writes the project's own instead.
+// setup, at its root. plat5 init doesn't copy them into the app's folder: an API
+// starter's config and service files go to the project's root instead.
 var projectFiles = []string{
 	ManifestName, "plat5.yml", "plat5.dev.yml", "services", ".github",
 	"data/*.db", "data/*.db-*",
@@ -124,8 +126,8 @@ func (t *Template) Check(want string) error {
 	}
 	switch want {
 	case KindAPI:
-		if m.Service == "" {
-			missing = append(missing, "service")
+		if m.Config == "" {
+			missing = append(missing, "config")
 		}
 	case KindCustomerConsole, KindOperatorConsole:
 		if m.App.Web == "" {
@@ -135,7 +137,7 @@ func (t *Template) Check(want string) error {
 	if len(missing) > 0 {
 		return fmt.Errorf("%s: %s needs %s", t.Origin, ManifestName, strings.Join(missing, ", "))
 	}
-	for _, p := range append([]string{m.App.Compose, m.Service, m.OperatorRoutes}, m.Substitute...) {
+	for _, p := range append([]string{m.App.Compose, m.Config, m.OperatorRoutes}, m.Substitute...) {
 		if _, err := t.Path(p); p != "" && err != nil {
 			return err
 		}
@@ -166,6 +168,9 @@ func (t *Template) ReadFile(rel string) ([]byte, error) {
 // in its substitute files. An existing file in dest is an error.
 func (t *Template) Copy(dest, projectID string) error {
 	root := append([]string{}, projectFiles...)
+	if t.Manifest.Config != "" {
+		root = append(root, filepath.Clean(t.Manifest.Config))
+	}
 	if t.Manifest.OperatorRoutes != "" {
 		root = append(root, filepath.Clean(t.Manifest.OperatorRoutes))
 	}

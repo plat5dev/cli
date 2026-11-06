@@ -10,6 +10,7 @@ import (
 	texttemplate "text/template"
 
 	"github.com/plat5dev/cli/internal/config"
+	"github.com/plat5dev/cli/internal/plat5yml"
 	"github.com/plat5dev/cli/internal/template"
 	"gopkg.in/yaml.v3"
 )
@@ -30,9 +31,9 @@ const (
 //go:embed operatorfiles/routes.yml
 var operatorShippedRoutes []byte
 
-// layout is a project laid out from an API starter: the starter in api/, the
-// customer console in customer-console/, the operator console in
-// operator-console/, the starter's service file in services/, a
+// layout is a project laid out from an API starter: the starter's plat5.yml and
+// service files at the root, the starter in api/, the customer console in
+// customer-console/, the operator console in operator-console/, a
 // docker-compose.yml that includes each app's, and operator.routes.yml.
 type layout struct {
 	starter *template.Template
@@ -40,9 +41,10 @@ type layout struct {
 	customerConsole *template.Template
 	// operatorConsole is nil with --no-operator-console.
 	operatorConsole *template.Template
-	// service is the starter's service name; serviceFile, its service file.
-	service     string
-	serviceFile []byte
+	// config is the starter's plat5.yml, with the customer console's origin.
+	config []byte
+	// serviceFiles is the service files it lists, by path from the project.
+	serviceFiles []projectFile
 	// operatorRoutes is operator.routes.yml.
 	operatorRoutes []byte
 }
@@ -79,10 +81,7 @@ func loadLayout(opts template.ResolveOptions, starter string, customerConsole, o
 		}
 	}
 	m := l.starter.Manifest
-	if l.serviceFile, err = l.starter.ReadFile(m.Service); err != nil {
-		return nil, err
-	}
-	if l.service, err = serviceName(m.Service, l.serviceFile); err != nil {
+	if err := l.readConfig(); err != nil {
 		return nil, err
 	}
 	var starterRoutes []byte
@@ -104,28 +103,55 @@ func (l *layout) close() {
 	l.operatorConsole.Close()
 }
 
-// serviceName is a service file's one top-level key. It can't be identity or
-// audit: init writes services/identity.yml and services/audit.yml itself.
-func serviceName(rel string, data []byte) (string, error) {
-	var file map[string]any
-	if err := yaml.Unmarshal(data, &file); err != nil {
-		return "", fmt.Errorf("the starter's service file %s: %w", rel, err)
+// projectFile is a file init writes at a path in the project.
+type projectFile struct {
+	rel  string
+	data []byte
+}
+
+// readConfig reads the starter's plat5.yml and the service files it lists. The
+// starter owns them: init adds the customer console's origin under cors, so a
+// plat5.yml that sets cors itself is refused.
+func (l *layout) readConfig() error {
+	m := l.starter.Manifest
+	base, err := l.starter.ReadFile(m.Config)
+	if err != nil {
+		return err
 	}
-	if len(file) != 1 {
-		return "", fmt.Errorf("the starter's service file %s: must hold exactly one service, keyed by its name (it holds %d keys)", rel, len(file))
+	var top map[string]any
+	if err := yaml.Unmarshal(base, &top); err != nil {
+		return fmt.Errorf("the starter's %s: %w", m.Config, err)
 	}
-	for name := range file {
-		if name == "identity" || name == "audit" {
-			return "", fmt.Errorf("the starter's service file %s: init writes services/%s.yml itself; name the starter's service otherwise", rel, name)
+	if _, ok := top["cors"]; ok {
+		return fmt.Errorf("the starter's %s sets cors: init adds the customer console's origin itself", m.Config)
+	}
+	files, err := plat5yml.ServiceFiles(top, "the starter's "+m.Config)
+	if err != nil {
+		return err
+	}
+	dir := filepath.Dir(filepath.Clean(m.Config))
+	for _, f := range files {
+		rel := filepath.Clean(f)
+		if filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("the starter's %s: service file %s is not inside the project", m.Config, f)
 		}
-		return name, nil
+		data, err := l.starter.ReadFile(filepath.Join(dir, rel))
+		if err != nil {
+			return fmt.Errorf("the starter's %s: %w", m.Config, err)
+		}
+		l.serviceFiles = append(l.serviceFiles, projectFile{filepath.ToSlash(rel), data})
 	}
-	return "", nil
+	l.config, err = l.withCORS(base)
+	return err
 }
 
 // targets is what the layout writes, relative to the project.
 func (l *layout) targets() []string {
-	out := []string{"plat5.yml", l.serviceRel(), apiDir}
+	out := []string{"plat5.yml"}
+	for _, f := range l.serviceFiles {
+		out = append(out, f.rel)
+	}
+	out = append(out, apiDir)
 	if l.customerConsole != nil {
 		out = append(out, customerConsoleDir)
 	}
@@ -134,8 +160,6 @@ func (l *layout) targets() []string {
 	}
 	return append(out, projectCompose, operatorRoutesFile, projectReadmeFile)
 }
-
-func (l *layout) serviceRel() string { return "services/" + l.service + ".yml" }
 
 // web is the customer console's origin, or empty without one.
 func (l *layout) web() string {
@@ -173,11 +197,15 @@ func (l *layout) checkFree(dir string) error {
 	return nil
 }
 
-// write lays out the apps and their files in dir. plat5.yml and identity's and
-// audit's service files are writeInitFiles'.
+// write lays out the starter's config, the apps and their files in dir.
 func (l *layout) write(dir, projectID string) error {
-	if err := writeFile(dir, l.serviceRel(), l.serviceFile); err != nil {
+	if err := writeFile(dir, "plat5.yml", l.config); err != nil {
 		return err
+	}
+	for _, f := range l.serviceFiles {
+		if err := writeFile(dir, f.rel, f.data); err != nil {
+			return err
+		}
 	}
 	apps := []struct {
 		folder, what string
@@ -221,24 +249,25 @@ func writeFile(dir, rel string, data []byte) error {
 	return nil
 }
 
-// plat5YML is init's plat5.yml with the starter's service file listed, and the
-// customer console's origin allowed at the gateway.
-func (l *layout) plat5YML(base []byte) ([]byte, error) {
-	head, list, ok := bytes.Cut(base, []byte("\nservices:\n"))
+// withCORS is the starter's plat5.yml with the customer console's origin
+// allowed at the gateway, before its services list. Without the console, it's
+// the starter's as it is.
+func (l *layout) withCORS(base []byte) ([]byte, error) {
+	web := l.web()
+	if web == "" {
+		return base, nil
+	}
+	head, list, ok := bytes.Cut(append([]byte("\n"), base...), []byte("\nservices:"))
 	if !ok {
-		return nil, fmt.Errorf("init's plat5.yml has no services: list")
+		return nil, fmt.Errorf("the starter's %s has no services: list", l.starter.Manifest.Config)
 	}
 	var b bytes.Buffer
-	b.Write(head)
-	b.WriteString("\n")
-	if web := l.web(); web != "" {
-		b.WriteString("# The browser origins the gateway allows (plat5 docs/reference/config/cors.md):\n")
-		b.WriteString("# customer-console/'s.\n")
-		fmt.Fprintf(&b, "cors:\n  allowed_origins: [%q]\n", web)
-	}
-	b.WriteString("services:\n")
+	b.Write(head[1:])
+	b.WriteString("\n# The browser origins the gateway allows (plat5 docs/reference/config/cors.md):\n")
+	b.WriteString("# customer-console/'s, added by plat5 init.\n")
+	fmt.Fprintf(&b, "cors:\n  allowed_origins: [%q]\n", web)
+	b.WriteString("services:")
 	b.Write(list)
-	fmt.Fprintf(&b, "  - %s\n", l.serviceRel())
 	return b.Bytes(), nil
 }
 
@@ -323,7 +352,6 @@ func (l *layout) readme(projectID string) (string, error) {
 	err = t.Execute(&b, map[string]any{
 		"Project":  projectID,
 		"Starter":  l.starter.Manifest.Name,
-		"Service":  l.service,
 		"Web":      l.web(),
 		"Operator": l.operatorWeb(),
 		"OpEmail":  config.OperatorEmail,

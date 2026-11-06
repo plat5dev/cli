@@ -46,7 +46,7 @@ func TestResolveOfficial(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tpl.Dir != filepath.Join(root, "template-go-fiber-api") || tpl.Manifest.Service != "services/api.yml" {
+	if tpl.Dir != filepath.Join(root, "template-go-fiber-api") || tpl.Manifest.Config != "plat5.yml" {
 		t.Fatalf("%+v", tpl)
 	}
 	if err := os.Mkdir(filepath.Join(root, "template-bun-effect-api"), 0o755); err != nil {

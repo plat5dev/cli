@@ -1,11 +1,9 @@
 package cmd
 
 import (
-	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -58,9 +56,9 @@ func TestRenderedDevYMLWithoutAuthSaysWhy(t *testing.T) {
 	}
 }
 
-// init writes a config that passes the schema, with organization and project
-// kinds and identity's and audit's service files listed, and keeps files that
-// are there.
+// --template none writes a config that passes the schema, with one kind,
+// organization, and identity's and audit's service files listed, and keeps
+// files that are there.
 func TestInitFilesValidate(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "services"), 0o755); err != nil {
@@ -71,7 +69,7 @@ func TestInitFilesValidate(t *testing.T) {
 		t.Fatal(err)
 	}
 	captureStdout(t, func() {
-		if err := writeInitFiles(dir, basePlat5YML(t)); err != nil {
+		if err := writeInitFiles(dir); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -79,7 +77,7 @@ func TestInitFilesValidate(t *testing.T) {
 		t.Fatalf("an existing service file was replaced:\n%s", got)
 	}
 	_ = os.Remove(filepath.Join(dir, "services", "audit.yml"))
-	captureStdout(t, func() { _ = writeInitFiles(dir, basePlat5YML(t)) })
+	captureStdout(t, func() { _ = writeInitFiles(dir) })
 
 	cfg, err := plat5yml.Load(filepath.Join(dir, "plat5.yml"))
 	if err != nil {
@@ -90,7 +88,7 @@ func TestInitFilesValidate(t *testing.T) {
 		t.Fatalf("%v %v", problems, err)
 	}
 	kinds, _ := cfg.Flat["kinds"].(map[string]any)
-	if kinds["organization"] == nil || kinds["project"] == nil {
+	if len(kinds) != 1 || kinds["organization"] == nil {
 		t.Fatalf("kinds: %v", kinds)
 	}
 	if cfg.Files["identity"] != "services/identity.yml" || cfg.Files["audit"] != "services/audit.yml" {
@@ -102,48 +100,6 @@ func TestInitFilesValidate(t *testing.T) {
 	if idpNames(cfg.Flat) {
 		t.Fatal("init's plat5.yml: the seed names the dev person under first_sign_in")
 	}
-}
-
-// init's files, loaded, are the config plat5's e2e applies. Checked when plat5
-// is checked out beside the CLI, as in plat5dev.
-func TestInitFilesMatchPlat5(t *testing.T) {
-	theirs, err := os.ReadFile(filepath.Join("..", "..", "..", "plat5", "e2e", "testdata", "config.json"))
-	if err != nil {
-		t.Skipf("no plat5 e2e config beside the CLI: %v", err)
-	}
-	dir := t.TempDir()
-	captureStdout(t, func() {
-		if err := writeInitFiles(dir, basePlat5YML(t)); err != nil {
-			t.Fatal(err)
-		}
-	})
-	cfg, err := plat5yml.Load(filepath.Join(dir, "plat5.yml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	ours, err := json.Marshal(cfg.Flat)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var a, b any
-	if err := json.Unmarshal(theirs, &a); err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal(ours, &b); err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(a, b) {
-		t.Errorf("internal/cmd/initfiles differ from plat5's e2e/testdata/config.json:\nplat5: %s\ninit:  %s", theirs, ours)
-	}
-}
-
-func basePlat5YML(t *testing.T) []byte {
-	t.Helper()
-	data, err := initFiles.ReadFile("initfiles/plat5.yml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return data
 }
 
 func TestParsePairs(t *testing.T) {

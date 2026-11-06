@@ -17,16 +17,16 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// noTemplate is --template none: Plat5 alone, with organization and project kinds.
+// noTemplate is --template none: Plat5 alone, with one kind, organization.
 const noTemplate = "none"
 
 // defaultStarter is the starter the init prompt highlights first.
 const defaultStarter = "bun-effect-api"
 
-// initFiles is the config init writes: organization, project and environment
-// kinds, the example roles, and identity's and audit's service files: plat5
-// routes generate's output for these kinds, less the routes init drops
-// (TestInitServiceFilesAreGenerated).
+// initFiles is the config --template none writes: one kind, organization, the
+// roles admin and member, and identity's and audit's service files as plat5
+// routes generate writes them (TestInitServiceFilesAreGenerated). A starter
+// brings its own.
 //
 //go:embed initfiles
 var initFiles embed.FS
@@ -54,20 +54,21 @@ var initCmd = &cobra.Command{
 	Short: "Create a project",
 	Long: `Create a Plat5 project, then cd into it and run plat5 start:
 
-  plat5.yml            the deployment's config: organization and project kinds,
+  plat5.yml            the deployment's config: one kind, organization, its
                        roles, the service files
   services/            identity's and audit's service files
   plat5.dev.yml        how plat5 start runs it on your machine
   operator.routes.yml  the operator gateway's route list
 
-With an API starter (--template go-fiber-api), also:
+With an API starter (--template go-fiber-api), instead:
 
-  services/<name>.yml  your API's service file
+  plat5.yml            the starter's, with the customer console's origin
+  services/            the service files the starter's plat5.yml lists
   api/                 your API, from the starter
   customer-console/    a console for your customers (--no-customer-console: none)
   operator-console/    a console for your operators (--no-operator-console: none)
   docker-compose.yml   runs your apps
-  README.md            what's here, and how to extend it
+  README.md            what's here, and how to run it
 
 Each app is a starting point the project owns, not a dependency.
 
@@ -78,9 +79,8 @@ Each app is a starting point the project owns, not a dependency.
 Without a directory, the project is the current directory, and the project id
 is the directory's name; --project-id sets another, written to plat5.dev.yml's
 project_id. One folder per project id: init refuses an id another folder owns.
-An existing
-plat5.yml, service file or operator.routes.yml is kept with --template none; a
-starter refuses a project that has any of its files.
+An existing plat5.yml, service file or operator.routes.yml is kept with
+--template none; a starter refuses a project that has any of its files.
 
 A starter is a first-party name (go-fiber-api, node-fastify-api,
 bun-effect-api), owner/repo on GitHub, or a .tar.gz URL. Starters and the
@@ -151,10 +151,6 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	plat5YML, err := initFiles.ReadFile("initfiles/plat5.yml")
-	if err != nil {
-		return err
-	}
 	var lay *layout
 	if ch.starter != "" {
 		opts := initFetch
@@ -167,21 +163,20 @@ func runInit(cmd *cobra.Command, args []string) error {
 		if err := lay.checkFree(ch.dir); err != nil {
 			return err
 		}
-		if plat5YML, err = lay.plat5YML(plat5YML); err != nil {
-			return err
-		}
 	}
 
 	fmt.Println("Created", relPath(mustGetwd(), ch.dir)+":")
-	if err := writeInitFiles(ch.dir, plat5YML); err != nil {
-		return err
-	}
 	if lay != nil {
 		if err := lay.write(ch.dir, projectID); err != nil {
 			return err
 		}
-	} else if err := writeOperatorRoutes(ch.dir); err != nil {
-		return err
+	} else {
+		if err := writeInitFiles(ch.dir); err != nil {
+			return err
+		}
+		if err := writeOperatorRoutes(ch.dir); err != nil {
+			return err
+		}
 	}
 	if err := os.WriteFile(devPath, []byte(renderDevYML(projectID, ch, versions, lay)), 0o644); err != nil {
 		return err
@@ -258,9 +253,9 @@ func moduleSources(ch initChoices, versions map[string]string) []string {
 	return out
 }
 
-// writeInitFiles writes plat5.yml (its body given) and identity's and audit's
+// writeInitFiles writes --template none's plat5.yml and identity's and audit's
 // service files, keeping any that exist.
-func writeInitFiles(dir string, plat5YML []byte) error {
+func writeInitFiles(dir string) error {
 	return fs.WalkDir(initFiles, "initfiles", func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
@@ -274,9 +269,6 @@ func writeInitFiles(dir string, plat5YML []byte) error {
 		data, err := initFiles.ReadFile(path)
 		if err != nil {
 			return err
-		}
-		if rel == "plat5.yml" {
-			data = plat5YML
 		}
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err
@@ -509,8 +501,8 @@ func renderDevYML(projectID string, ch initChoices, versions map[string]string, 
 			folders += ", " + customerConsoleDir + "/"
 		}
 		p("# Your apps: %s. plat5 start runs docker-compose.yml\n", folders)
-		p("# after Plat5 (-x app to run them yourself). %s's url names\n", lay.serviceRel())
-		p("# the API's compose service.\n")
+		p("# after Plat5 (-x app to run them yourself). The API's service file's url\n")
+		p("# names its compose service.\n")
 		p("app:\n  compose: ./%s\n", projectCompose)
 		if web := lay.web(); web != "" {
 			p("  web: %s  # customer-console/: may sign in with local Auth\n", yamlString(web))

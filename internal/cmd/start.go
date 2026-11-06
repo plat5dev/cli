@@ -234,7 +234,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Println()
 	printSummary(stk, st)
-	printWhatYouGot(stk, st)
+	printOpen(stk, st)
 	return nil
 }
 

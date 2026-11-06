@@ -34,16 +34,17 @@ func fixtureTemplates(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	writeFiles(t, filepath.Join(root, "template-go-fiber-api"), map[string]string{
-		"plat5.template.yml":  "name: go-fiber-api\nkind: api\nservice: services/api.yml\noperator_routes: ./routes.operator.yml\nsubstitute: [go.mod]\napp:\n  compose: docker-compose.yml\nnext:\n  - go run .\n",
-		"plat5.yml":           "# the starter's own\n",
-		"plat5.dev.yml":       "project_id: go-fiber-api\n",
-		"services/api.yml":    "api:\n  url: http://api:3000\n  scopes:\n    project:\n      upstream_prefix: /projects/{project.id}\n      routes:\n        - path: /tasks\n          methods:\n            GET: { required_permissions: [project:read] }\n",
-		"services/audit.yml":  "audit:\n  url: http://audit:3002\n",
-		"routes.operator.yml": "# operator\nservices:\n  api:\n    url: http://api:3000\n    routes:\n      - path: /projects/{project_id}/tasks\n        node: project_id\n        methods: [GET]\n",
-		"docker-compose.yml":  "services:\n  api: {}\n",
-		"go.mod":              "module {{project_id}}\n",
-		"main.go":             "package main\n",
-		".github/ci.yml":      "on: push\n",
+		"plat5.template.yml":    "name: go-fiber-api\nkind: api\nconfig: plat5.yml\noperator_routes: ./routes.operator.yml\nsubstitute: [go.mod]\napp:\n  compose: docker-compose.yml\nnext:\n  - go run .\n",
+		"plat5.yml":             "# the starter's own\n" + string(mustInitFile(t, "initfiles/plat5.yml")) + "  - services/api.yml\n",
+		"plat5.dev.yml":         "project_id: go-fiber-api\n",
+		"services/api.yml":      "api:\n  url: http://api:3000\n  scopes:\n    organization:\n      upstream_prefix: /orgs/{organization.id}\n      routes:\n        - path: /tasks\n          methods:\n            GET: { required_permissions: [organization:read] }\n",
+		"services/identity.yml": string(mustInitFile(t, "initfiles/services/identity.yml")),
+		"services/audit.yml":    "# the starter's\n" + string(mustInitFile(t, "initfiles/services/audit.yml")),
+		"routes.operator.yml":   "# operator\nservices:\n  api:\n    url: http://api:3000\n    routes:\n      - path: /projects/{project_id}/tasks\n        node: project_id\n        methods: [GET]\n",
+		"docker-compose.yml":    "services:\n  api: {}\n",
+		"go.mod":                "module {{project_id}}\n",
+		"main.go":               "package main\n",
+		".github/ci.yml":        "on: push\n",
 	})
 	writeFiles(t, filepath.Join(root, "template-customer-console"), map[string]string{
 		"plat5.template.yml": "name: customer-console\nkind: customer-console\nsubstitute: [src/appName.ts]\napp:\n  compose: docker-compose.yml\n  web: http://localhost:3001\nexclude: [.github]\n",
@@ -123,8 +124,11 @@ func TestInitStarter(t *testing.T) {
 	if b, _ := os.ReadFile(filepath.Join(dir, "customer-console/src/appName.ts")); !strings.Contains(string(b), `"demo"`) {
 		t.Errorf("console app name not substituted: %s", b)
 	}
-	if b, _ := os.ReadFile(filepath.Join(dir, "services/audit.yml")); !bytes.Equal(b, mustInitFile(t, "initfiles/services/audit.yml")) {
-		t.Errorf("services/audit.yml is the starter's, not init's:\n%s", b)
+	if b, _ := os.ReadFile(filepath.Join(dir, "services/audit.yml")); !strings.HasPrefix(string(b), "# the starter's\n") {
+		t.Errorf("services/audit.yml isn't the starter's:\n%s", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "plat5.yml")); !strings.HasPrefix(string(b), "# the starter's own\n") {
+		t.Errorf("plat5.yml isn't the starter's:\n%s", b)
 	}
 
 	cfg, err := plat5yml.Load(filepath.Join(dir, "plat5.yml"))
@@ -186,7 +190,7 @@ func TestInitStarter(t *testing.T) {
 	}
 
 	readme, _ := os.ReadFile(filepath.Join(dir, "README.md"))
-	for _, want := range []string{"# demo", "`services/api.yml`", "http://localhost:3001", "go run .", "http://localhost:5412", "`operator-console/`", "operator@example.com"} {
+	for _, want := range []string{"# demo", "`services/`", "http://localhost:3001", "go run .", "http://localhost:5412", "`operator-console/`", "operator@example.com"} {
 		if !strings.Contains(string(readme), want) {
 			t.Errorf("README lacks %q:\n%s", want, readme)
 		}
@@ -196,6 +200,25 @@ func TestInitStarter(t *testing.T) {
 	err = runStarterInit(t, templates, "go-fiber-api", dir, false)
 	if err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("init over a project: %v", err)
+	}
+}
+
+// The starter owns cors only through init: a starter's plat5.yml that sets it
+// is refused, before anything is written.
+func TestInitStarterSetsCORS(t *testing.T) {
+	templates := fixtureTemplates(t)
+	starter := filepath.Join(templates, "template-go-fiber-api", "plat5.yml")
+	b, _ := os.ReadFile(starter)
+	writeFiles(t, filepath.Dir(starter), map[string]string{"plat5.yml": "cors:\n  allowed_origins: [\"http://x\"]\n" + string(b)})
+	dir := filepath.Join(t.TempDir(), "cors")
+	err := runStarterInit(t, templates, "go-fiber-api", dir, false)
+	if err == nil || !strings.Contains(err.Error(), "sets cors") {
+		t.Fatalf("a starter setting cors: %v", err)
+	}
+	if _, err := os.Stat(dir); err == nil {
+		if entries, _ := os.ReadDir(dir); len(entries) > 0 {
+			t.Errorf("wrote %d entries before refusing", len(entries))
+		}
 	}
 }
 

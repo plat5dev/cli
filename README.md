@@ -12,23 +12,21 @@ plat5 start             # Plat5 and its modules; applies the config; runs your a
 
 ```
 my-app/
-  plat5.yml               the deployment's config: organization, project and environment kinds,
-                          roles, the customer console's origin under cors, the service files
-  services/identity.yml   identity's service file: its routes for each kind, from plat5 routes generate
-  services/audit.yml      audit's
-  services/api.yml        your API's: its url and its routes, from the starter
+  plat5.yml               the deployment's config, from the starter: its kinds, roles and service
+                          files, plus the customer console's origin under cors
+  services/               the service files it lists, from the starter: your API's, identity's, audit's
   plat5.dev.yml           how plat5 start runs it on your machine
   api/                    your API, from the starter
   customer-console/       your customers' console (--no-customer-console: none)
   operator-console/       your operators' console (--no-operator-console: none)
   docker-compose.yml      runs your apps: includes each app folder's compose file
   operator.routes.yml     the operator gateway's route list, with your API's operator routes
-  README.md               what's here, and how to extend it
+  README.md               what's here, and how to run it
 ```
 
-Each app is a starting point the project owns, not a dependency. The starters are `go-fiber-api`, `node-fastify-api` and `bun-effect-api`: the same API (tasks inside an environment, and the person's profile) in three stacks, which both consoles work with. A starter can also be `owner/repo` on GitHub, or a `.tar.gz` URL ([starters](#starters)).
+Each app is a starting point the project owns, not a dependency. The first-party starters are `go-fiber-api`, `node-fastify-api` and `bun-effect-api`, each with the consoles beside it; what each one's API does is in its own README. A starter can also be `owner/repo` on GitHub, or a `.tar.gz` URL ([starters](#starters)).
 
-`--template none` is Plat5 alone: `plat5.yml`, `services/identity.yml`, `services/audit.yml`, `plat5.dev.yml`, and `operator.routes.yml` from operator's shipped route list. Add your own API as a service file in `services/`, list it in `plat5.yml`'s `services`, and point `app.compose` in `plat5.dev.yml` at its compose file. A service file's routes sit in a kind's scope, relative to its node (`/orgs/{organization}/…`), in the `user` scope for the person's own data, such as `/user/notification-settings` (the service gets `X-Plat5-User-Id`), or in `public` ([plat5 `docs/reference/config/services.md`](https://github.com/plat5dev/plat5/blob/master/docs/reference/config/services.md)).
+`--template none` is Plat5 alone: `plat5.yml` with one kind, `organization`, and the roles `admin` and `member`, `services/identity.yml`, `services/audit.yml`, `plat5.dev.yml`, and `operator.routes.yml` from operator's shipped route list. Add your own API as a service file in `services/`, list it in `plat5.yml`'s `services`, and point `app.compose` in `plat5.dev.yml` at its compose file. A service file's routes sit in a kind's scope, relative to its node (`/orgs/{organization}/…`), in the `user` scope for the person's own data, such as `/user/notification-settings` (the service gets `X-Plat5-User-Id`), or in `public` ([plat5 `docs/reference/config/services.md`](https://github.com/plat5dev/plat5/blob/master/docs/reference/config/services.md)).
 
 Self-hosting a deployment is compose, not this CLI: [plat5 `docs/guides/deploy.md`](https://github.com/plat5dev/plat5/blob/master/docs/guides/deploy.md).
 
@@ -73,27 +71,26 @@ Once the control plane is up, `start` applies `plat5.yml` as `plat5 apply` does 
 Then it makes sure there is something to call with, through identity's routes at the gateway like any client: the dev person (`dev@example.com`, signed in with a dev token from local Auth; `GET /user`), their name, "Dev Person" (`PATCH /user`, while they have none, since local Auth's tokens carry no name; a name already set stays; under `users.name.sync: each_sign_in` in `plat5.yml` only the IdP's token names a person, so the seed leaves the name alone and says nothing about it), a node named `Dev` of each root kind they own (found through `GET /user/nodes?kind=organization`, or made with `POST /orgs`; `/orgs/dev`), and one personal key (`POST /user/keys`), which acts as them in every tree. Every credential, token or key, is sent as `Authorization: Bearer`. It reuses them while the key works. A config without those routes gets a warning. Then it prints every link, login, and key; `plat5 status` prints them again.
 
 ```
+my-app is running.
+
+  Customer console  http://localhost:3001  dev@example.com / password
+  Operator console  http://localhost:5412  operator@example.com / password
+
 Plat5
-  Gateway        http://localhost:5400
-  Auth           http://localhost:5401  dev@example.com / password
-  …
-Operator
-  Gateway        http://localhost:5410  routes: operator.routes.yml
-  IdP            http://localhost:5411  operator@example.com / password
-  Console        http://localhost:5412  operator@example.com / password
-  …
-Dev (dev@example.com)
-  organization   /orgs/dev              "Dev", which they own
-  Personal key   plat5-k-2-…            acts as them in every tree
+  Gateway           http://localhost:5400
+  Auth              http://localhost:5401  sign-up codes: plat5 logs auth | grep code
+  Control plane     http://localhost:5402  admin token dev-admin-token
+  Operator gateway  http://localhost:5410  routes: operator.routes.yml
+  Operator IdP      http://localhost:5411
+  Grafana           http://localhost:5403  Plat5 folder: Service Health, Auth, Debug
 
-Try it:
-  curl http://localhost:5400/orgs/dev -H "Authorization: Bearer plat5-k-2-…"
+Dev person  dev@example.com
+  Personal key      plat5-k-2-…            acts as them in every tree
 
-As an operator, with a dev token from the operator IdP:
-  TOKEN=$(curl -s http://localhost:5411/dev/token -H 'Content-Type: application/json' \
-    -d '{"email":"operator@example.com","client_id":"operator-console"}' | jq -r .access_token)
-  curl http://localhost:5410/nodes/<the Dev org's id> -H "Authorization: Bearer $TOKEN"
+Open http://localhost:3001 and sign in as dev@example.com / password.
 ```
+
+The consoles lead, each with its login; a module turned off, or apps not run, drops its rows. `start` ends by pointing at the customer console; `status` lists container health instead.
 
 The operator gateway takes node ids, not slugs: operator [`docs/reference/routes.md`](https://github.com/plat5dev/operator/blob/master/docs/reference/routes.md). Every call through it is in the operator audit log, `GET /operator-audit-events?node_id=…`.
 
@@ -204,7 +201,7 @@ The template contract for an app's compose file: `plat5 start` runs it with `doc
 From an API starter, `init`:
 
 - copies the starter into `api/`, the customer console into `customer-console/` and the operator console into `operator-console/`, each without its own project files (`plat5.yml`, `plat5.dev.yml`, `services/`, `plat5.template.yml`), its operator routes, `.github`, the manifest's `exclude`, or local state (`.git`, `node_modules`, `dist`, `.env`, `*.local`, `*.log`, `.DS_Store`, `data/*.db`), and replaces `{{project_id}}` in each `substitute` file with the project id;
-- writes the starter's service file as `services/<service>.yml` and lists it in `plat5.yml`, beside identity's and audit's, with the console's `app.web` under `cors.allowed_origins` ([plat5 `docs/reference/config/cors.md`](https://github.com/plat5dev/plat5/blob/master/docs/reference/config/cors.md));
+- writes the starter's config, its `config` file as `plat5.yml` and the service files it lists at the same paths, as they are: the starter owns its kinds, roles and routes. With the customer console, it adds the console's `app.web` under `cors.allowed_origins`, before `services:` ([plat5 `docs/reference/config/cors.md`](https://github.com/plat5dev/plat5/blob/master/docs/reference/config/cors.md)); a starter's `plat5.yml` that sets `cors` itself is refused;
 - writes `docker-compose.yml`, which `include:`s each app's compose file, and `plat5.dev.yml` with `app.compose: ./docker-compose.yml`, `app.web` the customer console's origin, and `operator.console` the operator console's compose file and origin;
 - writes `operator.routes.yml`: operator's shipped route list (operator `routes.yml`) with the starter's operator routes added under its `services:`, in operator's route format (operator [`docs/reference/routes.md`](https://github.com/plat5dev/operator/blob/master/docs/reference/routes.md)), and names it as `operator.routes` in `plat5.dev.yml`. `plat5 start`'s operator gateway mounts it as its `ROUTES_FILE`; a deployed operator gateway mounts a copy with the deployment's addresses.
 
@@ -214,7 +211,7 @@ A template's manifest, `plat5.template.yml` at its root. Unknown keys are errors
 name: go-fiber-api
 kind: api                              # api: an API starter; customer-console, operator-console: the consoles
 description: Go + Fiber reference API
-service: services/api.yml              # api: its service file, one service, keyed by its name
+config: plat5.yml                      # api: its plat5.yml; init copies it and the service files it lists
 operator_routes: ./routes.operator.yml # api, optional: a services: block in operator's route format
 substitute: [go.mod]                   # files whose {{project_id}} becomes the project id
 app:
@@ -224,7 +221,7 @@ next: [go mod tidy, go run .]          # how to run it yourself with plat5 start
 exclude: [AGENTS.md]                   # paths, from its root, not to copy
 ```
 
-The service file's `url` names the app's compose service (`http://api:3000`), so `plat5 start` joins it to the Plat5 network ([your app and its url](#your-app-and-its-url)). Each starter's repo root is also a project you can run alone: its own `plat5.yml`, `plat5.dev.yml` and `services/`, which `init` leaves out.
+The API's service file's `url` names the app's compose service (`http://api:3000`), so `plat5 start` joins it to the Plat5 network ([your app and its url](#your-app-and-its-url)). Each starter's repo root is also a project you can run alone: its own `plat5.yml`, `plat5.dev.yml` and `services/`, which `init` writes at the project's root instead of `api/` (less `plat5.dev.yml`, which init writes itself).
 
 ## Contributors: run checkouts
 
@@ -242,7 +239,7 @@ A CLI built from this checkout with no version flag is a dev build ([`cli:`](#pl
 
 The embedded compose files (`internal/bundle/stack`) track plat5 HEAD, so a `plat5` checkout at HEAD runs as it will ship. For hot reload of one service, use that repo's own dev compose.
 
-Two copies track plat5 too: the config schema (`internal/schema`, plat5's `schema/`, for offline `validate`) and the files `init` writes (`internal/cmd/initfiles`, which load into the config plat5's e2e applies, `e2e/testdata/config.json`). Init's `services/identity.yml` and `services/audit.yml` are `plat5 routes generate`'s output for init's `plat5.yml`, less the routes init drops, with comments where they were; a test checks them against the generator, so regenerate and drop again after changing init's kinds. Two track operator: its shipped route list (`internal/cmd/operatorfiles/routes.yml`, operator's `routes.yml`), which `operator.routes.yml` starts from, and the operator module's compose file (`internal/bundle/stack/operator.yml`), whose env is operator's `compose/docker-compose.yml`'s. Their tests compare them with a `plat5` and an `operator` checkout beside the CLI, and skip without one. So do the tests that init a project from each first-party template checkout beside the CLI.
+One copy tracks plat5 too: the config schema (`internal/schema`, plat5's `schema/`, for offline `validate`). `--template none`'s files (`internal/cmd/initfiles`) are the CLI's own: its `services/identity.yml` and `services/audit.yml` are `plat5 routes generate`'s output for its `plat5.yml`, and a test checks them against the generator. Two track operator: its shipped route list (`internal/cmd/operatorfiles/routes.yml`, operator's `routes.yml`), which `operator.routes.yml` starts from, and the operator module's compose file (`internal/bundle/stack/operator.yml`), whose env is operator's `compose/docker-compose.yml`'s. Their tests compare them with a `plat5` and an `operator` checkout beside the CLI, and skip without one. So do the tests that init a project from each first-party template checkout beside the CLI.
 
 ## State
 
