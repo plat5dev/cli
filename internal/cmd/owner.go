@@ -15,7 +15,7 @@ func loadOwned(cfg config.Resolved) (state.State, error) {
 
 // guardOwner loads projectID's state for the project in folder dir, and refuses
 // when another folder owns the id: one folder per project id, since the id names
-// the compose project, its volumes, and the state. A state with no owner yet
+// both compose projects, the stack's and the app's, their volumes, and the state. A state with no owner yet
 // passes; start records one (claimOwner). forInit words the fix for plat5 init,
 // which takes the id from --project-id, else the folder's name.
 func guardOwner(projectID, dir string, forInit bool) (state.State, error) {
@@ -27,8 +27,8 @@ func guardOwner(projectID, dir string, forInit bool) (state.State, error) {
 	if st.Owner == "" || st.Owner == here {
 		return st, nil
 	}
-	msg := fmt.Sprintf("project id %q belongs to the project in %s, not this one in %s: the stack (compose project plat5-%s, its volumes) and the state are that project's.\n",
-		projectID, st.Owner, here, projectID)
+	msg := fmt.Sprintf("project id %q belongs to the project in %s, not this one in %s: the stack and the app (compose projects plat5-%s and %s, their volumes) and the state are that project's.\n",
+		projectID, st.Owner, here, projectID, projectID)
 	other := otherProjectID(projectID, here)
 	if forInit {
 		return st, fmt.Errorf("%sGive this project its own id:\n\n  plat5 init --project-id %s", msg, other)

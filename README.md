@@ -46,7 +46,7 @@ From source: `go install github.com/plat5dev/cli/cmd/plat5@latest`.
 
 ## What `plat5 start` runs
 
-One compose project, `plat5-<project_id>`, with one Postgres (a database per plane), then your app's own compose file.
+One compose project, `plat5-<project_id>`, with one Postgres (a database per plane), then your app's own compose file, as its own compose project, `<project_id>` ([State](#state)).
 
 | Module | What | Port | Login |
 |--------|------|------|-------|
@@ -185,7 +185,7 @@ A service file's `url` is the address the gateway reaches, in the local stack as
 
 When `plat5 start` runs `app.compose`, each service a `url` names is put on the Plat5 network with a generated override (`app-override.yml` in the stack dir), so the gateway reaches it by name, the same way on every OS. Its host port can then be bound to `127.0.0.1`: only the gateway may reach a Plat5 service, and the host port is for your own curls. With `plat5 start -x app` there is no container: `start` maps the name to your machine on the gateway (`extra_hosts: api:host-gateway`), so the app must listen there on the url's port, beyond loopback on Linux. A service named like a Plat5 service (`gateway`, `postgres`, …) can't join; rename it.
 
-The template contract for an app's compose file: `plat5 start` runs it with `docker compose up -d --build --wait` and this env, so it can say `${PLAT5_GATEWAY_URL}`:
+The template contract for an app's compose file: `plat5 start` runs it with `docker compose -p <project_id> up -d --build --wait` and this env, so it can say `${PLAT5_GATEWAY_URL}`:
 
 | Env | |
 |-----|--|
@@ -248,7 +248,7 @@ Two copies track plat5 too: the config schema (`internal/schema`, plat5's `schem
 
 `$XDG_STATE_HOME/plat5/projects/<project_id>/` (default `~/.local/state/plat5/…`, on macOS too): `state.json` (the folder that owns the project id, what the last start ran, and the dev keys; mode 0600) and `stack/` (the compose files, the generated override, and the sign-in themes, the operator IdP's included).
 
-One folder per project id: the id names the compose project, its volumes and this state, so a second folder with the same id would take over the first one's stack. `state.json` records the owning folder (absolute, symlinks resolved), the first one to `plat5 start` the id, and `start`, `stop`, `reset`, `status`, `logs` and `init` from any other folder refuse, naming both folders; `doctor` reports it as a failed check. A state with no folder recorded is the next `start`'s. To run both, give one its own id: `plat5 init --project-id b-work`, or in an existing project's `plat5.dev.yml`:
+One folder per project id: the id names both compose projects, the stack's (`plat5-<project_id>`) and your app's (`<project_id>`), their volumes and images, and this state, so a second folder with the same id would take over the first one's. A folder's default id is the name docker compose gives a project in it ([the id](https://github.com/plat5dev/plat5/blob/master/docs/reference/cli.md#the-local-stack)), so there `docker compose` sees your app's containers as `plat5` runs them; under another id, add `-p <project_id>`. `state.json` records the owning folder (absolute, symlinks resolved), the first one to `plat5 start` the id, and `start`, `stop`, `reset`, `status`, `logs` and `init` from any other folder refuse, naming both folders; `doctor` reports it as a failed check. A state with no folder recorded is the next `start`'s. To run both, give one its own id: `plat5 init --project-id b-work`, or in an existing project's `plat5.dev.yml`:
 
 ```yaml
 project_id: b-work

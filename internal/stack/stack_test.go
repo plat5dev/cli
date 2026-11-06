@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/plat5dev/cli/internal/compose"
 	"github.com/plat5dev/cli/internal/config"
 )
 
@@ -420,5 +421,95 @@ func TestOperatorComposeConfig(t *testing.T) {
 	auth := cfg.Services["operator-auth"].Environment
 	if auth["PUBLIC_ISSUER_URL"] != "http://localhost:5411" || auth["AUTH_ALLOWED_REDIRECT_URIS"] != "http://localhost:5412/callback" || auth["AUTH_TOKEN_EMAIL"] != "true" || auth["AUTH_THEME_FILE"] != "/config/theme.json" {
 		t.Errorf("operator-auth: %v", auth)
+	}
+}
+
+// appProject is the compose project docker compose runs r as, from its own
+// config: what its containers, volumes and images are named after.
+func appProject(t *testing.T, r compose.Runner, withP bool) string {
+	t.Helper()
+	args := []string{"compose"}
+	if withP {
+		args = append(args, "-p", r.ProjectName)
+	}
+	args = append(args, "--project-directory", r.Dir)
+	for _, f := range r.Files {
+		args = append(args, "-f", f)
+	}
+	cmd := exec.Command("docker", append(args, "config", "--format", "json")...)
+	cmd.Dir = r.Dir
+	// The app's env, and no COMPOSE_PROJECT_NAME from the shell running the test.
+	cmd.Env = append(os.Environ(), append(r.Env, "COMPOSE_PROJECT_NAME=")...)
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("docker %s: %v", strings.Join(args, " "), err)
+	}
+	var cfg struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(out, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	return cfg.Name
+}
+
+func needCompose(t *testing.T) {
+	t.Helper()
+	if err := exec.Command("docker", "compose", "version").Run(); err != nil {
+		t.Skip("docker compose not available")
+	}
+}
+
+// appIn is a project in parent/folder with an app compose file, and plat5.dev.yml's
+// project_id line (empty: the default id).
+func appIn(t *testing.T, parent, folder, idLine string) *Stack {
+	t.Helper()
+	dir := filepath.Join(parent, folder)
+	writeFile(t, filepath.Join(dir, "docker-compose.yml"), "services:\n  api:\n    image: busybox\n")
+	f, err := config.Parse([]byte(idLine + "versions: {plat5: v0.7.0, auth: v0.2.0, operator: v0.5.0}\napp: {compose: ./docker-compose.yml}\nmodules: {operator: false}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := config.Resolve(f, filepath.Join(dir, config.FileName), config.Overrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	s, err := New(r, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+// Two folders with the same name and different ids run separate app projects,
+// each named after its id, from plat5.dev.yml's file and an earlier start's alike.
+func TestAppProjectIsProjectID(t *testing.T) {
+	a := appIn(t, t.TempDir(), "app", "project_id: a-app\n")
+	b := appIn(t, t.TempDir(), "app", "project_id: b-app\n")
+	if a.AppRunner().ProjectName != "a-app" || b.AppRunner().ProjectName != "b-app" {
+		t.Fatalf("app projects: %q %q", a.AppRunner().ProjectName, b.AppRunner().ProjectName)
+	}
+	if got := a.AppRunnerFor(a.Config.AppCompose).ProjectName; got != "a-app" {
+		t.Fatalf("an earlier start's app: %q", got)
+	}
+	needCompose(t)
+	if pa, pb := appProject(t, *a.AppRunner(), true), appProject(t, *b.AppRunner(), true); pa != "a-app" || pb != "b-app" {
+		t.Fatalf("compose ran them as %q and %q", pa, pb)
+	}
+}
+
+// A project on the default id keeps the app project compose names its folder's
+// file without -p, whatever the folder's name.
+func TestDefaultIDAppProjectUnchanged(t *testing.T) {
+	needCompose(t)
+	parent := t.TempDir()
+	for _, folder := range []string{"my-app", "My.App", "my app", "_lead", "trail-", "a__b", "Über", "x.y-z"} {
+		s := appIn(t, parent, folder, "")
+		r := *s.AppRunner()
+		before, now := appProject(t, r, false), appProject(t, r, true)
+		if before != now || now != s.Config.ProjectID {
+			t.Errorf("%q: compose names it %q, plat5 runs it as %q (id %q)", folder, before, now, s.Config.ProjectID)
+		}
 	}
 }

@@ -38,7 +38,7 @@ func TestOwnerRefusesAnotherFolder(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := `project id "work" belongs to the project in ` + a + `, not this one in ` + b +
-		`: the stack (compose project plat5-work, its volumes) and the state are that project's.
+		`: the stack and the app (compose projects plat5-work and work, their volumes) and the state are that project's.
 Give this project its own id in ` + filepath.Join(b, "plat5.dev.yml") + `:
 
   project_id: b-work`
@@ -86,7 +86,7 @@ func TestOwnerRefusesInit(t *testing.T) {
 	defer func() { initYes = false }()
 	err := runInit(initCmd, []string{c})
 	want := `project id "work" belongs to the project in ` + a + `, not this one in ` + c +
-		`: the stack (compose project plat5-work, its volumes) and the state are that project's.
+		`: the stack and the app (compose projects plat5-work and work, their volumes) and the state are that project's.
 Give this project its own id:
 
   plat5 init --project-id c-work`

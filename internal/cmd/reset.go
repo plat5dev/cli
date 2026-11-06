@@ -70,7 +70,7 @@ func runReset(cmd *cobra.Command, args []string) error {
 	appFile := firstNonEmpty(st.AppCompose, cfg.AppCompose)
 	if appFile != "" {
 		if _, err := os.Stat(appFile); err == nil {
-			app := compose.Runner{Dir: dirOf(appFile), Files: []string{appFile}, Env: stk.AppEnv()}
+			app := stk.AppRunnerFor(appFile)
 			fmt.Println("Deleting your app's containers and volumes…")
 			if err := app.DownVolumes(); err != nil {
 				return err

@@ -218,7 +218,7 @@ func initProjectIDFor(dir string) (string, error) {
 		return "", fmt.Errorf("--project-id %q: a project id is letters, digits, - and _", initProjectID)
 	}
 	if id != initProjectID {
-		return "", fmt.Errorf("--project-id %q: a project id is lowercase letters, digits, - and _, at most 64 (--project-id %s)", initProjectID, id)
+		return "", fmt.Errorf("--project-id %q: a project id is lowercase letters, digits, - and _, starting with a letter or digit, at most 64 (--project-id %s)", initProjectID, id)
 	}
 	return id, nil
 }

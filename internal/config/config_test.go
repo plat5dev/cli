@@ -32,8 +32,8 @@ func TestResolveDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.ProjectID != "my-app" || r.ComposeProject != "plat5-my-app" {
-		t.Fatalf("project: %q %q", r.ProjectID, r.ComposeProject)
+	if r.ProjectID != "myapp" || r.ComposeProject != "plat5-myapp" || r.AppComposeProject != "myapp" {
+		t.Fatalf("project: %q %q %q", r.ProjectID, r.ComposeProject, r.AppComposeProject)
 	}
 	for _, m := range Modules {
 		if !r.Modules[m] {
@@ -223,5 +223,28 @@ func TestSecretBrand(t *testing.T) {
 func TestNeedsHostGateway(t *testing.T) {
 	if !NeedsHostGateway("http://host.docker.internal:4318") || NeedsHostGateway("http://alloy:4318") {
 		t.Fatal("host gateway detection")
+	}
+}
+
+// A project id is a name as docker compose normalises it: lowercased, other
+// characters dropped, no leading - or _ (compose's -p refuses one), at most 64.
+// So a folder's default id is the name compose gives an app in that folder.
+func TestSanitizeProjectID(t *testing.T) {
+	for in, want := range map[string]string{
+		"my-app":                "my-app",
+		"My.App":                "myapp",
+		"my app":                "myapp",
+		"_lead":                 "lead",
+		"-lead":                 "lead",
+		"trail-":                "trail-",
+		"a__b":                  "a__b",
+		"Über":                  "ber",
+		"x.y-z":                 "xy-z",
+		"!!!":                   "",
+		strings.Repeat("a", 70): strings.Repeat("a", 64),
+	} {
+		if got := SanitizeProjectID(in); got != want {
+			t.Errorf("%q: got %q, want %q", in, got, want)
+		}
 	}
 }

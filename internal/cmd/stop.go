@@ -39,7 +39,7 @@ func runStop(cmd *cobra.Command, args []string) error {
 	appFile := firstNonEmpty(st.AppCompose, cfg.AppCompose)
 	if appFile != "" {
 		if _, err := os.Stat(appFile); err == nil {
-			app := compose.Runner{Dir: dirOf(appFile), Files: []string{appFile}, Env: stk.AppEnv()}
+			app := stk.AppRunnerFor(appFile)
 			fmt.Println("Stopping your app…")
 			if err := app.Down(); err != nil {
 				fmt.Println("warning:", err)

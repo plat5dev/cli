@@ -96,16 +96,24 @@ func (s *Stack) Runner() compose.Runner {
 }
 
 // AppRunner is docker compose for the app's own file, or nil when there is none.
-// The app is its own compose project (its file's name), so `docker compose` in the
-// app's directory sees the same containers.
 func (s *Stack) AppRunner() *compose.Runner {
 	if s.Config.AppCompose == "" {
 		return nil
 	}
-	return &compose.Runner{
-		Dir:   filepath.Dir(s.Config.AppCompose),
-		Files: []string{s.Config.AppCompose},
-		Env:   s.AppEnv(),
+	r := s.AppRunnerFor(s.Config.AppCompose)
+	return &r
+}
+
+// AppRunnerFor is docker compose for an app compose file: plat5.dev.yml's, or
+// the one an earlier start ran. The app is its own compose project, named after
+// the project id, so two folders with different ids never share its containers,
+// volumes or images.
+func (s *Stack) AppRunnerFor(file string) compose.Runner {
+	return compose.Runner{
+		Dir:         filepath.Dir(file),
+		ProjectName: s.Config.AppComposeProject,
+		Files:       []string{file},
+		Env:         s.AppEnv(),
 	}
 }
 
@@ -166,7 +174,7 @@ func (s *Stack) SkippedAppServices() ([]string, error) {
 	if _, err := os.Stat(c.OperatorConsole); err != nil {
 		return nil, nil
 	}
-	r := compose.Runner{Dir: filepath.Dir(c.OperatorConsole), Files: []string{c.OperatorConsole}, Env: s.AppEnv()}
+	r := s.AppRunnerFor(c.OperatorConsole)
 	networks, err := r.ServiceNetworks()
 	if err != nil {
 		return nil, fmt.Errorf("the operator console (operator.console.compose): %w", err)

@@ -126,7 +126,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 	// and free its ports.
 	if app == nil && prev.AppCompose != "" {
 		fmt.Println("Stopping your app's containers (-x app)…")
-		old := compose.Runner{Dir: dirOf(prev.AppCompose), Files: []string{prev.AppCompose}, Env: stk.AppEnv()}
+		old := stk.AppRunnerFor(prev.AppCompose)
 		if err := old.Down(); err != nil {
 			fmt.Println("warning:", err)
 		}

@@ -79,7 +79,7 @@ const (
 
 const maxSecretBrandLen = 32
 
-var projectIDSanitizer = regexp.MustCompile(`[^a-zA-Z0-9_-]+`)
+var projectIDInvalid = regexp.MustCompile(`[^a-z0-9_-]+`)
 
 // File is plat5.dev.yml.
 type File struct {
@@ -189,8 +189,12 @@ type Resolved struct {
 	// Source is checkouts to build images from, by version key. Absolute.
 	Source map[string]string
 
-	// ComposeProject is the local stack's compose project.
+	// ComposeProject is the local stack's compose project, plat5-<project_id>.
 	ComposeProject string
+	// AppComposeProject is the app's compose project: the project id. A default
+	// id is the folder's name as compose normalises it, so a project in its own
+	// folder keeps the name compose gives it there.
+	AppComposeProject string
 }
 
 // ErrNoProject means no plat5.dev.yml was found.
@@ -232,6 +236,7 @@ func Resolve(f *File, path string, o Overrides) (Resolved, error) {
 		return Resolved{}, fmt.Errorf("project_id: invalid")
 	}
 	r.ComposeProject = "plat5-" + r.ProjectID
+	r.AppComposeProject = r.ProjectID
 
 	for k, v := range f.Modules {
 		if !contains(Modules, k) {
@@ -541,16 +546,19 @@ func parseSecretBrand(raw string) (string, error) {
 	return s, nil
 }
 
-// SanitizeProjectID is the project id plat5 uses for a name.
+// SanitizeProjectID is the project id plat5 makes of a name.
 func SanitizeProjectID(id string) string { return sanitizeProjectID(id) }
 
+// sanitizeProjectID is docker compose's normalisation of a project name
+// (lowercased, without other characters, without a leading - or _), at most 64.
+// So a folder's default id is the name compose gives a project in that folder.
 func sanitizeProjectID(id string) string {
-	id = projectIDSanitizer.ReplaceAllString(strings.TrimSpace(id), "-")
-	id = strings.Trim(id, "-")
+	id = projectIDInvalid.ReplaceAllString(strings.ToLower(id), "")
+	id = strings.TrimLeft(id, "_-")
 	if len(id) > 64 {
 		id = id[:64]
 	}
-	return strings.ToLower(id)
+	return id
 }
 
 func trimNonEmpty(in []string) []string {

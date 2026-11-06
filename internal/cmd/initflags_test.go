@@ -153,7 +153,8 @@ func TestInitProjectID(t *testing.T) {
 	}
 
 	for id, want := range map[string]string{
-		"Scratch One": `--project-id "Scratch One": a project id is lowercase letters, digits, - and _, at most 64 (--project-id scratch-one)`,
+		"Scratch One": `--project-id "Scratch One": a project id is lowercase letters, digits, - and _, starting with a letter or digit, at most 64 (--project-id scratchone)`,
+		"_scratch":    `--project-id "_scratch": a project id is lowercase letters, digits, - and _, starting with a letter or digit, at most 64 (--project-id scratch)`,
 		"!!!":         `--project-id "!!!": a project id is letters, digits, - and _`,
 	} {
 		dir := filepath.Join(t.TempDir(), "x")
@@ -177,7 +178,7 @@ func TestInitProjectIDOwnerGuard(t *testing.T) {
 	fresh := filepath.Join(filepath.Dir(filepath.Dir(b)), "c", "work")
 	_, err := runInitFlags(t, "", "scratch", noTemplate, fresh)
 	want := `project id "scratch" belongs to the project in ` + a + `, not this one in ` + fresh +
-		`: the stack (compose project plat5-scratch, its volumes) and the state are that project's.
+		`: the stack and the app (compose projects plat5-scratch and scratch, their volumes) and the state are that project's.
 Give this project its own id:
 
   plat5 init --project-id c-work`
