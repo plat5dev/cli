@@ -18,7 +18,7 @@ services:
       - path: /nodes/{node_id}/restore
         node: node_id
         methods: [POST]
-      # For purged roots only: identity answers 409 on any other node.
+      # For purged roots only: identity answers 409 SLUG_NOT_RELEASABLE on any other node.
       - path: /nodes/{node_id}/release-slug
         node: node_id
         methods: [POST]
@@ -66,7 +66,8 @@ services:
         node: node_id
         methods: [DELETE]
       # A person, by user id: ?issuer=&subject= finds one by IdP link. PATCH sets or clears
-      # their name, as an operator's edit: allowed whatever users.name.sync says.
+      # their name under users.name.sync first_sign_in; under each_sign_in it's 409
+      # NAME_OWNED_BY_IDP: the IdP owns names.
       - path: /users
         methods: [GET]
       - path: /users/{user_id}
