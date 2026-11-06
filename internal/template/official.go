@@ -16,7 +16,7 @@ var CustomerConsole = OfficialTemplate{Name: "customer-console", Description: "V
 var OperatorConsole = OfficialTemplate{Name: "operator-console", Description: "Vite + React console for your operators"}
 
 // OfficialTemplate is a first-party template: the repo plat5dev/template-<name>,
-// or the folder template-<name> in a local templates directory.
+// or its checkout, the folder template-<name> in the --sources directory.
 type OfficialTemplate struct {
 	Name        string
 	Description string
@@ -25,7 +25,7 @@ type OfficialTemplate struct {
 // Repo is the template's repo on GitHub, owner/repo.
 func (o OfficialTemplate) Repo() string { return "plat5dev/" + o.Folder() }
 
-// Folder is the template's folder in a local templates directory: the repo's name.
+// Folder is the template's checkout folder in the --sources directory: the repo's name.
 func (o OfficialTemplate) Folder() string { return "template-" + o.Name }
 
 // OfficialNames is the starters' names, for help and errors.

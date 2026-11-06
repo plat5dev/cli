@@ -87,9 +87,9 @@ func TestOwnerRefusesInit(t *testing.T) {
 	err := runInit(initCmd, []string{c})
 	want := `project id "work" belongs to the project in ` + a + `, not this one in ` + c +
 		`: the stack (compose project plat5-work, its volumes) and the state are that project's.
-plat5 init takes the project id from the folder's name: init a folder with another name. A project's id is project_id in its plat5.dev.yml:
+Give this project its own id:
 
-  project_id: c-work`
+  plat5 init --project-id c-work`
 	if err == nil || err.Error() != want {
 		t.Fatalf("init:\n got %v\nwant %s", err, want)
 	}

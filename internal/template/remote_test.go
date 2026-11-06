@@ -37,8 +37,8 @@ func TestResolveSource(t *testing.T) {
 	}
 }
 
-// A first-party name is the repo plat5dev/template-<name>, or the folder of
-// that name in a local templates directory.
+// A first-party name is the repo plat5dev/template-<name>, or its checkout of
+// that name in the sources directory.
 func TestResolveOfficial(t *testing.T) {
 	root := t.TempDir()
 	writeStarter(t, filepath.Join(root, "template-go-fiber-api"))
@@ -49,8 +49,11 @@ func TestResolveOfficial(t *testing.T) {
 	if tpl.Dir != filepath.Join(root, "template-go-fiber-api") || tpl.Manifest.Service != "services/api.yml" {
 		t.Fatalf("%+v", tpl)
 	}
-	if _, err := Resolve(ResolveOptions{LocalRoot: root}, "node-fastify-api"); err == nil || !strings.Contains(err.Error(), "template-node-fastify-api") {
-		t.Fatalf("a missing checkout names its folder: %v", err)
+	if err := os.Mkdir(filepath.Join(root, "template-bun-effect-api"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Resolve(ResolveOptions{LocalRoot: root}, "bun-effect-api"); err == nil || !strings.Contains(err.Error(), "template-bun-effect-api: a checkout with no "+ManifestName) {
+		t.Fatalf("a checkout without a manifest names its folder: %v", err)
 	}
 
 	srv := archiveServer(t, map[string]string{"/plat5dev/template-customer-console/archive/dev.tar.gz": "template-customer-console-dev"},
@@ -62,6 +65,19 @@ func TestResolveOfficial(t *testing.T) {
 	defer console.Close()
 	if console.Origin != "plat5dev/template-customer-console@dev (0123456)" || console.Manifest.App.Web != "http://localhost:3001" {
 		t.Fatalf("%+v", console)
+	}
+
+	// A template with no checkout in the sources directory is downloaded, and its
+	// origin says so.
+	srv = archiveServer(t, map[string]string{"/plat5dev/template-node-fastify-api/archive/master.tar.gz": "template-node-fastify-api-master"},
+		map[string]string{ManifestName: apiManifest})
+	fallback, err := Resolve(ResolveOptions{LocalRoot: root, GitHubBase: srv.URL, HTTPClient: srv.Client()}, "node-fastify-api")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fallback.Close()
+	if want := "plat5dev/template-node-fastify-api@master (0123456), no checkout at " + filepath.Join(root, "template-node-fastify-api"); fallback.Origin != want {
+		t.Fatalf("origin %q, want %q", fallback.Origin, want)
 	}
 
 	srv = archiveServer(t, map[string]string{"/plat5dev/template-operator-console/archive/dev.tar.gz": "template-operator-console-dev"},

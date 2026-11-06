@@ -103,7 +103,7 @@ Local Auth runs in dev mode: `POST /dev/token` mints a token for any email, and 
 
 | Command | |
 |---------|--|
-| `plat5 init [dir] [--template <starter>]` | Create a project. Asks for the starter and the modules; `-y` takes the defaults (`--template none`, Plat5 alone, and every module). `--no-auth`, `--no-observability`, `--no-operator` turn a module off. With a starter, `--no-customer-console` and `--no-operator-console` leave a console out |
+| `plat5 init [dir] [--template <starter>]` | Create a project. Asks for the starter and the modules; `-y` takes the defaults (`--template none`, Plat5 alone, and every module). `--no-auth`, `--no-observability`, `--no-operator` turn a module off. With a starter, `--no-customer-console` and `--no-operator-console` leave a console out. `--project-id <id>` sets the project id ([State](#state)); `--sources <dir>` runs checkouts ([contributors](#contributors-run-checkouts)). Prints where Plat5, each module and each app came from |
 | `plat5 start [-x module,…] [-v]` | Run the stack and your app, apply `plat5.yml`, seed the dev person, print the summary |
 | `plat5 status` | The summary again, and container health |
 | `plat5 stop` | Stop everything. Data (volumes) is kept |
@@ -127,7 +127,7 @@ How `plat5 start` runs the project on your machine. A deployment never reads it,
 `cli:` is the oldest CLI that reads the file. `plat5 init` writes the version that introduced the newest key it uses (`internal/config.SchemaVersion`), not its own version, and every command checks it first: an older CLI says the project needs a newer one and how to upgrade, instead of failing on a key. Raise `SchemaVersion` in a release that adds a key. A dev build, one built without a release version (`go build` from a checkout), passes every floor and says so in one line: `plat5: a dev build (no release version), so plat5.dev.yml's cli: >=0.9.0 is not checked`.
 
 ```yaml
-project_id: my-app                 # default: the directory name; one folder per id, see State
+project_id: my-app                 # plat5 init --project-id, else the directory name; one folder per id, see State
 cli: ">=0.9.0"                     # the oldest plat5 CLI that reads this file
 
 versions:                          # image tags; plat5 init writes the latest of each
@@ -175,7 +175,7 @@ idp:                               # with modules.auth false: the gateway's IdP
   subject_claim: sub               # the person's IdP subject (AUTH_SUBJECT_CLAIM)
 otel:
   endpoint: http://host.docker.internal:4318   # your collector, instead of the observability module
-source:                            # contributors: build from checkouts (see below)
+source:                            # contributors: build from checkouts; plat5 init --sources writes it (see below)
   plat5: ../plat5
 ```
 
@@ -199,7 +199,7 @@ The template contract for an app's compose file: `plat5 start` runs it with `doc
 
 ## Starters
 
-`--template` takes a first-party name (`go-fiber-api`, `node-fastify-api`, `bun-effect-api`: the repo `plat5dev/template-<name>`), `owner/repo` on GitHub, or a `.tar.gz` URL. A starter and the consoles (`plat5dev/template-customer-console`, `plat5dev/template-operator-console`) are downloaded as GitHub archives at `--template-ref` (or `PLAT5_TEMPLATE_REF`; default `master`; a branch, tag, or commit), and nothing is cached: each `init` fetches again. `init` prints the commit each came from. It refuses a directory that already has any file a starter writes, before writing anything.
+`--template` takes a first-party name (`go-fiber-api`, `node-fastify-api`, `bun-effect-api`: the repo `plat5dev/template-<name>`), `owner/repo` on GitHub, or a `.tar.gz` URL. A starter and the consoles (`plat5dev/template-customer-console`, `plat5dev/template-operator-console`) are downloaded as GitHub archives at `--template-ref` (or `PLAT5_TEMPLATE_REF`; default `master`; a branch, tag, or commit), and nothing is cached: each `init` fetches again. `init` prints the commit each came from. With `--sources`, one that has a checkout there is copied from it instead ([contributors](#contributors-run-checkouts)). It refuses a directory that already has any file a starter writes, before writing anything.
 
 From an API starter, `init`:
 
@@ -226,22 +226,19 @@ exclude: [AGENTS.md]                   # paths, from its root, not to copy
 
 The service file's `url` names the app's compose service (`http://api:3000`), so `plat5 start` joins it to the Plat5 network ([your app and its url](#your-app-and-its-url)). Each starter's repo root is also a project you can run alone: its own `plat5.yml`, `plat5.dev.yml` and `services/`, which `init` leaves out.
 
-## Contributors: build from checkouts
+## Contributors: run checkouts
 
-`source:` builds a module's images from a local checkout instead of pulling them, on the same embedded stack (prod targets: what ships). Keys are the `versions:` keys; a sourced module needs no version. `init`'s `--source` takes one `key=path` per checkout and repeats; it fails on a path that isn't a directory.
+`source:` builds a module's images from a local checkout instead of pulling them, on the same embedded stack (prod targets: what ships). Keys are the `versions:` keys; a sourced module needs no version.
 
-```bash
-plat5 init my-app --source plat5=../plat5 --source auth=../auth --source operator=../operator
-cd my-app && plat5 start      # builds, then runs; the first Rust build takes a while
-```
-
-A CLI built from this checkout with no version flag is a dev build ([`cli:`](#plat5devyml)): it runs any project, so `go build -o plat5 ./cmd/plat5` is all the `--source` workflow needs.
-
-`--templates-dir` (or `PLAT5_TEMPLATES_DIR`) reads first-party templates from checkouts instead of GitHub, each in its repo's folder: with `--templates-dir ..`, `go-fiber-api` is `../template-go-fiber-api` and the consoles are `../template-customer-console` and `../template-operator-console`.
+`plat5 init --sources <dir>` runs every checkout in `<dir>`, each in its repo's folder: it writes `source:` for each of `plat5`, `auth` and `operator` that has one, and copies the starter and the consoles from theirs (`template-<name>`). One without a checkout is its release, and init says so on its line. The flag's rules: [plat5 `docs/reference/cli.md`](https://github.com/plat5dev/plat5/blob/master/docs/reference/cli.md#the-local-stack).
 
 ```bash
-plat5 init my-app --templates-dir .. --template go-fiber-api -y
+# beside the siblings, as plat5's scripts/clone-siblings lays them out
+plat5 init scratch --sources .. --project-id scratch-cli --template go-fiber-api -y
+cd scratch && plat5 start     # builds, then runs; the first Rust build takes a while
 ```
+
+A CLI built from this checkout with no version flag is a dev build ([`cli:`](#plat5devyml)): it runs any project, so `go build -o plat5 ./cmd/plat5` is all `--sources` needs.
 
 The embedded compose files (`internal/bundle/stack`) track plat5 HEAD, so a `plat5` checkout at HEAD runs as it will ship. For hot reload of one service, use that repo's own dev compose.
 
@@ -251,7 +248,7 @@ Two copies track plat5 too: the config schema (`internal/schema`, plat5's `schem
 
 `$XDG_STATE_HOME/plat5/projects/<project_id>/` (default `~/.local/state/plat5/…`, on macOS too): `state.json` (the folder that owns the project id, what the last start ran, and the dev keys; mode 0600) and `stack/` (the compose files, the generated override, and the sign-in themes, the operator IdP's included).
 
-One folder per project id: the id names the compose project, its volumes and this state, so a second folder with the same id would take over the first one's stack. `state.json` records the owning folder (absolute, symlinks resolved), the first one to `plat5 start` the id, and `start`, `stop`, `reset`, `status`, `logs` and `init` from any other folder refuse, naming both folders; `doctor` reports it as a failed check. A state with no folder recorded is the next `start`'s. To run both, give one its own id in its `plat5.dev.yml`:
+One folder per project id: the id names the compose project, its volumes and this state, so a second folder with the same id would take over the first one's stack. `state.json` records the owning folder (absolute, symlinks resolved), the first one to `plat5 start` the id, and `start`, `stop`, `reset`, `status`, `logs` and `init` from any other folder refuse, naming both folders; `doctor` reports it as a failed check. A state with no folder recorded is the next `start`'s. To run both, give one its own id: `plat5 init --project-id b-work`, or in an existing project's `plat5.dev.yml`:
 
 ```yaml
 project_id: b-work

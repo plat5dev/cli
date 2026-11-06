@@ -60,8 +60,8 @@ func fixtureTemplates(t *testing.T) string {
 	return root
 }
 
-// runStarterInit runs plat5 init dir -y with a starter from the templates
-// directory, pinned so nothing is fetched. noConsole leaves the customer
+// runStarterInit runs plat5 init dir -y --sources templates with a starter from
+// the templates directory, pinned so nothing is fetched. noConsole leaves the customer
 // console out; --no-operator-console is runOperatorInit's.
 func runStarterInit(t *testing.T, templates, starter, dir string, noConsole bool) error {
 	t.Helper()
@@ -70,10 +70,10 @@ func runStarterInit(t *testing.T, templates, starter, dir string, noConsole bool
 
 func runOperatorInit(t *testing.T, templates, starter, dir string, noConsole, noOperatorConsole bool) error {
 	t.Helper()
-	initTemplate, initTemplatesDir, initYes, initNoCustomerConsole, initNoOperatorConsole = starter, templates, true, noConsole, noOperatorConsole
+	initTemplate, initSourcesDir, initYes, initNoCustomerConsole, initNoOperatorConsole = starter, templates, true, noConsole, noOperatorConsole
 	initVersions = []string{"plat5=v0.9.0", "auth=v0.2.2", "operator=v0.5.0"}
 	defer func() {
-		initTemplate, initTemplatesDir, initYes, initNoCustomerConsole, initNoOperatorConsole = noTemplate, "", false, false, false
+		initTemplate, initSourcesDir, initYes, initNoCustomerConsole, initNoOperatorConsole = noTemplate, "", false, false, false
 		initVersions = nil
 	}()
 	var err error

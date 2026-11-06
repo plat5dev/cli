@@ -31,9 +31,13 @@ const defaultStarter = "bun-effect-api"
 //go:embed initfiles
 var initFiles embed.FS
 
+// initFetch is how init downloads templates: GitHub (tests point it elsewhere).
+var initFetch template.ResolveOptions
+
 var (
 	initTemplate          string
-	initTemplatesDir      string
+	initSourcesDir        string
+	initProjectID         string
 	initTemplateRef       string
 	initYes               bool
 	initForce             bool
@@ -42,7 +46,6 @@ var (
 	initNoOperator        bool
 	initNoCustomerConsole bool
 	initNoOperatorConsole bool
-	initSources           []string
 	initVersions          []string
 )
 
@@ -72,7 +75,10 @@ Each app is a starting point the project owns, not a dependency.
   plat5 init my-app -y                        the defaults: Plat5 alone, every module
   plat5 init my-app --template go-fiber-api -y
 
-Without a directory, the project is the current directory. An existing
+Without a directory, the project is the current directory, and the project id
+is the directory's name; --project-id sets another, written to plat5.dev.yml's
+project_id. One folder per project id: init refuses an id another folder owns.
+An existing
 plat5.yml, service file or operator.routes.yml is kept with --template none; a
 starter refuses a project that has any of its files.
 
@@ -80,10 +86,11 @@ A starter is a first-party name (go-fiber-api, node-fastify-api,
 bun-effect-api), owner/repo on GitHub, or a .tar.gz URL. Starters and the
 consoles are downloaded at --template-ref (default master); nothing is cached.
 
-Contributors: --templates-dir .. reads first-party templates from checkouts
-(../template-go-fiber-api, ../template-customer-console,
-../template-operator-console), and --source plat5=../plat5 builds that module
-from a checkout instead of pulling its image (plat5, auth, operator).`,
+Contributors: --sources .. runs every checkout in .. instead of its release:
+the modules ../plat5, ../auth and ../operator are built from their checkouts,
+and the first-party templates are copied from theirs (../template-go-fiber-api,
+../template-customer-console, ../template-operator-console). One without a
+checkout is its release, and init says so. init prints where each came from.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runInit,
 }
@@ -98,9 +105,9 @@ func init() {
 	f.BoolVar(&initNoOperator, "no-operator", false, "Turn the operator module off")
 	f.BoolVar(&initNoCustomerConsole, "no-customer-console", false, "Don't add the customer console (customer-console/)")
 	f.BoolVar(&initNoOperatorConsole, "no-operator-console", false, "Don't add the operator console (operator-console/)")
-	f.StringVar(&initTemplatesDir, "templates-dir", "", "Read first-party templates from checkouts in this directory (or PLAT5_TEMPLATES_DIR)")
+	f.StringVar(&initSourcesDir, "sources", "", "Run the modules and first-party templates from their checkouts in this directory (plat5, auth, operator, template-<name>)")
+	f.StringVar(&initProjectID, "project-id", "", "The project id, written to plat5.dev.yml (default: the directory's name)")
 	f.StringVar(&initTemplateRef, "template-ref", "", "Git ref of downloaded templates (default master; or PLAT5_TEMPLATE_REF)")
-	f.StringArrayVar(&initSources, "source", nil, "Build a module from a checkout: plat5=../plat5 (repeatable)")
 	f.StringArrayVar(&initVersions, "version", nil, "Pin an image: plat5=v0.9.0 (repeatable; default the latest tag)")
 }
 
@@ -111,8 +118,11 @@ type initChoices struct {
 	noCustomerConsole bool
 	noOperatorConsole bool
 	modules           map[string]bool
-	sources           map[string]string
-	versions          map[string]string
+	// sourcesDir is --sources, absolute; empty without it. sources is each
+	// module with a checkout there, by version key.
+	sourcesDir string
+	sources    map[string]string
+	versions   map[string]string
 }
 
 func runInit(cmd *cobra.Command, args []string) error {
@@ -125,9 +135,9 @@ func runInit(cmd *cobra.Command, args []string) error {
 	if _, err := os.Stat(devPath); err == nil && !initForce {
 		return fmt.Errorf("%s already exists (--force to overwrite it)", devPath)
 	}
-	projectID := config.SanitizeProjectID(filepath.Base(ch.dir))
-	if projectID == "" {
-		return fmt.Errorf("can't make a project id from %q", filepath.Base(ch.dir))
+	projectID, err := initProjectIDFor(ch.dir)
+	if err != nil {
+		return err
 	}
 	if _, err := guardOwner(projectID, ch.dir, true); err != nil {
 		return err
@@ -147,10 +157,9 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 	var lay *layout
 	if ch.starter != "" {
-		opts, err := templateOpts()
-		if err != nil {
-			return err
-		}
+		opts := initFetch
+		opts.LocalRoot = ch.sourcesDir
+		opts.Ref = firstNonEmpty(initTemplateRef, strings.TrimSpace(os.Getenv("PLAT5_TEMPLATE_REF")))
 		if lay, err = loadLayout(opts, ch.starter, !ch.noCustomerConsole, !ch.noOperatorConsole); err != nil {
 			return err
 		}
@@ -177,7 +186,13 @@ func runInit(cmd *cobra.Command, args []string) error {
 	if err := os.WriteFile(devPath, []byte(renderDevYML(projectID, ch, versions, lay)), 0o644); err != nil {
 		return err
 	}
-	fmt.Println("  wrote", config.FileName)
+	fmt.Println("  wrote", config.FileName, "(project_id "+projectID+")")
+
+	fmt.Println()
+	fmt.Println("Plat5 and its modules run from:")
+	for _, line := range moduleSources(ch, versions) {
+		fmt.Println("  " + line)
+	}
 
 	fmt.Println()
 	fmt.Println("Next:")
@@ -188,18 +203,59 @@ func runInit(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// templateOpts reads first-party templates from a local templates directory
-// when one is set; otherwise templates are GitHub archives at the ref.
-func templateOpts() (template.ResolveOptions, error) {
-	opts := template.ResolveOptions{Ref: firstNonEmpty(initTemplateRef, strings.TrimSpace(os.Getenv("PLAT5_TEMPLATE_REF")))}
-	if dir := firstNonEmpty(initTemplatesDir, strings.TrimSpace(os.Getenv("PLAT5_TEMPLATES_DIR"))); dir != "" {
-		abs, err := filepath.Abs(prompt.ExpandPath(dir))
-		if err != nil {
-			return opts, err
+// initProjectIDFor is --project-id, which must already be a project id as plat5
+// makes one, or else dir's name made into one.
+func initProjectIDFor(dir string) (string, error) {
+	if initProjectID == "" {
+		id := config.SanitizeProjectID(filepath.Base(dir))
+		if id == "" {
+			return "", fmt.Errorf("can't make a project id from %q: pass --project-id", filepath.Base(dir))
 		}
-		opts.LocalRoot = abs
+		return id, nil
 	}
-	return opts, nil
+	id := config.SanitizeProjectID(initProjectID)
+	if id == "" {
+		return "", fmt.Errorf("--project-id %q: a project id is letters, digits, - and _", initProjectID)
+	}
+	if id != initProjectID {
+		return "", fmt.Errorf("--project-id %q: a project id is lowercase letters, digits, - and _, at most 64 (--project-id %s)", initProjectID, id)
+	}
+	return id, nil
+}
+
+// sourcesFrom is each module with a checkout in dir, in its repo's folder:
+// dir/plat5, dir/auth, dir/operator.
+func sourcesFrom(dir string) map[string]string {
+	out := map[string]string{}
+	for _, k := range config.Sources {
+		p := filepath.Join(dir, k)
+		if fi, err := os.Stat(p); err == nil && fi.IsDir() {
+			out[k] = p
+		}
+	}
+	return out
+}
+
+// moduleSources is a line per module saying where it runs from: its checkout,
+// or its release image, and with --sources, the checkout it didn't find.
+func moduleSources(ch initChoices, versions map[string]string) []string {
+	var out []string
+	for _, k := range config.Sources {
+		var line string
+		switch {
+		case ch.sources[k] != "":
+			line = "checkout " + ch.sources[k]
+		case versions[k] != "":
+			line = "release image " + versions[k]
+		default:
+			line = "release image, no tag yet (set versions." + k + " in " + config.FileName + ")"
+		}
+		if ch.sourcesDir != "" && ch.sources[k] == "" {
+			line += ", no checkout at " + filepath.Join(ch.sourcesDir, k)
+		}
+		out = append(out, fmt.Sprintf("%-9s %s", k, line))
+	}
+	return out
 }
 
 // writeInitFiles writes plat5.yml (its body given) and identity's and audit's
@@ -261,14 +317,19 @@ func initChoose(cmd *cobra.Command, args []string) (initChoices, error) {
 		sources:           map[string]string{},
 		versions:          map[string]string{},
 	}
-	if err := parsePairs("--source", initSources, config.Sources, ch.sources); err != nil {
-		return ch, err
-	}
 	if err := parsePairs("--version", initVersions, config.Sources, ch.versions); err != nil {
 		return ch, err
 	}
-	if err := resolveSources(ch.sources); err != nil {
-		return ch, err
+	if initSourcesDir != "" {
+		abs, err := filepath.Abs(prompt.ExpandPath(initSourcesDir))
+		if err != nil {
+			return ch, err
+		}
+		if fi, err := os.Stat(abs); err != nil || !fi.IsDir() {
+			return ch, fmt.Errorf("--sources %s: no directory at %s", initSourcesDir, abs)
+		}
+		ch.sourcesDir = abs
+		ch.sources = sourcesFrom(abs)
 	}
 
 	dir := ""
@@ -285,7 +346,7 @@ func initChoose(cmd *cobra.Command, args []string) (initChoices, error) {
 			dir = "my-app"
 			fields = append(fields, huh.NewInput().Title("Project directory").Value(&dir).
 				Validate(func(s string) error {
-					if config.SanitizeProjectID(filepath.Base(s)) == "" {
+					if initProjectID == "" && config.SanitizeProjectID(filepath.Base(s)) == "" {
 						return errors.New("pick a name with letters or digits")
 					}
 					return nil
@@ -364,28 +425,8 @@ func parsePairs(flag string, pairs, allowed []string, out map[string]string) err
 	return nil
 }
 
-// resolveSources makes each --source path absolute, and fails on one that isn't a
-// directory, naming it.
-func resolveSources(sources map[string]string) error {
-	for k, v := range sources {
-		abs, err := filepath.Abs(prompt.ExpandPath(v))
-		if err != nil {
-			return err
-		}
-		if fi, err := os.Stat(abs); err != nil || !fi.IsDir() {
-			msg := fmt.Sprintf("--source %s=%s: no directory at %s", k, v, abs)
-			if strings.Contains(v, ",") {
-				msg += " (one --source per checkout: --source plat5=../plat5 --source operator=../operator)"
-			}
-			return errors.New(msg)
-		}
-		sources[k] = abs
-	}
-	return nil
-}
-
 // resolveVersions pins every image to its latest tag, unless a --version sets it
-// or a --source builds it. A pin the chosen modules need must resolve; the rest
+// or it is built from a checkout. A pin the chosen modules need must resolve; the rest
 // are written when they can be, so turning a module on later just works.
 func resolveVersions(ch initChoices) (map[string]string, error) {
 	cfg := config.Resolved{Modules: ch.modules}

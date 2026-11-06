@@ -18,8 +18,9 @@ const DefaultRef = "master"
 
 // ResolveOptions say where templates are loaded from.
 type ResolveOptions struct {
-	// LocalRoot, if set, is a directory of first-party template checkouts, each
-	// in its repo's folder (template-go-fiber-api, template-customer-console).
+	// LocalRoot, if set, is a directory of checkouts (plat5 init --sources): a
+	// first-party template whose repo's folder is there (template-go-fiber-api,
+	// template-customer-console) loads from it; one without is downloaded.
 	LocalRoot string
 	// Ref is the git branch, tag, or commit of a GitHub archive. Empty: DefaultRef.
 	Ref string
@@ -65,8 +66,8 @@ func Resolve(opts ResolveOptions, name string) (*Template, error) {
 }
 
 // ResolveCustomerConsole loads the customer console the way Resolve loads a
-// first-party starter: from the local templates directory, else GitHub at the
-// same ref.
+// first-party starter: from its checkout in LocalRoot, else GitHub at the same
+// ref.
 func ResolveCustomerConsole(opts ResolveOptions) (*Template, error) {
 	return resolveOfficial(opts, CustomerConsole)
 }
@@ -78,14 +79,23 @@ func ResolveOperatorConsole(opts ResolveOptions) (*Template, error) {
 }
 
 func resolveOfficial(opts ResolveOptions, off OfficialTemplate) (*Template, error) {
-	if opts.LocalRoot != "" {
-		dir := filepath.Join(opts.LocalRoot, off.Folder())
-		if _, err := os.Stat(filepath.Join(dir, ManifestName)); err != nil {
-			return nil, fmt.Errorf("%s: no %s (the templates directory holds each template in its repo's folder)", dir, ManifestName)
-		}
-		return LoadDir(dir)
+	if opts.LocalRoot == "" {
+		return resolveRemote(opts, githubArchive(opts, off.Repo()))
 	}
-	return resolveRemote(opts, githubArchive(opts, off.Repo()))
+	dir := filepath.Join(opts.LocalRoot, off.Folder())
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		// No checkout: the release, and its Origin says why.
+		tpl, err := resolveRemote(opts, githubArchive(opts, off.Repo()))
+		if err != nil {
+			return nil, err
+		}
+		tpl.Origin += ", no checkout at " + dir
+		return tpl, nil
+	}
+	if _, err := os.Stat(filepath.Join(dir, ManifestName)); err != nil {
+		return nil, fmt.Errorf("%s: a checkout with no %s (a template's checkout is its repo, the manifest at its root)", dir, ManifestName)
+	}
+	return LoadDir(dir)
 }
 
 // resolveRemote downloads src into a temp dir and loads it.
