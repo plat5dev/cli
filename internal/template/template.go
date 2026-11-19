@@ -85,7 +85,7 @@ var noise = []string{".git", "node_modules", "dist", ".env", "*.local", ".DS_Sto
 // setup, at its root. plat5 init doesn't copy them into the app's folder: an API
 // starter's config and service files go to the project's root instead.
 var projectFiles = []string{
-	ManifestName, "plat5.yml", "plat5.dev.yml", "services", ".github",
+	ManifestName, "plat5.yml", "plat5.local.yml", "services", ".github",
 	"data/*.db", "data/*.db-*",
 }
 

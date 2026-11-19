@@ -1,5 +1,5 @@
 // Package stack is a project's local stack as one compose project: Plat5 (core)
-// and the modules plat5.dev.yml turns on, from the compose files embedded in the CLI.
+// and the modules plat5.local.yml turns on, from the compose files embedded in the CLI.
 // It owns the compose env, the generated override, and the app's own compose.
 package stack
 
@@ -28,7 +28,7 @@ const operatorRoutesPath = "/etc/operator/routes.yml"
 // Stack is one project's local stack.
 type Stack struct {
 	Config config.Resolved
-	// Modules is what this stack runs beside core: plat5.dev.yml's, minus start -x.
+	// Modules is what this stack runs beside core: plat5.local.yml's, minus start -x.
 	Modules []string
 	// Dir is where the compose files are written (the project's state dir).
 	Dir string
@@ -52,7 +52,7 @@ func New(cfg config.Resolved, exclude []string) (*Stack, error) {
 		}
 	}
 	if !contains(mods, config.ModuleAuth) && cfg.IdP.Issuer == "" {
-		return nil, fmt.Errorf("-x auth: the gateway needs an IdP; set idp: in plat5.dev.yml and turn modules.auth off")
+		return nil, fmt.Errorf("-x auth: the gateway needs an IdP; set idp: in plat5.local.yml and turn modules.auth off")
 	}
 	dir, err := state.Dir(cfg.ProjectID)
 	if err != nil {
@@ -104,7 +104,7 @@ func (s *Stack) AppRunner() *compose.Runner {
 	return &r
 }
 
-// AppRunnerFor is docker compose for an app compose file: plat5.dev.yml's, or
+// AppRunnerFor is docker compose for an app compose file: plat5.local.yml's, or
 // the one an earlier start ran. The app is its own compose project, named after
 // the project id, so two folders with different ids never share its containers,
 // volumes or images.
@@ -225,11 +225,13 @@ func (s *Stack) Env() []string {
 		env["IDP_JWKS_URI"] = "http://auth:5000/.well-known/jwks.json"
 		env["IDP_AUDIENCES"] = strings.Join(c.AuthClients(), ",")
 		env["IDP_SUBJECT_CLAIM"] = "properties.user_id"
+		env["IDP_NAME_CLAIMS"] = config.DefaultIdPNameClaims
 	} else {
 		env["IDP_ISSUER"] = c.IdP.Issuer
 		env["IDP_JWKS_URI"] = c.IdP.JWKSURI
 		env["IDP_AUDIENCES"] = strings.Join(c.IdP.Audiences, ",")
 		env["IDP_SUBJECT_CLAIM"] = firstNonEmpty(c.IdP.SubjectClaim, "sub")
+		env["IDP_NAME_CLAIMS"] = c.IdP.NameClaimsEnv()
 	}
 
 	for key, name := range map[string]string{

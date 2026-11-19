@@ -28,11 +28,16 @@ const (
 )
 
 var (
+	flagFiles            []string
 	flagOut              string
 	flagDetailedExitcode bool
 	flagAutoApprove      bool
 	flagRevision         int64
 )
+
+func addFileFlag(cmd *cobra.Command) {
+	cmd.Flags().StringArrayVarP(&flagFiles, "file", "f", nil, "Config file (repeatable: later files merge over earlier ones)")
+}
 
 // exitError ends the command with a code, after its output.
 type exitError struct{ code int }
@@ -50,17 +55,22 @@ func ExitCode(err error) int {
 }
 
 var validateCmd = &cobra.Command{
-	Use:   "validate [plat5.yml]",
+	Use:   "validate [-f file ...] [plat5.yml]",
 	Short: "Check plat5.yml and its service files against the schema, offline",
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  runValidate,
+	Long: `Check plat5.yml and its service files against the schema, offline.
+
+Pass -f multiple times to merge environment overlays (RFC 7396 merge-patch):
+  plat5 validate -f plat5.yml -f plat5.prod.yml`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runValidate,
 }
 
 var planCmd = &cobra.Command{
-	Use:   "plan [plat5.yml]",
+	Use:   "plan [-f file ...] [plat5.yml]",
 	Short: "Show what applying the config would change (a dry run)",
 	Long: `Show what applying the config would change: a dry run on the control plane.
 
+  -f file               config file; repeatable to merge overlays (-f plat5.yml -f plat5.prod.yml)
   -out plan.json        also save the plan: the apply body, the config with expect
   --detailed-exitcode   exit 0 with no changes, 2 with changes, 1 on an error`,
 	Args: cobra.MaximumNArgs(1),
@@ -68,12 +78,13 @@ var planCmd = &cobra.Command{
 }
 
 var applyCmd = &cobra.Command{
-	Use:   "apply [plat5.yml | plan.json]",
+	Use:   "apply [-f file ...] [plat5.yml | plan.json]",
 	Short: "Plan, confirm, and apply the config",
 	Long: `Plan, show the diff, ask to confirm, and apply. Then wait up to 10 seconds
 for the gateway's replicas to load the new revision, and say where they stand.
 A replica that refused it exits 1, though the revision is applied.
 
+Pass -f multiple times to merge environment overlays (plat5 apply -f plat5.yml -f plat5.prod.yml).
 A saved plan (plat5 plan -out plan.json) applies as it is, with no prompt.
 --auto-approve skips the prompt. A blocked plan never applies.`,
 	Args: cobra.MaximumNArgs(1),
@@ -93,6 +104,9 @@ var configPullCmd = &cobra.Command{
 }
 
 func init() {
+	addFileFlag(validateCmd)
+	addFileFlag(planCmd)
+	addFileFlag(applyCmd)
 	planCmd.Flags().StringVar(&flagOut, "out", "", "Save the plan to this file")
 	planCmd.Flags().BoolVar(&flagDetailedExitcode, "detailed-exitcode", false, "Exit 0 with no changes, 2 with changes, 1 on an error")
 	applyCmd.Flags().BoolVar(&flagAutoApprove, "auto-approve", false, "Apply without the prompt")
@@ -118,23 +132,40 @@ func normalizeArgs(args []string) []string {
 
 // configClient reaches the control plane for config commands: --control-plane-url
 // or PLAT5_CONTROL_PLANE_URL, --admin-token or PLAT5_ADMIN_TOKEN, else the local
-// stack's.
-func configClient() *controlplane.Client {
-	url := firstNonEmpty(flagControlPlaneURL, os.Getenv("PLAT5_CONTROL_PLANE_URL"), defaultControlPlaneURL)
-	token := firstNonEmpty(flagAdminToken, os.Getenv("PLAT5_ADMIN_TOKEN"), config.DefaultAdminToken)
-	return controlplane.New(url, token)
-}
-
-func configPath(args []string) string {
-	if len(args) == 1 {
-		return args[0]
+// project's plat5.local.yml (when present), else the local defaults.
+func configClient() (*controlplane.Client, error) {
+	url := firstNonEmpty(flagControlPlaneURL, os.Getenv("PLAT5_CONTROL_PLANE_URL"))
+	token := firstNonEmpty(flagAdminToken, os.Getenv("PLAT5_ADMIN_TOKEN"))
+	if url == "" || token == "" {
+		cfg, err := config.Load(config.Overrides{ControlPlaneURL: url, AdminToken: token})
+		if err == nil {
+			url = cfg.ControlPlaneURL
+			token = cfg.AdminToken
+		} else if !errors.Is(err, config.ErrNoProject{}) {
+			return nil, err
+		}
 	}
-	return defaultConfigFile
+	url = firstNonEmpty(url, defaultControlPlaneURL)
+	token = firstNonEmpty(token, config.DefaultAdminToken)
+	return controlplane.New(url, token), nil
 }
 
-// loadValid reads the config and checks it against the schema.
-func loadValid(path string) (*plat5yml.Config, error) {
-	cfg, err := plat5yml.Load(path)
+func configPaths(args []string) ([]string, error) {
+	if len(flagFiles) > 0 {
+		if len(args) > 0 {
+			return nil, fmt.Errorf("cannot combine -f with a positional file argument")
+		}
+		return flagFiles, nil
+	}
+	if len(args) == 1 {
+		return []string{args[0]}, nil
+	}
+	return []string{defaultConfigFile}, nil
+}
+
+// loadValid reads the config (base plus any overlays) and checks it against the schema.
+func loadValid(paths ...string) (*plat5yml.Config, error) {
+	cfg, err := plat5yml.LoadMany(paths...)
 	if err != nil {
 		return nil, err
 	}
@@ -157,9 +188,15 @@ func explain(cfg *plat5yml.Config, err error) error {
 	if !errors.As(err, &ce) {
 		return err
 	}
-	if len(ce.Fields) > 0 && cfg != nil {
-		for _, line := range cfg.Describe(ce.Fields) {
-			fmt.Fprintln(os.Stderr, "  "+line)
+	if len(ce.Fields) > 0 {
+		if cfg != nil {
+			for _, line := range cfg.Describe(ce.Fields) {
+				fmt.Fprintln(os.Stderr, "  "+line)
+			}
+		} else {
+			for _, f := range ce.Fields {
+				fmt.Fprintln(os.Stderr, "  "+f.Error())
+			}
 		}
 		return fmt.Errorf("the control plane refused the config (%s)", ce.Code)
 	}
@@ -178,12 +215,15 @@ func orNone(v any) any {
 }
 
 func runValidate(cmd *cobra.Command, args []string) error {
-	path := configPath(args)
-	cfg, err := loadValid(path)
+	paths, err := configPaths(args)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("%s is valid: %d services.\n", path, len(cfg.Files))
+	cfg, err := loadValid(paths...)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%s is valid: %d services.\n", strings.Join(paths, " + "), len(cfg.Files))
 	return nil
 }
 
@@ -200,11 +240,19 @@ func runPlan(cmd *cobra.Command, args []string) error {
 }
 
 func plan(args []string) error {
-	cfg, err := loadValid(configPath(args))
+	paths, err := configPaths(args)
 	if err != nil {
 		return err
 	}
-	p, err := configClient().DryRun(cfg.Flat)
+	cfg, err := loadValid(paths...)
+	if err != nil {
+		return err
+	}
+	client, err := configClient()
+	if err != nil {
+		return err
+	}
+	p, err := client.DryRun(cfg.Flat)
 	if err != nil {
 		return explain(cfg, err)
 	}
@@ -241,7 +289,13 @@ func writeSavedPlan(path string, flat map[string]any, p *controlplane.Plan) erro
 }
 
 func runApply(cmd *cobra.Command, args []string) error {
-	client := configClient()
+	if len(flagFiles) > 0 && len(args) > 0 {
+		return fmt.Errorf("cannot combine -f with a positional file argument")
+	}
+	client, err := configClient()
+	if err != nil {
+		return err
+	}
 	if len(args) == 1 && strings.EqualFold(filepath.Ext(args[0]), ".json") {
 		// A saved plan: saving it was the review.
 		data, err := os.ReadFile(args[0])
@@ -260,7 +314,11 @@ func runApply(cmd *cobra.Command, args []string) error {
 		return reportGateway(client, applied.Revision, os.Stdout, "")
 	}
 
-	cfg, err := loadValid(configPath(args))
+	paths, err := configPaths(args)
+	if err != nil {
+		return err
+	}
+	cfg, err := loadValid(paths...)
 	if err != nil {
 		return err
 	}
@@ -534,10 +592,14 @@ func runConfigPull(cmd *cobra.Command, args []string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	if found := yamlFiles(dir); len(found) > 0 {
-		return fmt.Errorf("%s already holds %s: pull into a directory with no .yml files", dir, strings.Join(found, ", "))
+	if found := existingConfigTargets(dir); len(found) > 0 {
+		return fmt.Errorf("%s already holds %s: pull into a directory without plat5.yml or services/", dir, strings.Join(found, ", "))
 	}
-	rev, err := configClient().GetRevision(flagRevision)
+	client, err := configClient()
+	if err != nil {
+		return err
+	}
+	rev, err := client.GetRevision(flagRevision)
 	if err != nil {
 		return err
 	}
@@ -549,18 +611,14 @@ func runConfigPull(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// yamlFiles is every .yml or .yaml file in dir and dir/services.
-func yamlFiles(dir string) []string {
+// existingConfigTargets reports whether plat5.yml or services/ already exists in dir.
+func existingConfigTargets(dir string) []string {
 	var out []string
-	for _, d := range []string{dir, filepath.Join(dir, "services")} {
-		entries, _ := os.ReadDir(d)
-		for _, e := range entries {
-			ext := strings.ToLower(filepath.Ext(e.Name()))
-			if !e.IsDir() && (ext == ".yml" || ext == ".yaml") {
-				rel, _ := filepath.Rel(dir, filepath.Join(d, e.Name()))
-				out = append(out, rel)
-			}
-		}
+	if _, err := os.Stat(filepath.Join(dir, "plat5.yml")); err == nil {
+		out = append(out, "plat5.yml")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "services")); err == nil {
+		out = append(out, "services/")
 	}
 	return out
 }

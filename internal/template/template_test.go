@@ -36,7 +36,7 @@ func writeStarter(t *testing.T, dir string) {
 	writeFiles(t, dir, map[string]string{
 		ManifestName:            apiManifest,
 		"plat5.yml":             "services: [services/api.yml]\n",
-		"plat5.dev.yml":         "project_id: demo-api\n",
+		"plat5.local.yml":       "project_id: demo-api\n",
 		"services/api.yml":      "api: {url: \"http://api:3000\"}\n",
 		"routes.operator.yml":   "services: {}\n",
 		".github/workflows/ci":  "on: push\n",
@@ -77,7 +77,7 @@ func TestCopy(t *testing.T) {
 		".env.example":          true,
 		ManifestName:            false,
 		"plat5.yml":             false,
-		"plat5.dev.yml":         false,
+		"plat5.local.yml":       false,
 		"services":              false,
 		"routes.operator.yml":   false,
 		".github":               false,

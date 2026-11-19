@@ -36,7 +36,7 @@ func fixtureTemplates(t *testing.T) string {
 	writeFiles(t, filepath.Join(root, "template-go-fiber-api"), map[string]string{
 		"plat5.template.yml":    "name: go-fiber-api\nkind: api\nconfig: plat5.yml\noperator_routes: ./routes.operator.yml\nsubstitute: [go.mod]\napp:\n  compose: docker-compose.yml\nnext:\n  - go run .\n",
 		"plat5.yml":             "# the starter's own\n" + string(mustInitFile(t, "initfiles/plat5.yml")) + "  - services/api.yml\n",
-		"plat5.dev.yml":         "project_id: go-fiber-api\n",
+		"plat5.local.yml":       "project_id: go-fiber-api\n",
 		"services/api.yml":      "api:\n  url: http://api:3000\n  scopes:\n    organization:\n      upstream_prefix: /orgs/{organization.id}\n      routes:\n        - path: /tasks\n          methods:\n            GET: { required_permissions: [organization:read] }\n",
 		"services/identity.yml": string(mustInitFile(t, "initfiles/services/identity.yml")),
 		"services/audit.yml":    "# the starter's\n" + string(mustInitFile(t, "initfiles/services/audit.yml")),
@@ -85,7 +85,7 @@ func runOperatorInit(t *testing.T, templates, starter, dir string, noConsole, no
 // A starter lands in api/, the customer console beside it, the starter's
 // service file in services/ and plat5.yml with the console's origin, a compose
 // file that includes each app's, operator.routes.yml with the starter's
-// services, and a plat5.dev.yml that runs it all.
+// services, and a plat5.local.yml that runs it all.
 func TestInitStarter(t *testing.T) {
 	templates := fixtureTemplates(t)
 	dir := filepath.Join(t.TempDir(), "demo")
@@ -106,7 +106,7 @@ func TestInitStarter(t *testing.T) {
 		"services/audit.yml":                  true,
 		"README.md":                           true,
 		"api/plat5.yml":                       false,
-		"api/plat5.dev.yml":                   false,
+		"api/plat5.local.yml":                 false,
 		"api/services":                        false,
 		"api/plat5.template.yml":              false,
 		"api/routes.operator.yml":             false,
@@ -311,7 +311,7 @@ func TestInitNoneWritesOperatorRoutes(t *testing.T) {
 	}
 	dev, _ := os.ReadFile(filepath.Join(dir, config.FileName))
 	if !strings.Contains(string(dev), "operator:\n  routes: ./operator.routes.yml\n") || strings.Contains(string(dev), "console:") {
-		t.Errorf("plat5.dev.yml:\n%s", dev)
+		t.Errorf("plat5.local.yml:\n%s", dev)
 	}
 
 	mine := []byte("services: {}\n")
@@ -325,7 +325,7 @@ func TestInitNoneWritesOperatorRoutes(t *testing.T) {
 	}
 }
 
-// -y without --template is Plat5 alone: the config and plat5.dev.yml, no apps.
+// -y without --template is Plat5 alone: the config and plat5.local.yml, no apps.
 func TestInitYesIsPlat5Alone(t *testing.T) {
 	if def := initCmd.Flags().Lookup("template").DefValue; def != noTemplate {
 		t.Fatalf("--template defaults to %q", def)

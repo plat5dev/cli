@@ -89,31 +89,80 @@ var kindPath = regexp.MustCompile(`^/[a-z][a-z0-9-]{1,61}[a-z0-9]/\{([a-z][a-z0-
 // ReadKinds reads plat5.yml's kinds, in the file's order. It checks only what
 // the generator needs: each kind's path and parent.
 func ReadKinds(data []byte) ([]Kind, error) {
-	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return nil, err
-	}
-	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
-		return nil, fmt.Errorf("must be a mapping")
-	}
-	top := doc.Content[0]
-	var kinds *yaml.Node
-	for i := 0; i+1 < len(top.Content); i += 2 {
-		if top.Content[i].Value == "kinds" {
-			kinds = top.Content[i+1]
-		}
-	}
-	if kinds == nil || kinds.Kind != yaml.MappingNode || len(kinds.Content) == 0 {
+	return ReadKindsMany(data)
+}
+
+// ReadKindsMany reads kinds from a base plat5.yml and zero or more overlay
+// files, preserving declaration order and applying RFC 7396 merge-patch
+// semantics to kinds (a null kind deletes it; a mapping merges into it).
+func ReadKindsMany(docs ...[]byte) ([]Kind, error) {
+	if len(docs) == 0 {
 		return nil, fmt.Errorf("kinds: at least one kind is required")
+	}
+	var order []string
+	raw := map[string]map[string]any{}
+	for _, data := range docs {
+		var doc yaml.Node
+		if err := yaml.Unmarshal(data, &doc); err != nil {
+			return nil, err
+		}
+		if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+			return nil, fmt.Errorf("must be a mapping")
+		}
+		top := doc.Content[0]
+		var kinds *yaml.Node
+		found := false
+		for i := 0; i+1 < len(top.Content); i += 2 {
+			if top.Content[i].Value == "kinds" {
+				kinds = top.Content[i+1]
+				found = true
+			}
+		}
+		if !found {
+			continue
+		}
+		if kinds.Tag == "!!null" {
+			order = nil
+			raw = map[string]map[string]any{}
+			continue
+		}
+		if kinds.Kind != yaml.MappingNode {
+			return nil, fmt.Errorf("kinds: must be a mapping")
+		}
+		for i := 0; i+1 < len(kinds.Content); i += 2 {
+			name := kinds.Content[i].Value
+			val := kinds.Content[i+1]
+			if val.Tag == "!!null" {
+				delete(raw, name)
+				continue
+			}
+			var fields map[string]any
+			if err := val.Decode(&fields); err != nil {
+				return nil, fmt.Errorf("kinds.%s: %w", name, err)
+			}
+			existing, ok := raw[name]
+			if !ok {
+				existing = map[string]any{}
+				raw[name] = existing
+				order = append(order, name)
+			}
+			for fk, fv := range fields {
+				if fv == nil {
+					delete(existing, fk)
+				} else {
+					existing[fk] = fv
+				}
+			}
+		}
 	}
 	var out []Kind
 	names := map[string]bool{}
-	for i := 0; i+1 < len(kinds.Content); i += 2 {
-		k := Kind{Name: kinds.Content[i].Value}
-		var fields map[string]any
-		if err := kinds.Content[i+1].Decode(&fields); err != nil {
-			return nil, fmt.Errorf("kinds.%s: %w", k.Name, err)
+	for _, name := range order {
+		fields, ok := raw[name]
+		if !ok {
+			continue
 		}
+		k := Kind{Name: name}
 		k.Parent, _ = fields["parent"].(string)
 		k.Path, _ = fields["path"].(string)
 		k.ListPermission, _ = fields["list_permission"].(string)
@@ -125,6 +174,9 @@ func ReadKinds(data []byte) ([]Kind, error) {
 		}
 		names[k.Name] = true
 		out = append(out, k)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("kinds: at least one kind is required")
 	}
 	for _, k := range out {
 		if k.Parent != "" && !names[k.Parent] {
@@ -309,21 +361,28 @@ func scalar(s string) string {
 	return strings.TrimRight(string(out), "\n")
 }
 
-// WriteFiles generates identity's and audit's files from the plat5.yml at
-// path, into services/ beside it, overwriting them; an existing file's url,
-// timeouts and max_body_bytes are kept. It returns the files written,
-// relative to plat5.yml's directory.
-func WriteFiles(path string) ([]string, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
+// WriteFiles generates identity's and audit's files from the plat5.yml (plus
+// any overlay files) in paths, into services/ beside paths[0], overwriting
+// them; an existing file's url, timeouts and max_body_bytes are kept. It
+// returns the files written, relative to paths[0]'s directory.
+func WriteFiles(paths ...string) ([]string, error) {
+	if len(paths) == 0 {
+		return nil, fmt.Errorf("at least one config file is required")
 	}
-	kinds, err := ReadKinds(data)
+	docs := make([][]byte, 0, len(paths))
+	for _, p := range paths {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return nil, err
+		}
+		docs = append(docs, data)
+	}
+	kinds, err := ReadKindsMany(docs...)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", filepath.Base(path), err)
+		return nil, fmt.Errorf("%s: %w", filepath.Base(paths[0]), err)
 	}
 	identity, audit := Generate(kinds)
-	dir := filepath.Dir(path)
+	dir := filepath.Dir(paths[0])
 	// Read and render both before writing either, so a refusal writes nothing.
 	files := map[string][]byte{}
 	var written []string

@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// Name is a published port, as plat5.dev.yml ports: names it.
+// Name is a published port, as plat5.local.yml ports: names it.
 type Name string
 
 const (
@@ -85,7 +85,7 @@ func Check(want map[Name]int, owned func(port int) bool) error {
 	if len(busy) == 0 {
 		return nil
 	}
-	return fmt.Errorf("ports in use: %s\n  Stop what holds them (another Plat5 project: plat5 stop there),\n  or pin other ports in plat5.yml under ports:", strings.Join(busy, ", "))
+	return fmt.Errorf("ports in use: %s\n  Stop what holds them (another Plat5 project: plat5 stop there),\n  or pin other ports in plat5.local.yml under ports:", strings.Join(busy, ", "))
 }
 
 // Validate rejects a port out of range, or two names on one port.

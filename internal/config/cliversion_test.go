@@ -21,7 +21,7 @@ func TestCLIRequirement(t *testing.T) {
 		version string
 		err     string // empty: parses
 	}{
-		{"0.6.2", "this project needs plat5 0.7.0 or newer (plat5.dev.yml cli: >=0.7.0), and this is plat5 0.6.2. Upgrade: brew upgrade plat5"},
+		{"0.6.2", "this project needs plat5 0.7.0 or newer (plat5.local.yml cli: >=0.7.0), and this is plat5 0.6.2. Upgrade: brew upgrade plat5"},
 		{"v0.6.9", "needs plat5 0.7.0 or newer"},
 		{"0.7.0", ""},
 		{"1.0.0", ""},
@@ -47,7 +47,7 @@ func TestDevBuildPassesFloors(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if got := out.String(); got != "plat5: a dev build (no release version), so plat5.dev.yml's cli: >=99.0.0 is not checked\n" {
+	if got := out.String(); got != "plat5: a dev build (no release version), so plat5.local.yml's cli: >=99.0.0 is not checked\n" {
 		t.Fatalf("got %q", got)
 	}
 	out = withCLI(t, "dev")

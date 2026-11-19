@@ -18,7 +18,7 @@ import (
 
 var doctorCmd = &cobra.Command{
 	Use:   "doctor",
-	Short: "Check Docker, plat5.dev.yml, plat5.yml, and ports",
+	Short: "Check Docker, plat5.local.yml, plat5.yml, and ports",
 	Args:  cobra.NoArgs,
 	RunE:  runDoctor,
 }

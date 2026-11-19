@@ -112,6 +112,7 @@ services:
       AUTH_JWKS_URI: ${IDP_JWKS_URI:?}
       AUTH_ALLOWED_AUDIENCES: ${IDP_AUDIENCES:?}
       AUTH_SUBJECT_CLAIM: ${IDP_SUBJECT_CLAIM:?}
+      AUTH_NAME_CLAIMS: ${IDP_NAME_CLAIMS}
       IDENTITY_INTERNAL_URL: http://identity:3001
       # How long the gateway trusts an admit answer, and a refusal. It is how
       # long a revoke, suspend, or role change takes to reach the edge. Short

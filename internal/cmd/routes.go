@@ -19,24 +19,28 @@ var routesCmd = &cobra.Command{
 }
 
 var routesListCmd = &cobra.Command{
-	Use:   "list [plat5.yml]",
+	Use:   "list [-f file ...] [plat5.yml]",
 	Short: "Every service's expanded routes, identity's and audit's included",
 	Long: `Every service's expanded routes, identity's and audit's included, as the
 gateway matches them: method, public path, scope, upstream and permissions,
 sorted by path. The config goes to the control plane as a dry run, and the
 routes are the ones it expanded, so it needs a control plane, local or
-deployed. Nothing is applied.`,
+deployed. Nothing is applied.
+
+Pass -f multiple times to merge environment overlays (-f plat5.yml -f plat5.prod.yml).`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runRoutesList,
 }
 
 var routesGenerateCmd = &cobra.Command{
-	Use:   "generate [plat5.yml]",
+	Use:   "generate [-f file ...] [plat5.yml]",
 	Short: "Write identity's and audit's routes for every kind",
 	Long: `Write identity's and audit's routes for every kind in plat5.yml, overwriting
 services/identity.yml and services/audit.yml beside it. Each file's url,
 timeouts and max_body_bytes are kept when it exists; everything else is
 written afresh. Offline.
+
+Pass -f multiple times to merge environment overlays (-f plat5.yml -f plat5.prod.yml).
 
 Regenerate after adding or removing a kind, or changing a kind's path or
 list_permission. Then review the diff (git diff) and delete again any route
@@ -47,11 +51,17 @@ its services list names them.`,
 }
 
 func init() {
+	addFileFlag(routesListCmd)
+	addFileFlag(routesGenerateCmd)
 	routesCmd.AddCommand(routesListCmd, routesGenerateCmd)
 }
 
 func runRoutesGenerate(cmd *cobra.Command, args []string) error {
-	written, err := routegen.WriteFiles(configPath(args))
+	paths, err := configPaths(args)
+	if err != nil {
+		return err
+	}
+	written, err := routegen.WriteFiles(paths...)
 	if err != nil {
 		return err
 	}
@@ -63,11 +73,19 @@ func runRoutesGenerate(cmd *cobra.Command, args []string) error {
 }
 
 func runRoutesList(cmd *cobra.Command, args []string) error {
-	cfg, err := loadValid(configPath(args))
+	paths, err := configPaths(args)
 	if err != nil {
 		return err
 	}
-	p, err := configClient().DryRun(cfg.Flat)
+	cfg, err := loadValid(paths...)
+	if err != nil {
+		return err
+	}
+	client, err := configClient()
+	if err != nil {
+		return err
+	}
+	p, err := client.DryRun(cfg.Flat)
 	if err != nil {
 		return explain(cfg, err)
 	}

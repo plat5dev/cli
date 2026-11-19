@@ -70,6 +70,7 @@ func TestCoreEnv(t *testing.T) {
 	for _, want := range []string{
 		"AUTH_ALLOWED_AUDIENCES: ${IDP_AUDIENCES:?}",
 		"AUTH_SUBJECT_CLAIM: ${IDP_SUBJECT_CLAIM:?}",
+		"AUTH_NAME_CLAIMS: ${IDP_NAME_CLAIMS}",
 		"IDENTITY_INTERNAL_URL: http://identity:3001",
 		"ADMIT_CACHE_TTL: 5s",
 	} {

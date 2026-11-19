@@ -12,22 +12,18 @@ import (
 	"github.com/plat5dev/cli/internal/plat5yml"
 )
 
-// applyForStart applies plat5.yml as plat5 apply does, without the prompt: start
-// is not interactive. The first apply, against revision 0, prints only the
-// summary: the whole config is new. A blocked plan is printed and refused. Then it reports
-// where the gateway's replicas stand.
-func applyForStart(client *controlplane.Client, path string, w io.Writer) (*plat5yml.Config, error) {
-	cfg, err := loadValid(path)
-	if err != nil {
-		return nil, err
-	}
+// applyForStart applies an already-loaded plat5.yml as plat5 apply does,
+// without the prompt: start is not interactive. The first apply, against
+// revision 0, prints only the summary: the whole config is new. A blocked plan
+// is printed and refused. Then it reports where the gateway's replicas stand.
+func applyForStart(client *controlplane.Client, cfg *plat5yml.Config, w io.Writer) error {
 	p, err := client.DryRun(cfg.Flat)
 	if err != nil {
-		return nil, explain(cfg, err)
+		return explain(cfg, err)
 	}
 	if p.Empty() {
-		fmt.Fprintf(w, "  No changes: revision %d matches %s.\n", p.Revision, path)
-		return cfg, nil
+		fmt.Fprintf(w, "  No changes: revision %d matches %s.\n", p.Revision, cfg.Path)
+		return nil
 	}
 	if p.Revision == 0 && p.Summary.Blocked == 0 {
 		s := p.Summary
@@ -36,17 +32,14 @@ func applyForStart(client *controlplane.Client, path string, w io.Writer) (*plat
 		printPlan(w, p)
 	}
 	if p.Summary.Blocked > 0 {
-		return nil, fmt.Errorf("the plan has blocked changes; nothing applied")
+		return fmt.Errorf("the plan has blocked changes; nothing applied")
 	}
 	applied, err := client.ApplyConfig(applyBody(cfg.Flat, p.Revision))
 	if err != nil {
-		return nil, explain(cfg, err)
+		return explain(cfg, err)
 	}
 	fmt.Fprintf(w, "  Applied revision %d.\n", applied.Revision)
-	if err := reportGateway(client, applied.Revision, w, "  "); err != nil {
-		return nil, err
-	}
-	return cfg, nil
+	return reportGateway(client, applied.Revision, w, "  ")
 }
 
 // rootKinds is the config's root kinds, by name, with each one's collection at

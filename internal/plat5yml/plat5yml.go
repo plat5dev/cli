@@ -1,11 +1,13 @@
-// Package plat5yml reads and writes a deployment's config: plat5.yml, and the
+// Package plat5yml reads and writes a deployment's config: plat5.yml, the
 // service files its services list names, one service each (plat5
-// docs/concepts/config.md#the-config). The control plane takes them as one flat
-// object; its errors name field paths, and this package says which file each is in.
+// docs/concepts/config.md#the-config), and optional overlay files merged over
+// it. The control plane takes them as one flat object; its errors name field
+// paths, and this package says which file each came from.
 package plat5yml
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,50 +19,177 @@ import (
 	"github.com/plat5dev/cli/internal/schema"
 )
 
-// Config is a plat5.yml and its service files, assembled.
+// Config is a plat5.yml (plus any overlays) and its service files, assembled.
 type Config struct {
-	// Path is plat5.yml's path; service files are relative to its directory.
+	// Path is the base plat5.yml's path; service files in the base are relative to its directory.
 	Path string
+	// Paths is every loaded config file, base first, then overlays in order.
+	Paths []string
 	// Flat is what the control plane takes: plat5.yml's keys, services a map of
 	// name to service.
 	Flat map[string]any
-	// Files is each service's file, as listed in plat5.yml.
+	// Files is each service's file (as listed in services:, or the overlay that added it).
 	Files map[string]string
+	// sources maps each dotted field path to the file that last set it.
+	sources map[string]string
 }
 
 // Load reads plat5.yml and every service file it lists. A service file holding
 // anything but one service, or two files naming the same service, is an error
 // naming the file.
 func Load(path string) (*Config, error) {
-	top, err := readMap(path)
+	return LoadMany(path)
+}
+
+// LoadMany reads a base plat5.yml and merges zero or more overlay files on top
+// of it using RFC 7396 merge-patch semantics: maps merge recursively, scalars
+// and lists replace, and null deletes a key. An overlay's services: may be a
+// list of service files (resolved relative to the overlay's directory) or a
+// mapping merged directly onto services.
+func LoadMany(paths ...string) (*Config, error) {
+	if len(paths) == 0 {
+		return nil, errors.New("plat5yml: at least one config file is required")
+	}
+	basePath := paths[0]
+	top, err := readMap(basePath)
 	if err != nil {
 		return nil, err
 	}
-	name := filepath.Base(path)
-	c := &Config{Path: path, Flat: top, Files: map[string]string{}}
-	services := map[string]any{}
-	listed, err := ServiceFiles(top, name)
+	baseDir := filepath.Dir(basePath)
+	baseLabel := filepath.Base(basePath)
+	c := &Config{
+		Path:    basePath,
+		Paths:   append([]string(nil), paths...),
+		Flat:    top,
+		Files:   map[string]string{},
+		sources: map[string]string{},
+	}
+	listed, err := ServiceFiles(top, baseLabel)
 	if err != nil {
 		return nil, err
 	}
-	for _, rel := range listed {
-		file, err := readMap(filepath.Join(filepath.Dir(path), rel))
-		if err != nil {
+	services, svcFiles, err := loadServiceFiles(baseDir, baseDir, true, listed)
+	if err != nil {
+		return nil, err
+	}
+	for k, v := range top {
+		if k == "services" {
+			continue
+		}
+		recordSources(c.sources, k, v, baseLabel)
+	}
+	c.sources["services"] = baseLabel
+	for svc, body := range services {
+		c.Files[svc] = svcFiles[svc]
+		recordSources(c.sources, "services."+svc, body, svcFiles[svc])
+	}
+	top["services"] = services
+
+	for _, ovPath := range paths[1:] {
+		if err := c.applyOverlay(baseDir, ovPath); err != nil {
 			return nil, err
 		}
+	}
+	return c, nil
+}
+
+func (c *Config) applyOverlay(baseDir, ovPath string) error {
+	ov, err := readMap(ovPath)
+	if err != nil {
+		return err
+	}
+	ovLabel := displayPath(baseDir, ovPath)
+
+	rawSvc, hasSvc := ov["services"]
+	if hasSvc {
+		delete(ov, "services")
+	}
+	mergePatch(c.Flat, ov, "", ovLabel, c.sources)
+
+	if !hasSvc {
+		return nil
+	}
+	switch s := rawSvc.(type) {
+	case nil:
+		deleteSources(c.sources, "services", c.Flat["services"])
+		delete(c.Flat, "services")
+		c.Files = map[string]string{}
+	case []any:
+		listed, err := parseServiceList(s, ovLabel)
+		if err != nil {
+			return err
+		}
+		svcMap, svcFiles, err := loadServiceFiles(filepath.Dir(ovPath), baseDir, false, listed)
+		if err != nil {
+			return err
+		}
+		dst := c.ensureServicesMap(ovLabel)
+		for svc, body := range svcMap {
+			file := svcFiles[svc]
+			if body == nil {
+				deleteSources(c.sources, "services."+svc, dst[svc])
+				delete(dst, svc)
+				delete(c.Files, svc)
+				continue
+			}
+			c.Files[svc] = file
+			mergeValue(dst, svc, body, "services."+svc, file, c.sources)
+		}
+	case map[string]any:
+		dst := c.ensureServicesMap(ovLabel)
+		for svc, body := range s {
+			if body == nil {
+				deleteSources(c.sources, "services."+svc, dst[svc])
+				delete(dst, svc)
+				delete(c.Files, svc)
+				continue
+			}
+			if _, exists := c.Files[svc]; !exists {
+				c.Files[svc] = ovLabel
+			}
+			mergeValue(dst, svc, body, "services."+svc, ovLabel, c.sources)
+		}
+	default:
+		return fmt.Errorf("%s: services must be a list of service files or a mapping", ovLabel)
+	}
+	return nil
+}
+
+func (c *Config) ensureServicesMap(file string) map[string]any {
+	if m, ok := c.Flat["services"].(map[string]any); ok {
+		return m
+	}
+	m := map[string]any{}
+	c.Flat["services"] = m
+	c.sources["services"] = file
+	return m
+}
+
+func loadServiceFiles(dir, baseDir string, keepRel bool, listed []string) (map[string]any, map[string]string, error) {
+	services := map[string]any{}
+	files := map[string]string{}
+	for _, rel := range listed {
+		full := filepath.Join(dir, rel)
+		label := rel
+		if !keepRel {
+			label = displayPath(baseDir, full)
+		}
+		file, err := readMap(full)
+		if err != nil {
+			return nil, nil, err
+		}
 		if len(file) != 1 {
-			return nil, fmt.Errorf("%s: must hold exactly one service, keyed by its name (it holds %d keys)", rel, len(file))
+			return nil, nil, fmt.Errorf("%s: must hold exactly one service, keyed by its name (it holds %d keys)", label, len(file))
 		}
 		for svc, body := range file {
-			if other, ok := c.Files[svc]; ok {
-				return nil, fmt.Errorf("%s: service %s is already in %s", rel, svc, other)
+			if other, ok := files[svc]; ok {
+				return nil, nil, fmt.Errorf("%s: service %s is already in %s", label, svc, other)
 			}
-			c.Files[svc] = rel
+			files[svc] = label
 			services[svc] = body
 		}
 	}
-	top["services"] = services
-	return c, nil
+	return services, files, nil
 }
 
 // ServiceFiles is plat5.yml's services list: service file paths.
@@ -73,6 +202,10 @@ func ServiceFiles(top map[string]any, name string) ([]string, error) {
 	if !ok {
 		return nil, fmt.Errorf("%s: services must be a list of service files", name)
 	}
+	return parseServiceList(list, name)
+}
+
+func parseServiceList(list []any, name string) ([]string, error) {
 	out := make([]string, 0, len(list))
 	for _, v := range list {
 		s, ok := v.(string)
@@ -82,6 +215,64 @@ func ServiceFiles(top map[string]any, name string) ([]string, error) {
 		out = append(out, s)
 	}
 	return out, nil
+}
+
+func mergePatch(dst, patch map[string]any, prefix, file string, sources map[string]string) {
+	for k, v := range patch {
+		path := joinPath(prefix, k)
+		if v == nil {
+			deleteSources(sources, path, dst[k])
+			delete(dst, k)
+			continue
+		}
+		mergeValue(dst, k, v, path, file, sources)
+	}
+}
+
+func mergeValue(dst map[string]any, key string, v any, path, file string, sources map[string]string) {
+	if pm, ok := v.(map[string]any); ok {
+		if dm, ok := dst[key].(map[string]any); ok {
+			mergePatch(dm, pm, path, file, sources)
+			return
+		}
+	}
+	deleteSources(sources, path, dst[key])
+	dst[key] = v
+	recordSources(sources, path, v, file)
+}
+
+func recordSources(sources map[string]string, prefix string, v any, file string) {
+	if prefix != "" {
+		sources[prefix] = file
+	}
+	if m, ok := v.(map[string]any); ok {
+		for k, child := range m {
+			recordSources(sources, joinPath(prefix, k), child, file)
+		}
+	}
+}
+
+func deleteSources(sources map[string]string, prefix string, old any) {
+	delete(sources, prefix)
+	if m, ok := old.(map[string]any); ok {
+		for k, child := range m {
+			deleteSources(sources, joinPath(prefix, k), child)
+		}
+	}
+}
+
+func joinPath(prefix, key string) string {
+	if prefix == "" {
+		return key
+	}
+	return prefix + "." + key
+}
+
+func displayPath(baseDir, path string) string {
+	if rel, err := filepath.Rel(baseDir, path); err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return filepath.ToSlash(rel)
+	}
+	return filepath.ToSlash(path)
 }
 
 func readMap(path string) (map[string]any, error) {
@@ -100,11 +291,23 @@ func readMap(path string) (map[string]any, error) {
 	return m, nil
 }
 
-// FileOf is the file a field path is in: services.<name>… is that service's
-// file, everything else plat5.yml. Service names may hold dots, so the
-// longest name that fits wins.
+// FileOf is the file a field path came from: the last file (base, service file,
+// or overlay) that set the field or its nearest enclosing key.
 func (c *Config) FileOf(path string) string {
 	main := filepath.Base(c.Path)
+	if len(c.sources) > 0 {
+		for cur := path; cur != ""; {
+			if f, ok := c.sources[cur]; ok {
+				return f
+			}
+			idx := strings.LastIndexAny(cur, ".[")
+			if idx <= 0 {
+				break
+			}
+			cur = cur[:idx]
+		}
+		return main
+	}
 	rest, ok := strings.CutPrefix(path, "services.")
 	if !ok {
 		return main

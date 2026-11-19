@@ -283,7 +283,7 @@ func (l *layout) compose() string {
 		fmt.Fprintf(&b, "  - %s/%s\n", customerConsoleDir, filepath.ToSlash(filepath.Clean(l.customerConsole.Manifest.App.Compose)))
 	}
 	if c := l.operatorConsoleCompose(); c != "" {
-		b.WriteString("  # Runs with the operator module (operator.console in plat5.dev.yml).\n")
+		b.WriteString("  # Runs with the operator module (operator.console in plat5.local.yml).\n")
 		fmt.Fprintf(&b, "  - %s\n", c)
 	}
 	return b.String()
@@ -298,12 +298,12 @@ func operatorRoutes(shipped []byte, starter string, starterRoutes []byte) ([]byt
 	b.WriteString("# operators may call, by service, at each service's own paths. plat5 init wrote\n")
 	if starterRoutes == nil {
 		b.WriteString("# operator's shipped list. The project owns it: plat5 start's operator gateway\n")
-		b.WriteString("# mounts it as its ROUTES_FILE (operator.routes in plat5.dev.yml); a deployed\n")
+		b.WriteString("# mounts it as its ROUTES_FILE (operator.routes in plat5.local.yml); a deployed\n")
 		b.WriteString("# one mounts a copy with the deployment's addresses.\n#\n")
 	} else {
 		b.WriteString("# operator's shipped list and the starter's operator routes. The project owns\n")
 		b.WriteString("# it: plat5 start's operator gateway mounts it as its ROUTES_FILE (operator.routes\n")
-		b.WriteString("# in plat5.dev.yml); a deployed one mounts a copy with the deployment's addresses.\n#\n")
+		b.WriteString("# in plat5.local.yml); a deployed one mounts a copy with the deployment's addresses.\n#\n")
 	}
 	b.Write(shipped)
 	if starterRoutes == nil {

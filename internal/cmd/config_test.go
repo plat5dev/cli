@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/plat5dev/cli/internal/controlplane"
+	"github.com/spf13/cobra"
 )
 
 // The control plane's plan fixtures: real dry-run answers.
@@ -317,11 +318,185 @@ func TestConfigPullWritesServiceFiles(t *testing.T) {
 		t.Fatalf("pulled %v", cfg.Flat)
 	}
 
+	// Pulling into a directory that already has plat5.local.yml or docker-compose.yml
+	// succeeds: only plat5.yml and services/ are refused.
+	workspace := t.TempDir()
+	_ = os.WriteFile(filepath.Join(workspace, "plat5.local.yml"), []byte("project_id: demo\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(workspace, "docker-compose.yml"), []byte("services: {}\n"), 0o644)
+	captureStdout(t, func() {
+		if err := runConfigPull(configPullCmd, []string{workspace}); err != nil {
+			t.Fatalf("pull into workspace with plat5.local.yml: %v", err)
+		}
+	})
+	if _, err := os.Stat(filepath.Join(workspace, "plat5.yml")); err != nil {
+		t.Fatalf("plat5.yml not written: %v", err)
+	}
+
+	// Refuses when plat5.yml already exists.
+	hasConfig := t.TempDir()
+	_ = os.WriteFile(filepath.Join(hasConfig, "plat5.yml"), []byte("kinds: {}\n"), 0o644)
+	if err := runConfigPull(configPullCmd, []string{hasConfig}); err == nil || !strings.Contains(err.Error(), "plat5.yml") {
+		t.Fatalf("want a refusal naming plat5.yml, got %v", err)
+	}
+
+	// Refuses when services/ already exists.
 	again := t.TempDir()
 	_ = os.MkdirAll(filepath.Join(again, "services"), 0o755)
 	_ = os.WriteFile(filepath.Join(again, "services", "e10s.yml"), []byte("e10s: {}\n"), 0o644)
-	if err := runConfigPull(configPullCmd, []string{again}); err == nil || !strings.Contains(err.Error(), "services/e10s.yml") {
-		t.Fatalf("want a refusal naming services/e10s.yml, got %v", err)
+	if err := runConfigPull(configPullCmd, []string{again}); err == nil || !strings.Contains(err.Error(), "services/") {
+		t.Fatalf("want a refusal naming services/, got %v", err)
+	}
+}
+
+// Applying a saved plan.json passes cfg == nil to explain: field errors must
+// still be printed (without a filename prefix).
+func TestExplainWithoutConfigPrintsFieldErrors(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write([]byte(`{"error":{"code":"VALIDATION_ERROR","message":"x","details":{"fields":[
+			{"path":"services.e10s.scopes.team","message":"\"team\" is not a kind, user or public"},
+			{"path":"creator_role","message":"\"x\" is not a role"}]}}}`))
+	}))
+	defer srv.Close()
+
+	_, err := controlplane.New(srv.URL, "t").ApplyConfig(map[string]any{})
+	stderr := captureStderr(t, func() { err = explain(nil, err) })
+	if err == nil || !strings.Contains(err.Error(), "VALIDATION_ERROR") {
+		t.Fatalf("got %v", err)
+	}
+	for _, want := range []string{
+		`  services.e10s.scopes.team: "team" is not a kind, user or public`,
+		`  creator_role: "x" is not a role`,
+	} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("want %q in:\n%s", want, stderr)
+		}
+	}
+}
+
+// configClient picks up ports.control_plane and admin_token from plat5.local.yml
+// when not overridden, falls back to defaults without a project, and skips
+// plat5.local.yml when both URL and token are set explicitly.
+func TestConfigClientResolution(t *testing.T) {
+	t.Setenv("PLAT5_CONTROL_PLANE_URL", "")
+	t.Setenv("PLAT5_ADMIN_TOKEN", "")
+	oldURL, oldTok := flagControlPlaneURL, flagAdminToken
+	flagControlPlaneURL, flagAdminToken = "", ""
+	t.Cleanup(func() { flagControlPlaneURL, flagAdminToken = oldURL, oldTok })
+
+	// No plat5.local.yml: defaults.
+	empty := t.TempDir()
+	t.Chdir(empty)
+	c, err := configClient()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.BaseURL != defaultControlPlaneURL || c.AdminToken != "dev-admin-token" {
+		t.Fatalf("defaults: %s %s", c.BaseURL, c.AdminToken)
+	}
+
+	// Project with custom control_plane port and admin_token.
+	proj := t.TempDir()
+	yml := "versions: {plat5: v0.15.0, auth: v0.2.2}\nmodules: {operator: false}\nports: {control_plane: 6402}\nadmin_token: custom-tok\n"
+	if err := os.WriteFile(filepath.Join(proj, "plat5.local.yml"), []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(proj)
+	c, err = configClient()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.BaseURL != "http://localhost:6402" || c.AdminToken != "custom-tok" {
+		t.Fatalf("from plat5.local.yml: %s %s", c.BaseURL, c.AdminToken)
+	}
+
+	// Explicit URL override keeps admin_token from plat5.local.yml.
+	flagControlPlaneURL = "https://cp.staging.example.com/"
+	c, err = configClient()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.BaseURL != "https://cp.staging.example.com" || c.AdminToken != "custom-tok" {
+		t.Fatalf("url override: %s %s", c.BaseURL, c.AdminToken)
+	}
+
+	// Invalid plat5.local.yml does not break remote runs with explicit URL + token.
+	broken := t.TempDir()
+	if err := os.WriteFile(filepath.Join(broken, "plat5.local.yml"), []byte("unknown_bogus_key: true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(broken)
+	flagControlPlaneURL = "https://cp.prod.example.com"
+	flagAdminToken = "prod-tok"
+	c, err = configClient()
+	if err != nil {
+		t.Fatalf("explicit flags should ignore invalid plat5.local.yml: %v", err)
+	}
+	if c.BaseURL != "https://cp.prod.example.com" || c.AdminToken != "prod-tok" {
+		t.Fatalf("explicit: %s %s", c.BaseURL, c.AdminToken)
+	}
+
+	// Invalid plat5.local.yml surfaces an error when local config is consulted.
+	flagControlPlaneURL, flagAdminToken = "", ""
+	if _, err := configClient(); err == nil {
+		t.Fatal("expected error from invalid plat5.local.yml")
+	}
+}
+
+// Repeatable -f/--file flags merge overlays and cannot be combined with a
+// positional file argument.
+func TestFileFlagAndMutualExclusion(t *testing.T) {
+	t.Cleanup(func() { flagFiles = nil })
+
+	// Mutual exclusion.
+	flagFiles = []string{"plat5.yml"}
+	if _, err := configPaths([]string{"other.yml"}); err == nil || !strings.Contains(err.Error(), "cannot combine -f") {
+		t.Fatalf("want mutual exclusion error, got %v", err)
+	}
+	// apply also rejects -f combined with positional plan.json.
+	if err := runApply(applyCmd, []string{"plan.json"}); err == nil || !strings.Contains(err.Error(), "cannot combine -f") {
+		t.Fatalf("apply -f + plan.json: got %v", err)
+	}
+
+	// End-to-end validate with repeatable -f flags.
+	dir := t.TempDir()
+	plat5 := `kinds: { organization: { path: "/orgs/{organization}", list_permission: organization:read } }
+roles: { admin: { permissions: ["*"], bindable_at: [organization] } }
+creator_role: admin
+rate_limits: { standard: { requests: 60, window: 60s } }
+defaults: { rate_limit: [standard] }
+cors: { allowed_origins: ["http://localhost:3001"] }
+services: [services/e10s.yml]
+`
+	e10s := "e10s:\n  url: http://e10s:3000\n  scopes:\n    public:\n      routes:\n        - { path: /health, methods: [GET] }\n"
+	prod := "cors:\n  allowed_origins: [\"https://app.example.com\"]\nservices:\n  e10s:\n    url: http://e10s.prod.internal:3000\n"
+	_ = os.MkdirAll(filepath.Join(dir, "services"), 0o755)
+	_ = os.WriteFile(filepath.Join(dir, "plat5.yml"), []byte(plat5), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "plat5.prod.yml"), []byte(prod), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "services/e10s.yml"), []byte(e10s), 0o644)
+
+	flagFiles = nil
+	if err := validateCmd.Flags().Parse([]string{"-f", filepath.Join(dir, "plat5.yml"), "-f", filepath.Join(dir, "plat5.prod.yml")}); err != nil {
+		t.Fatal(err)
+	}
+	if len(flagFiles) != 2 {
+		t.Fatalf("parsed -f: %v", flagFiles)
+	}
+	out := captureStdout(t, func() {
+		if err := runValidate(validateCmd, nil); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !strings.Contains(out, "plat5.yml + ") || !strings.Contains(out, "is valid: 1 services.") {
+		t.Errorf("validate output: %q", out)
+	}
+
+	// All 5 config commands expose -f / --file.
+	for _, c := range []*cobra.Command{validateCmd, planCmd, applyCmd, routesListCmd, routesGenerateCmd} {
+		f := c.Flags().Lookup("file")
+		if f == nil || f.Shorthand != "f" {
+			t.Errorf("%s missing -f/--file flag", c.CommandPath())
+		}
 	}
 }
 

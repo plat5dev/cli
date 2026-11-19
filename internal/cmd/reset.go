@@ -66,7 +66,7 @@ func runReset(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// The app first, as in stop. The last start's app, else plat5.dev.yml's.
+	// The app first, as in stop. The last start's app, else plat5.local.yml's.
 	appFile := firstNonEmpty(st.AppCompose, cfg.AppCompose)
 	if appFile != "" {
 		if _, err := os.Stat(appFile); err == nil {

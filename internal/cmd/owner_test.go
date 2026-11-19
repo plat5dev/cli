@@ -22,7 +22,7 @@ func ownerProjects(t *testing.T) (a, b string) {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(dir, "plat5.dev.yml"), []byte(yml), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "plat5.local.yml"), []byte(yml), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -39,7 +39,7 @@ func TestOwnerRefusesAnotherFolder(t *testing.T) {
 	}
 	want := `project id "work" belongs to the project in ` + a + `, not this one in ` + b +
 		`: the stack and the app (compose projects plat5-work and work, their volumes) and the state are that project's.
-Give this project its own id in ` + filepath.Join(b, "plat5.dev.yml") + `:
+Give this project its own id in ` + filepath.Join(b, "plat5.local.yml") + `:
 
   project_id: b-work`
 
@@ -109,7 +109,7 @@ func TestOwnerAdoption(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	old := `{"project_id": "work", "path": "/elsewhere/work/plat5.dev.yml", "started_at": "2026-01-01T00:00:00Z"}`
+	old := `{"project_id": "work", "path": "/elsewhere/work/plat5.local.yml", "started_at": "2026-01-01T00:00:00Z"}`
 	if err := os.WriteFile(filepath.Join(dir, "state.json"), []byte(old), 0o600); err != nil {
 		t.Fatal(err)
 	}

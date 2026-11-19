@@ -33,7 +33,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		fmt.Printf("%s is not running. Start it: plat5 start\n", cfg.ProjectID)
 		return nil
 	}
-	// What the last start ran, not what plat5.dev.yml says now.
+	// What the last start ran, not what plat5.local.yml says now.
 	var exclude []string
 	for _, m := range config.Modules {
 		if cfg.Modules[m] && !contains(st.Modules, m) {

@@ -87,6 +87,7 @@ func TestEnvWiresLocalAuth(t *testing.T) {
 		"IDP_AUDIENCES":               "plat5",
 		"AUTH_REDIRECT_URIS":          "http://localhost:3001/callback",
 		"IDP_SUBJECT_CLAIM":           "properties.user_id",
+		"IDP_NAME_CLAIMS":             "name,preferred_username",
 		"OTEL_EXPORTER_OTLP_ENDPOINT": "http://alloy:4318",
 		"AUTH_DEV_USERS":              "dev@example.com:password",
 	} {
@@ -102,8 +103,26 @@ modules: {auth: false, observability: false, operator: false}
 idp: {issuer: "https://idp.test", jwks_uri: "https://idp.test/jwks", audiences: [api]}
 `)
 	e := env(s)
-	if e["IDP_ISSUER"] != "https://idp.test" || e["IDP_SUBJECT_CLAIM"] != "sub" || e["OTEL_EXPORTER_OTLP_ENDPOINT"] != "" {
+	if e["IDP_ISSUER"] != "https://idp.test" || e["IDP_SUBJECT_CLAIM"] != "sub" || e["IDP_NAME_CLAIMS"] != "name,preferred_username" || e["OTEL_EXPORTER_OTLP_ENDPOINT"] != "" {
 		t.Fatalf("%v", e)
+	}
+
+	// Explicit empty name_claims emits "" to disable name seeding.
+	s = newStack(t, `versions: {plat5: v0.8.0}
+modules: {auth: false, observability: false, operator: false}
+idp: {issuer: "https://idp.test", jwks_uri: "https://idp.test/jwks", audiences: [api], name_claims: []}
+`)
+	if got := env(s)["IDP_NAME_CLAIMS"]; got != "" {
+		t.Fatalf("empty name_claims: got %q, want empty", got)
+	}
+
+	// Custom name_claims joins entries with commas.
+	s = newStack(t, `versions: {plat5: v0.8.0}
+modules: {auth: false, observability: false, operator: false}
+idp: {issuer: "https://idp.test", jwks_uri: "https://idp.test/jwks", audiences: [api], name_claims: [given_name, nickname]}
+`)
+	if got := env(s)["IDP_NAME_CLAIMS"]; got != "given_name,nickname" {
+		t.Fatalf("custom name_claims: got %q", got)
 	}
 }
 
@@ -165,6 +184,10 @@ func TestComposeConfig(t *testing.T) {
 		"core":         newStack(t, allOn, "observability"),
 		"no-operator":  newStack(t, allOn, "operator"),
 		"operator-src": newStack(t, allOn+"source: {operator: ../operator, auth: ../auth}\n"),
+		"own-idp-no-name": newStack(t, `versions: {plat5: v0.8.0}
+modules: {auth: false, observability: false, operator: false}
+idp: {issuer: "https://idp.test", jwks_uri: "https://idp.test/jwks", audiences: [api], name_claims: []}
+`),
 	} {
 		if err := s.Prepare(); err != nil {
 			t.Fatal(err)
@@ -394,12 +417,12 @@ func TestOperatorComposeConfig(t *testing.T) {
 		t.Errorf("images: %s %s %s", op.Image, cfg.Services["operator-audit"].Image, cfg.Services["operator-auth"].Image)
 	}
 	for k, want := range map[string]string{
-		"ROUTES_FILE":     "/etc/operator/routes.yml",
-		"IDENTITY_URL":    "http://identity:3000",
+		"ROUTES_FILE":            "/etc/operator/routes.yml",
+		"IDENTITY_URL":           "http://identity:3000",
 		"AUTH_ISSUER":            "http://localhost:5411",
 		"AUTH_ALLOWED_AUDIENCES": "operator-console",
 		"ALLOWED_ORIGINS":        "http://localhost:5412",
-		"AUDIT_URL":       "http://operator-audit:8005",
+		"AUDIT_URL":              "http://operator-audit:8005",
 	} {
 		if op.Environment[k] != want {
 			t.Errorf("operator %s = %q, want %q", k, op.Environment[k], want)
@@ -460,7 +483,7 @@ func needCompose(t *testing.T) {
 	}
 }
 
-// appIn is a project in parent/folder with an app compose file, and plat5.dev.yml's
+// appIn is a project in parent/folder with an app compose file, and plat5.local.yml's
 // project_id line (empty: the default id).
 func appIn(t *testing.T, parent, folder, idLine string) *Stack {
 	t.Helper()
@@ -483,7 +506,7 @@ func appIn(t *testing.T, parent, folder, idLine string) *Stack {
 }
 
 // Two folders with the same name and different ids run separate app projects,
-// each named after its id, from plat5.dev.yml's file and an earlier start's alike.
+// each named after its id, from plat5.local.yml's file and an earlier start's alike.
 func TestAppProjectIsProjectID(t *testing.T) {
 	a := appIn(t, t.TempDir(), "app", "project_id: a-app\n")
 	b := appIn(t, t.TempDir(), "app", "project_id: b-app\n")

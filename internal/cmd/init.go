@@ -57,7 +57,7 @@ var initCmd = &cobra.Command{
   plat5.yml            the deployment's config: one kind, organization, its
                        roles, the service files
   services/            identity's and audit's service files
-  plat5.dev.yml        how plat5 start runs it on your machine
+  plat5.local.yml        how plat5 start runs it on your machine
   operator.routes.yml  the operator gateway's route list
 
 With an API starter (--template go-fiber-api), instead:
@@ -77,7 +77,7 @@ Each app is a starting point the project owns, not a dependency.
   plat5 init my-app --template go-fiber-api -y
 
 Without a directory, the project is the current directory, and the project id
-is the directory's name; --project-id sets another, written to plat5.dev.yml's
+is the directory's name; --project-id sets another, written to plat5.local.yml's
 project_id. One folder per project id: init refuses an id another folder owns.
 An existing plat5.yml, service file or operator.routes.yml is kept with
 --template none; a starter refuses a project that has any of its files.
@@ -99,16 +99,16 @@ func init() {
 	f := initCmd.Flags()
 	f.StringVar(&initTemplate, "template", noTemplate, "Starter: "+strings.Join(template.OfficialNames(), ", ")+", owner/repo, a .tar.gz URL, or none")
 	f.BoolVarP(&initYes, "yes", "y", false, "Don't ask; take the defaults (--template none, every module)")
-	f.BoolVar(&initForce, "force", false, "Overwrite an existing plat5.dev.yml")
-	f.BoolVar(&initNoAuth, "no-auth", false, "Turn the auth module off (then set idp: in plat5.dev.yml)")
+	f.BoolVar(&initForce, "force", false, "Overwrite an existing plat5.local.yml")
+	f.BoolVar(&initNoAuth, "no-auth", false, "Turn the auth module off (then set idp: in plat5.local.yml)")
 	f.BoolVar(&initNoObservability, "no-observability", false, "Turn the observability module off")
 	f.BoolVar(&initNoOperator, "no-operator", false, "Turn the operator module off")
 	f.BoolVar(&initNoCustomerConsole, "no-customer-console", false, "Don't add the customer console (customer-console/)")
 	f.BoolVar(&initNoOperatorConsole, "no-operator-console", false, "Don't add the operator console (operator-console/)")
 	f.StringVar(&initSourcesDir, "sources", "", "Run the modules and first-party templates from their checkouts in this directory (plat5, auth, operator, template-<name>)")
-	f.StringVar(&initProjectID, "project-id", "", "The project id, written to plat5.dev.yml (default: the directory's name)")
+	f.StringVar(&initProjectID, "project-id", "", "The project id, written to plat5.local.yml (default: the directory's name)")
 	f.StringVar(&initTemplateRef, "template-ref", "", "Git ref of downloaded templates (default master; or PLAT5_TEMPLATE_REF)")
-	f.StringArrayVar(&initVersions, "version", nil, "Pin an image: plat5=v0.9.0 (repeatable; default the latest tag)")
+	f.StringArrayVar(&initVersions, "version", nil, "Pin an image: plat5=v0.15.0 (repeatable; default the latest tag)")
 }
 
 type initChoices struct {
@@ -444,7 +444,7 @@ func resolveVersions(ch initChoices) (map[string]string, error) {
 	return out, nil
 }
 
-// renderDevYML is plat5.dev.yml: how plat5 start runs the project. lay is the
+// renderDevYML is plat5.local.yml: how plat5 start runs the project. lay is the
 // starter's layout, nil with --template none.
 func renderDevYML(projectID string, ch initChoices, versions map[string]string, lay *layout) string {
 	var b strings.Builder
@@ -530,6 +530,7 @@ func renderDevYML(projectID string, ch initChoices, versions map[string]string, 
 #   jwks_uri: https://idp.example.com/.well-known/jwks.json
 #   audiences: [my-api]
 #   subject_claim: sub
+#   name_claims: [name, preferred_username]   # [] disables name seeding
 # otel:
 #   endpoint: http://host.docker.internal:4318   # your collector, instead of observability
 `)

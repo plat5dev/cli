@@ -43,6 +43,18 @@ func TestReadKinds(t *testing.T) {
 			t.Errorf("%s: got %v", in, err)
 		}
 	}
+
+	// Overlay merging: add a kind, modify an existing one, delete another with null.
+	merged, err := ReadKindsMany(
+		[]byte("kinds:\n  team: { path: \"/teams/{team}\" }\n  old: { parent: team, path: \"/olds/{old}\" }\n"),
+		[]byte("kinds:\n  old: null\n  board: { parent: team, path: \"/boards/{board}\", list_permission: team:read }\n"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(merged, want) {
+		t.Fatalf("merged kinds: got %+v, want %+v", merged, want)
+	}
 }
 
 func find(t *testing.T, f File, scope, path string) Route {

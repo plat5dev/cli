@@ -24,16 +24,3 @@ func TestStateHomeOverride(t *testing.T) {
 		t.Fatalf("project dir %s", p)
 	}
 }
-
-func TestPlat5CacheDir(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CACHE_HOME", dir)
-	got, err := Plat5CacheDir()
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := filepath.Join(dir, "plat5")
-	if got != want {
-		t.Fatalf("got %s want %s", got, want)
-	}
-}

@@ -57,6 +57,10 @@ func initDir(t *testing.T) string {
 
 func TestApplyForStart(t *testing.T) {
 	path := initDir(t)
+	cfg, err := loadValid(path)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for name, tc := range map[string]struct {
 		plan    map[string]any
 		applied bool
@@ -88,7 +92,7 @@ func TestApplyForStart(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			f := &fakeControlPlane{plan: tc.plan}
 			var out bytes.Buffer
-			cfg, err := applyForStart(f.server(t), path, &out)
+			err := applyForStart(f.server(t), cfg, &out)
 			if tc.err != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.err) {
 					t.Fatalf("want error containing %q, got %v", tc.err, err)
@@ -117,13 +121,12 @@ func TestApplyForStart(t *testing.T) {
 	}
 }
 
-func TestApplyForStartChecksTheSchemaFirst(t *testing.T) {
+func TestLoadValidChecksTheSchema(t *testing.T) {
 	path := initDir(t)
 	if err := os.WriteFile(path, []byte("kinds: {}\nroles: {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	f := &fakeControlPlane{}
-	if _, err := applyForStart(f.server(t), path, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "nothing sent") {
+	if _, err := loadValid(path); err == nil || !strings.Contains(err.Error(), "nothing sent") {
 		t.Fatalf("want a schema refusal before any call, got %v", err)
 	}
 }

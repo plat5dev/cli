@@ -62,7 +62,7 @@ brews:
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     directory: Formula
     homepage: https://www.plat5.com
-    description: Run Plat5 locally and manage its routes and roles
+    description: Run Plat5 locally, and manage a deployment's config
     license: MIT
     commit_author:
       name: github-actions[bot]

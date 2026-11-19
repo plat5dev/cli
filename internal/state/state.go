@@ -16,7 +16,7 @@ import (
 // State records what plat5 start did for one project.
 type State struct {
 	ProjectID string `json:"project_id"`
-	// Owner is the project folder (plat5.dev.yml's directory) that owns the
+	// Owner is the project folder (plat5.local.yml's directory) that owns the
 	// project id: absolute, symlinks resolved. The first start records it;
 	// commands from any other folder refuse. Empty: no folder yet.
 	Owner string `json:"owner,omitempty"`

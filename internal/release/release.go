@@ -15,12 +15,6 @@ import (
 	"time"
 )
 
-const (
-	RepoPlat5    = "plat5dev/plat5"
-	RepoAuth     = "plat5dev/auth"
-	RepoOperator = "plat5dev/operator"
-)
-
 var semverTag = regexp.MustCompile(`^v(\d+)\.(\d+)\.(\d+)$`)
 
 // Client talks to the GitHub API. Zero value uses api.github.com.

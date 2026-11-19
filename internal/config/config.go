@@ -1,4 +1,4 @@
-// Package config reads plat5.dev.yml: how plat5 start runs the project on your
+// Package config reads plat5.local.yml: how plat5 start runs the project on your
 // machine, and how to reach its control plane. A deployment never reads it; the
 // deployment's config is plat5.yml beside it (internal/plat5yml).
 package config
@@ -24,6 +24,9 @@ const (
 	DefaultSecretBrand = "plat5"
 	// DefaultAuthClient is Plat5 Auth's default client, and so the gateway's audience.
 	DefaultAuthClient = "plat5"
+	// DefaultIdPNameClaims is the gateway's default AUTH_NAME_CLAIMS when
+	// idp.name_claims is omitted.
+	DefaultIdPNameClaims = "name,preferred_username"
 )
 
 // The local dev login, seeded into local Auth, and what start seeds for it. Same
@@ -44,7 +47,7 @@ const (
 	OperatorClient = "operator-console"
 )
 
-// Modules run beside Plat5. All on unless plat5.dev.yml turns one off.
+// Modules run beside Plat5. All on unless plat5.local.yml turns one off.
 const (
 	ModuleAuth          = "auth"
 	ModuleObservability = "observability"
@@ -73,7 +76,7 @@ var Sources = []string{VersionPlat5, VersionAuth, VersionOperator}
 
 // FileName is the project file; ConfigFileName is the deployment's config beside it.
 const (
-	FileName       = "plat5.dev.yml"
+	FileName       = "plat5.local.yml"
 	ConfigFileName = "plat5.yml"
 )
 
@@ -81,7 +84,7 @@ const maxSecretBrandLen = 32
 
 var projectIDInvalid = regexp.MustCompile(`[^a-z0-9_-]+`)
 
-// File is plat5.dev.yml.
+// File is plat5.local.yml.
 type File struct {
 	// CLI is the oldest CLI the project works with: ">=X.Y.Z" (plat5 init writes it).
 	CLI         string            `yaml:"cli"`
@@ -135,6 +138,24 @@ type IdPBlock struct {
 	Audiences []string `yaml:"audiences"`
 	// SubjectClaim is the dotted claim path for the person's IdP subject.
 	SubjectClaim string `yaml:"subject_claim"`
+	// NameClaims is the ordered JWT claim paths used to seed a person's display
+	// name on first sign-in (AUTH_NAME_CLAIMS). Nil uses DefaultIdPNameClaims;
+	// an empty list [] disables name seeding.
+	NameClaims *[]string `yaml:"name_claims"`
+}
+
+// AnySet reports whether any idp: field is configured.
+func (b IdPBlock) AnySet() bool {
+	return b.Issuer != "" || b.JWKSURI != "" || len(b.Audiences) > 0 || b.SubjectClaim != "" || b.NameClaims != nil
+}
+
+// NameClaimsEnv is the gateway's AUTH_NAME_CLAIMS value: DefaultIdPNameClaims
+// when omitted (nil), "" when explicitly empty ([]), or the claims joined by commas.
+func (b IdPBlock) NameClaimsEnv() string {
+	if b.NameClaims == nil {
+		return DefaultIdPNameClaims
+	}
+	return strings.Join(*b.NameClaims, ",")
 }
 
 // OtelBlock sends telemetry to your own collector instead of the observability module.
@@ -150,17 +171,17 @@ type Overrides struct {
 	AdminToken      string
 }
 
-// Resolved is plat5.dev.yml with defaults applied and paths made absolute.
+// Resolved is plat5.local.yml with defaults applied and paths made absolute.
 type Resolved struct {
 	ProjectID string
-	// Path is plat5.dev.yml's; Dir is the project directory.
+	// Path is plat5.local.yml's; Dir is the project directory.
 	Path string
 	Dir  string
 	// ConfigPath is the deployment's config, plat5.yml beside it.
 	ConfigPath string
 
 	Versions map[string]string
-	// Modules is each module's on/off from plat5.dev.yml (before start -x).
+	// Modules is each module's on/off from plat5.local.yml (before start -x).
 	Modules map[string]bool
 
 	AppCompose string // absolute; empty = no app
@@ -197,12 +218,12 @@ type Resolved struct {
 	AppComposeProject string
 }
 
-// ErrNoProject means no plat5.dev.yml was found.
+// ErrNoProject means no plat5.local.yml was found.
 type ErrNoProject struct{}
 
 func (ErrNoProject) Error() string { return "no " + FileName + " found; run plat5 init" }
 
-// Load finds plat5.dev.yml (walking up from the working directory) and resolves it.
+// Load finds plat5.local.yml (walking up from the working directory) and resolves it.
 func Load(o Overrides) (Resolved, error) {
 	file, path, err := find()
 	if err != nil {
@@ -218,7 +239,7 @@ func Load(o Overrides) (Resolved, error) {
 	return r, nil
 }
 
-// Resolve applies defaults and checks a parsed plat5.dev.yml found at path.
+// Resolve applies defaults and checks a parsed plat5.local.yml found at path.
 func Resolve(f *File, path string, o Overrides) (Resolved, error) {
 	dir := filepath.Dir(path)
 	r := Resolved{
@@ -335,11 +356,22 @@ func Resolve(f *File, path string, o Overrides) (Resolved, error) {
 		Audiences:    trimNonEmpty(f.IdP.Audiences),
 		SubjectClaim: strings.TrimSpace(f.IdP.SubjectClaim),
 	}
+	if r.Modules[ModuleAuth] && (r.IdP.AnySet() || len(f.IdP.Audiences) > 0 || f.IdP.NameClaims != nil) {
+		return Resolved{}, fmt.Errorf("idp: is for your own IdP; turn modules.auth off to use it")
+	}
+	if f.IdP.NameClaims != nil {
+		cleaned := make([]string, 0, len(*f.IdP.NameClaims))
+		for _, s := range *f.IdP.NameClaims {
+			s = strings.TrimSpace(s)
+			if s == "" {
+				return Resolved{}, fmt.Errorf("idp.name_claims: empty claim name")
+			}
+			cleaned = append(cleaned, s)
+		}
+		r.IdP.NameClaims = &cleaned
+	}
 	if !r.Modules[ModuleAuth] && (r.IdP.Issuer == "" || r.IdP.JWKSURI == "" || len(r.IdP.Audiences) == 0) {
 		return Resolved{}, fmt.Errorf("modules.auth is off: set idp.issuer, idp.jwks_uri, and idp.audiences to your IdP")
-	}
-	if r.Modules[ModuleAuth] && r.IdP.Issuer != "" {
-		return Resolved{}, fmt.Errorf("idp: is for your own IdP; turn modules.auth off to use it")
 	}
 	r.OtelEndpoint = strings.TrimSpace(f.Otel.Endpoint)
 	return r, nil
@@ -411,7 +443,7 @@ func (r Resolved) OperatorRedirectURIs() []string {
 
 var unknownFieldRE = regexp.MustCompile(`^line (\d+): field (\S+) not found in type `)
 
-// Parse decodes plat5.dev.yml strictly: an unknown key is an error naming the key.
+// Parse decodes plat5.local.yml strictly: an unknown key is an error naming the key.
 func Parse(data []byte) (*File, error) {
 	if err := checkCLI(data); err != nil {
 		return nil, err
@@ -449,15 +481,9 @@ func find() (*File, string, error) {
 		return nil, "", err
 	}
 	for {
-		for _, name := range []string{FileName} {
-			p := filepath.Join(dir, name)
-			data, err := os.ReadFile(p)
-			if err != nil {
-				if os.IsNotExist(err) {
-					continue
-				}
-				return nil, "", fmt.Errorf("read %s: %w", p, err)
-			}
+		p := filepath.Join(dir, FileName)
+		data, err := os.ReadFile(p)
+		if err == nil {
 			f, err := Parse(data)
 			if err != nil {
 				return nil, "", fmt.Errorf("parse %s: %w", p, err)
@@ -467,6 +493,9 @@ func find() (*File, string, error) {
 				return nil, "", err
 			}
 			return f, abs, nil
+		}
+		if !os.IsNotExist(err) {
+			return nil, "", fmt.Errorf("read %s: %w", p, err)
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {

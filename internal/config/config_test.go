@@ -24,7 +24,7 @@ func resolve(t *testing.T, yml string) (Resolved, error) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return Resolve(f, "/proj/plat5.dev.yml", Overrides{})
+	return Resolve(f, "/proj/plat5.local.yml", Overrides{})
 }
 
 func TestResolveDefaults(t *testing.T) {
@@ -49,7 +49,7 @@ func TestResolveDefaults(t *testing.T) {
 	if r.AppCompose != filepath.Clean("/proj/docker-compose.yml") || r.AppWeb != "http://localhost:3001" {
 		t.Fatalf("app: %q %q", r.AppCompose, r.AppWeb)
 	}
-	if r.Path != filepath.Clean("/proj/plat5.dev.yml") || r.ConfigPath != filepath.Clean("/proj/plat5.yml") {
+	if r.Path != filepath.Clean("/proj/plat5.local.yml") || r.ConfigPath != filepath.Clean("/proj/plat5.yml") {
 		t.Fatalf("paths: %q %q", r.Path, r.ConfigPath)
 	}
 	if got := strings.Join(r.AuthRedirectURIs(), ","); got != "http://localhost:3001/callback" {
@@ -80,10 +80,15 @@ func TestUnknownKeysAreErrors(t *testing.T) {
 		"versions: {plat5: v0.8.0, auth: v0.2.2, operator: v0.5.0}\napp: {web: localhost:3001}\n": "app.web",
 		fullYML + "operator: {console: {web: localhost:5412}}\n":                                  "operator.console.web",
 		fullYML + "idp: {issuer: https://x.test}\n":                                               "turn modules.auth off",
+		fullYML + "idp: {jwks_uri: https://x.test/jwks}\n":                                        "turn modules.auth off",
+		fullYML + "idp: {audiences: [api]}\n":                                                     "turn modules.auth off",
+		fullYML + "idp: {subject_claim: sub}\n":                                                   "turn modules.auth off",
+		fullYML + "idp: {name_claims: [name]}\n":                                                  "turn modules.auth off",
+		fullYML + "idp: {name_claims: []}\n":                                                      "turn modules.auth off",
 	} {
 		f, err := Parse([]byte(yml))
 		if err == nil {
-			_, err = Resolve(f, "/proj/plat5.dev.yml", Overrides{})
+			_, err = Resolve(f, "/proj/plat5.local.yml", Overrides{})
 		}
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q: want error containing %q, got %v", yml, want, err)
@@ -124,6 +129,53 @@ idp:
 	}
 	if r.IdP.Issuer != "https://idp.test" || r.IdP.SubjectClaim != "sub" || strings.Join(r.NeededVersions(), ",") != "plat5" {
 		t.Fatalf("%+v", r.IdP)
+	}
+	if r.IdP.NameClaims != nil || r.IdP.NameClaimsEnv() != DefaultIdPNameClaims {
+		t.Fatalf("omitted name_claims: %v %q", r.IdP.NameClaims, r.IdP.NameClaimsEnv())
+	}
+
+	// Explicit empty list [] disables name seeding.
+	r, err = resolve(t, `versions: {plat5: v0.8.0}
+modules: {auth: false, operator: false}
+idp:
+  issuer: https://idp.test
+  jwks_uri: https://idp.test/jwks
+  audiences: [api]
+  name_claims: []
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.IdP.NameClaims == nil || len(*r.IdP.NameClaims) != 0 || r.IdP.NameClaimsEnv() != "" {
+		t.Fatalf("empty name_claims: %v %q", r.IdP.NameClaims, r.IdP.NameClaimsEnv())
+	}
+
+	// Non-empty list trims entries and joins with commas.
+	r, err = resolve(t, `versions: {plat5: v0.8.0}
+modules: {auth: false, operator: false}
+idp:
+  issuer: https://idp.test
+  jwks_uri: https://idp.test/jwks
+  audiences: [api]
+  name_claims: [" given_name ", "nickname"]
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.IdP.NameClaimsEnv() != "given_name,nickname" {
+		t.Fatalf("custom name_claims: %q", r.IdP.NameClaimsEnv())
+	}
+
+	// Empty entries inside name_claims are rejected.
+	if _, err := resolve(t, `versions: {plat5: v0.8.0}
+modules: {auth: false, operator: false}
+idp:
+  issuer: https://idp.test
+  jwks_uri: https://idp.test/jwks
+  audiences: [api]
+  name_claims: ["name", "  "]
+`); err == nil || !strings.Contains(err.Error(), "idp.name_claims") {
+		t.Fatalf("empty claim entry: got %v", err)
 	}
 }
 
@@ -200,7 +252,7 @@ idp: {issuer: "https://idp.test", jwks_uri: "https://idp.test/jwks", audiences: 
 func TestOverrides(t *testing.T) {
 	t.Setenv("PLAT5_ADMIN_TOKEN", "from-env")
 	f, _ := Parse([]byte(fullYML))
-	r, err := Resolve(f, "/proj/plat5.dev.yml", Overrides{ControlPlaneURL: "https://cp.example.com/"})
+	r, err := Resolve(f, "/proj/plat5.local.yml", Overrides{ControlPlaneURL: "https://cp.example.com/"})
 	if err != nil {
 		t.Fatal(err)
 	}

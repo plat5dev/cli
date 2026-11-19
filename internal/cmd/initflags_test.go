@@ -132,7 +132,7 @@ func TestInitSourcesNotADirectory(t *testing.T) {
 	}
 }
 
-// --project-id is written to plat5.dev.yml, whatever the folder's name, and is
+// --project-id is written to plat5.local.yml, whatever the folder's name, and is
 // the id every command reads; the starter's {{project_id}} is it too. An id that
 // isn't one as plat5 makes them is refused, naming the one it would be.
 func TestInitProjectID(t *testing.T) {
@@ -142,7 +142,7 @@ func TestInitProjectID(t *testing.T) {
 		t.Fatal(err)
 	}
 	if b, _ := os.ReadFile(filepath.Join(dir, config.FileName)); !strings.Contains(string(b), "\nproject_id: scratch-1\n") {
-		t.Errorf("plat5.dev.yml:\n%s", b)
+		t.Errorf("plat5.local.yml:\n%s", b)
 	}
 	if b, _ := os.ReadFile(filepath.Join(dir, "api/go.mod")); string(b) != "module scratch-1\n" {
 		t.Errorf("api/go.mod: %s", b)
@@ -169,7 +169,7 @@ func TestInitProjectID(t *testing.T) {
 
 // The ownership guard keys on --project-id, not the folder's name: init refuses
 // an id another folder owns, takes a fresh one, and then the commands from that
-// folder are guarded by plat5.dev.yml's id.
+// folder are guarded by plat5.local.yml's id.
 func TestInitProjectIDOwnerGuard(t *testing.T) {
 	a, b := ownerProjects(t)
 	if err := state.Save(state.State{ProjectID: "scratch", Owner: a}); err != nil {

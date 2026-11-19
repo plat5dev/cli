@@ -15,7 +15,7 @@ my-app/
   plat5.yml               the deployment's config, from the starter: its kinds, roles and service
                           files, plus the customer console's origin under cors
   services/               the service files it lists, from the starter: your API's, identity's, audit's
-  plat5.dev.yml           how plat5 start runs it on your machine
+  plat5.local.yml           how plat5 start runs it on your machine
   api/                    your API, from the starter
   customer-console/       your customers' console (--no-customer-console: none)
   operator-console/       your operators' console (--no-operator-console: none)
@@ -26,7 +26,7 @@ my-app/
 
 Each app is a starting point the project owns, not a dependency. The first-party starters are `go-fiber-api`, `node-fastify-api` and `bun-effect-api`, each with the consoles beside it; what each one's API does is in its own README. A starter can also be `owner/repo` on GitHub, or a `.tar.gz` URL ([starters](#starters)).
 
-`--template none` is Plat5 alone: `plat5.yml` with one kind, `organization`, and the roles `admin` and `member`, `services/identity.yml`, `services/audit.yml`, `plat5.dev.yml`, and `operator.routes.yml` from operator's shipped route list. Add your own API as a service file in `services/`, list it in `plat5.yml`'s `services`, and point `app.compose` in `plat5.dev.yml` at its compose file. A service file's routes sit in a kind's scope, relative to its node (`/orgs/{organization}/…`), in the `user` scope for the person's own data, such as `/user/notification-settings` (the service gets `X-Plat5-User-Id`), or in `public` ([plat5 `docs/reference/config/services.md`](https://github.com/plat5dev/plat5/blob/master/docs/reference/config/services.md)).
+`--template none` is Plat5 alone: `plat5.yml` with one kind, `organization`, and the roles `admin` and `member`, `services/identity.yml`, `services/audit.yml`, `plat5.local.yml`, and `operator.routes.yml` from operator's shipped route list. Add your own API as a service file in `services/`, list it in `plat5.yml`'s `services`, and point `app.compose` in `plat5.local.yml` at its compose file. A service file's routes sit in a kind's scope, relative to its node (`/orgs/{organization}/…`), in the `user` scope for the person's own data, such as `/user/notification-settings` (the service gets `X-Plat5-User-Id`), or in `public` ([plat5 `docs/reference/config/services.md`](https://github.com/plat5dev/plat5/blob/master/docs/reference/config/services.md)).
 
 Self-hosting a deployment is compose, not this CLI: [plat5 `docs/guides/deploy.md`](https://github.com/plat5dev/plat5/blob/master/docs/guides/deploy.md).
 
@@ -38,7 +38,7 @@ brew install plat5dev/tap/plat5
 curl -fsSL https://plat5.com/install.sh | sh
 ```
 
-macOS and Linux, amd64 and arm64. On Windows, use WSL2. The script verifies the release's checksum and installs to `/usr/local/bin` (or `~/.local/bin`); `PLAT5_CLI_VERSION=v0.10.0` pins a release, `PLAT5_INSTALL_DIR` picks the directory. Or download a tarball from [GitHub Releases](https://github.com/plat5dev/cli/releases). `plat5 --version` prints `plat5 0.9.0` (no leading `v`); `plat5 version` adds the image versions the project pins.
+macOS and Linux, amd64 and arm64. On Windows, use WSL2. The script verifies the release's checksum and installs to `/usr/local/bin` (or `~/.local/bin`); `PLAT5_CLI_VERSION=v0.15.0` pins a release, `PLAT5_INSTALL_DIR` picks the directory. Or download a tarball from [GitHub Releases](https://github.com/plat5dev/cli/releases). `plat5 --version` prints `plat5 0.15.0` (no leading `v`); `plat5 version` adds the image versions the project pins.
 
 From source: `go install github.com/plat5dev/cli/cmd/plat5@latest`.
 
@@ -58,7 +58,7 @@ One compose project, `plat5-<project_id>`, with one Postgres (a database per pla
 | | Operator console (`operator.console`, in your app's compose file) | 5412 | `operator@example.com` / `password` |
 | your app (`app.compose`) | whatever its compose file runs | its own | |
 
-All modules are on unless `plat5.dev.yml` turns one off. `plat5 start -x observability` skips one for a run; `-x app` runs everything but your app, so you can run it on your machine.
+All modules are on unless `plat5.local.yml` turns one off. `plat5 start -x observability` skips one for a run; `-x app` runs everything but your app, so you can run it on your machine.
 
 The operator module runs operator's images as operator's dev compose does (operator `compose/docker-compose.yml`): the gateway on Plat5's network with `IDENTITY_URL` set to identity, the project's `operator.routes.yml` mounted as its `ROUTES_FILE`, operator-audit in its own database on the one Postgres, and the operator IdP at the project's auth pin. The operator console is an app the project owns: `docker-compose.yml` includes its compose file, and `start` runs it only with the module, so turning the module off, or `-x operator`, leaves the folder and runs none of it. `start` restarts the operator gateway when `operator.routes.yml` changes; it reads its routes at boot.
 
@@ -106,29 +106,39 @@ Local Auth runs in dev mode: `POST /dev/token` mints a token for any email, and 
 | `plat5 stop` | Stop everything. Data (volumes) is kept |
 | `plat5 reset [-y]` | Stop everything and delete the project's volumes: Plat5's and the operator's databases, your apps' volumes, Grafana's data. The next `start` seeds a fresh dev person. Asks first unless `-y` |
 | `plat5 logs [service…]` | Container logs. Follows on a terminal; piped, prints and exits. `--app` for your app; `-f` / `-f=false` to choose |
-| `plat5 doctor` | Check Docker, `plat5.dev.yml`, `plat5.yml`, `operator.routes.yml`, and ports, the operator console's included (naming the Plat5 project that holds a busy one) |
-| `plat5 validate [plat5.yml]` | Check a deployment's config against the schema, offline |
-| `plat5 plan [plat5.yml] [-out plan.json] [--detailed-exitcode]` | Dry run: the diff applying it would make |
-| `plat5 apply [plat5.yml \| plan.json] [--auto-approve]` | Plan, confirm, apply, or apply a saved plan; then wait up to 10s for the gateway's replicas to load it, and exit 1 if one refused it |
-| `plat5 routes list [plat5.yml]` | Every service's expanded routes, identity's and audit's included: method, public path, scope, upstream, permissions. A dry run: the routes the control plane expanded |
-| `plat5 routes generate [plat5.yml]` | Write identity's and audit's routes for every kind into `services/identity.yml` and `services/audit.yml`, overwriting them but keeping their `url`, `timeouts` and `max_body_bytes`. Offline. Run it after adding or removing a kind, or changing a kind's `path` or `list_permission`; review the diff, and delete again any route you had dropped |
+| `plat5 doctor` | Check Docker, `plat5.local.yml`, `plat5.yml`, `operator.routes.yml`, and ports, the operator console's included (naming the Plat5 project that holds a busy one) |
+| `plat5 validate [-f file …] [plat5.yml]` | Check a deployment's config against the schema, offline |
+| `plat5 plan [-f file …] [plat5.yml] [-out plan.json] [--detailed-exitcode]` | Dry run: the diff applying it would make |
+| `plat5 apply [-f file …] [plat5.yml \| plan.json] [--auto-approve]` | Plan, confirm, apply, or apply a saved plan; then wait up to 10s for the gateway's replicas to load it, and exit 1 if one refused it |
+| `plat5 routes list [-f file …] [plat5.yml]` | Every service's expanded routes, identity's and audit's included: method, public path, scope, upstream, permissions. A dry run: the routes the control plane expanded |
+| `plat5 routes generate [-f file …] [plat5.yml]` | Write identity's and audit's routes for every kind into `services/identity.yml` and `services/audit.yml`, overwriting them but keeping their `url`, `timeouts` and `max_body_bytes`. Offline. Run it after adding or removing a kind, or changing a kind's `path` or `list_permission`; review the diff, and delete again any route you had dropped |
 | `plat5 config pull [--revision n] [dir]` | Write an applied revision as `plat5.yml` and `services/<service>.yml` |
-| `plat5 version` / `--version` | The CLI version, and the image versions `plat5.dev.yml` pins |
+| `plat5 version` / `--version` | The CLI version, and the image versions `plat5.local.yml` pins |
 
-`validate`, `plan`, `apply`, `routes list`, `routes generate` and `config pull` work on a deployment's config: `plat5.yml` and the service files it lists. `validate` and `routes generate` are offline; the others talk to the local control plane (`http://localhost:5402`, `dev-admin-token`) unless `--control-plane-url` / `--admin-token` (or `PLAT5_CONTROL_PLANE_URL` / `PLAT5_ADMIN_TOKEN`) point elsewhere.
+`validate`, `plan`, `apply`, `routes list`, `routes generate` and `config pull` work on a deployment's config: `plat5.yml` and the service files it lists. `validate` and `routes generate` are offline; the others talk to the local control plane (from `plat5.local.yml` when present, else `http://localhost:5402` and `dev-admin-token`) unless `--control-plane-url` / `--admin-token` (or `PLAT5_CONTROL_PLANE_URL` / `PLAT5_ADMIN_TOKEN`) point elsewhere.
 
-## `plat5.dev.yml`
+Pass `-f` / `--file` multiple times to layer environment overlays over a base `plat5.yml` (cannot be combined with a positional file argument):
+
+```bash
+plat5 validate -f plat5.yml -f plat5.prod.yml
+plat5 plan     -f plat5.yml -f plat5.prod.yml
+plat5 apply    -f plat5.yml -f plat5.prod.yml
+```
+
+Overlays merge left-to-right with RFC 7396 merge-patch semantics: maps merge recursively, scalars and lists (such as `cors.allowed_origins`) replace, and `null` deletes a key. An overlay's `services:` may be a mapping (e.g. `services: { api: { url: http://api.prod.internal:3000 } }`) or a list of service files resolved relative to the overlay file. Validation and control-plane errors name the exact file that set the failing field.
+
+## `plat5.local.yml`
 
 How `plat5 start` runs the project on your machine. A deployment never reads it, and it holds nothing that's in `plat5.yml`. Found by walking up from the working directory; `plat5.yml` is the file beside it. Relative paths resolve against its directory. Unknown keys are errors, with a hint that a newer CLI may know them.
 
-`cli:` is the oldest CLI that reads the file. `plat5 init` writes the version that introduced the newest key it uses (`internal/config.SchemaVersion`), not its own version, and every command checks it first: an older CLI says the project needs a newer one and how to upgrade, instead of failing on a key. Raise `SchemaVersion` in a release that adds a key. A dev build, one built without a release version (`go build` from a checkout), passes every floor and says so in one line: `plat5: a dev build (no release version), so plat5.dev.yml's cli: >=0.13.0 is not checked`.
+`cli:` is the oldest CLI that reads the file. `plat5 init` writes the version that introduced the newest key it uses (`internal/config.SchemaVersion`), not its own version, and every command checks it first: an older CLI says the project needs a newer one and how to upgrade, instead of failing on a key. Raise `SchemaVersion` in a release that adds a key. A dev build, one built without a release version (`go build` from a checkout), passes every floor and says so in one line: `plat5: a dev build (no release version), so plat5.local.yml's cli: >=0.15.0 is not checked`.
 
 ```yaml
 project_id: my-app                 # plat5 init --project-id, else the directory name; one folder per id, see State
-cli: ">=0.13.0"                    # the oldest plat5 CLI that reads this file
+cli: ">=0.15.0"                    # the oldest plat5 CLI that reads this file
 
 versions:                          # image tags; plat5 init writes the latest of each
-  plat5: v0.9.0
+  plat5: v0.15.0
   auth: v0.2.2                     # also the operator IdP's
   operator: v0.5.0
 
@@ -170,6 +180,7 @@ idp:                               # with modules.auth false: the gateway's IdP
   jwks_uri: https://idp.example.com/.well-known/jwks.json
   audiences: [my-api]
   subject_claim: sub               # the person's IdP subject (AUTH_SUBJECT_CLAIM)
+  name_claims: [name, preferred_username]  # JWT claims for display name seeding (AUTH_NAME_CLAIMS); [] disables
 otel:
   endpoint: http://host.docker.internal:4318   # your collector, instead of the observability module
 source:                            # contributors: build from checkouts; plat5 init --sources writes it (see below)
@@ -200,10 +211,10 @@ The template contract for an app's compose file: `plat5 start` runs it with `doc
 
 From an API starter, `init`:
 
-- copies the starter into `api/`, the customer console into `customer-console/` and the operator console into `operator-console/`, each without its own project files (`plat5.yml`, `plat5.dev.yml`, `services/`, `plat5.template.yml`), its operator routes, `.github`, the manifest's `exclude`, or local state (`.git`, `node_modules`, `dist`, `.env`, `*.local`, `*.log`, `.DS_Store`, `data/*.db`), and replaces `{{project_id}}` in each `substitute` file with the project id;
+- copies the starter into `api/`, the customer console into `customer-console/` and the operator console into `operator-console/`, each without its own project files (`plat5.yml`, `plat5.local.yml`, `services/`, `plat5.template.yml`), its operator routes, `.github`, the manifest's `exclude`, or local state (`.git`, `node_modules`, `dist`, `.env`, `*.local`, `*.log`, `.DS_Store`, `data/*.db`), and replaces `{{project_id}}` in each `substitute` file with the project id;
 - writes the starter's config, its `config` file as `plat5.yml` and the service files it lists at the same paths, as they are: the starter owns its kinds, roles and routes. With the customer console, it adds the console's `app.web` under `cors.allowed_origins`, before `services:` ([plat5 `docs/reference/config/cors.md`](https://github.com/plat5dev/plat5/blob/master/docs/reference/config/cors.md)); a starter's `plat5.yml` that sets `cors` itself is refused;
-- writes `docker-compose.yml`, which `include:`s each app's compose file, and `plat5.dev.yml` with `app.compose: ./docker-compose.yml`, `app.web` the customer console's origin, and `operator.console` the operator console's compose file and origin;
-- writes `operator.routes.yml`: operator's shipped route list (operator `routes.yml`) with the starter's operator routes added under its `services:`, in operator's route format (operator [`docs/reference/routes.md`](https://github.com/plat5dev/operator/blob/master/docs/reference/routes.md)), and names it as `operator.routes` in `plat5.dev.yml`. `plat5 start`'s operator gateway mounts it as its `ROUTES_FILE`; a deployed operator gateway mounts a copy with the deployment's addresses.
+- writes `docker-compose.yml`, which `include:`s each app's compose file, and `plat5.local.yml` with `app.compose: ./docker-compose.yml`, `app.web` the customer console's origin, and `operator.console` the operator console's compose file and origin;
+- writes `operator.routes.yml`: operator's shipped route list (operator `routes.yml`) with the starter's operator routes added under its `services:`, in operator's route format (operator [`docs/reference/routes.md`](https://github.com/plat5dev/operator/blob/master/docs/reference/routes.md)), and names it as `operator.routes` in `plat5.local.yml`. `plat5 start`'s operator gateway mounts it as its `ROUTES_FILE`; a deployed operator gateway mounts a copy with the deployment's addresses.
 
 A template's manifest, `plat5.template.yml` at its root. Unknown keys are errors.
 
@@ -221,7 +232,7 @@ next: [go mod tidy, go run .]          # how to run it yourself with plat5 start
 exclude: [AGENTS.md]                   # paths, from its root, not to copy
 ```
 
-The API's service file's `url` names the app's compose service (`http://api:3000`), so `plat5 start` joins it to the Plat5 network ([your app and its url](#your-app-and-its-url)). Each starter's repo root is also a project you can run alone: its own `plat5.yml`, `plat5.dev.yml` and `services/`, which `init` writes at the project's root instead of `api/` (less `plat5.dev.yml`, which init writes itself).
+The API's service file's `url` names the app's compose service (`http://api:3000`), so `plat5 start` joins it to the Plat5 network ([your app and its url](#your-app-and-its-url)). Each starter's repo root is also a project you can run alone: its own `plat5.yml`, `plat5.local.yml` and `services/`, which `init` writes at the project's root instead of `api/` (less `plat5.local.yml`, which init writes itself).
 
 ## Contributors: run checkouts
 
@@ -235,7 +246,7 @@ plat5 init scratch --sources .. --project-id scratch-cli --template go-fiber-api
 cd scratch && plat5 start     # builds, then runs; the first Rust build takes a while
 ```
 
-A CLI built from this checkout with no version flag is a dev build ([`cli:`](#plat5devyml)): it runs any project, so `go build -o plat5 ./cmd/plat5` is all `--sources` needs.
+A CLI built from this checkout with no version flag is a dev build ([`cli:`](#plat5localyml)): it runs any project, so `go build -o plat5 ./cmd/plat5` is all `--sources` needs.
 
 The embedded compose files (`internal/bundle/stack`) track plat5 HEAD, so a `plat5` checkout at HEAD runs as it will ship. For hot reload of one service, use that repo's own dev compose.
 
@@ -245,7 +256,7 @@ One copy tracks plat5 too: the config schema (`internal/schema`, plat5's `schema
 
 `$XDG_STATE_HOME/plat5/projects/<project_id>/` (default `~/.local/state/plat5/…`, on macOS too): `state.json` (the folder that owns the project id, what the last start ran, and the dev keys; mode 0600) and `stack/` (the compose files, the generated override, and the sign-in themes, the operator IdP's included).
 
-One folder per project id: the id names both compose projects, the stack's (`plat5-<project_id>`) and your app's (`<project_id>`), their volumes and images, and this state, so a second folder with the same id would take over the first one's. A folder's default id is the normalized directory name docker compose gives a project in it, so there `docker compose` sees your app's containers as `plat5` runs them; under another id, add `-p <project_id>`. `state.json` records the owning folder (absolute, symlinks resolved), the first one to `plat5 start` the id, and `start`, `stop`, `reset`, `status`, `logs` and `init` from any other folder refuse, naming both folders; `doctor` reports it as a failed check. A state with no folder recorded is the next `start`'s. To run both, give one its own id: `plat5 init --project-id b-work`, or in an existing project's `plat5.dev.yml`:
+One folder per project id: the id names both compose projects, the stack's (`plat5-<project_id>`) and your app's (`<project_id>`), their volumes and images, and this state, so a second folder with the same id would take over the first one's. A folder's default id is the normalized directory name docker compose gives a project in it, so there `docker compose` sees your app's containers as `plat5` runs them; under another id, add `-p <project_id>`. `state.json` records the owning folder (absolute, symlinks resolved), the first one to `plat5 start` the id, and `start`, `stop`, `reset`, `status`, `logs` and `init` from any other folder refuse, naming both folders; `doctor` reports it as a failed check. A state with no folder recorded is the next `start`'s. To run both, give one its own id: `plat5 init --project-id b-work`, or in an existing project's `plat5.local.yml`:
 
 ```yaml
 project_id: b-work

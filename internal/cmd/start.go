@@ -31,12 +31,12 @@ var startCmd = &cobra.Command{
 	Short: "Run Plat5, its modules, and your app in Docker",
 	Long: `Run the project's local stack in Docker, then print its links, logins, and keys.
 
-Plat5 always runs. Beside it, the modules plat5.dev.yml turns on (all by default):
+Plat5 always runs. Beside it, the modules plat5.local.yml turns on (all by default):
   auth           Plat5 Auth, the customer IdP, in dev mode
   observability  Grafana with logs, traces, and metrics (grafana/otel-lgtm + Alloy)
   operator       the operator gateway on operator.routes.yml, operator-audit, and
                  the operator IdP (a second Plat5 Auth, in dev mode)
-Then your app, from app.compose in plat5.dev.yml. The operator console, which
+Then your app, from app.compose in plat5.local.yml. The operator console, which
 app.compose includes, runs only with the operator module.
 
 start applies plat5.yml as plat5 apply does, without a prompt; a blocked plan
@@ -175,8 +175,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 	for _, svc := range stk.OnHost {
 		fmt.Printf("  %s: your machine (-x app)\n", svc)
 	}
-	applied, err := applyForStart(cp, cfg.ConfigPath, os.Stdout)
-	if err != nil {
+	if err := applyForStart(cp, conf, os.Stdout); err != nil {
 		return err
 	}
 
@@ -195,7 +194,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 			Email:      config.DevEmail,
 			Name:       config.DevName,
 			NodeName:   config.DevNodeName,
-			Roots:      rootKinds(applied.Flat),
+			Roots:      rootKinds(conf.Flat),
 			Warn:       func(msg string) { fmt.Printf("warning: %s\n", msg) },
 		}, prev.Dev)
 		if err != nil {
