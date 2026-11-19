@@ -16,12 +16,25 @@ permissions:
 jobs:
   cli:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cli
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: cli
+      - uses: actions/checkout@v4
+        with:
+          repository: plat5dev/plat5
+          path: plat5
+      - uses: actions/checkout@v4
+        with:
+          repository: plat5dev/operator
+          path: operator
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
-          cache-dependency-path: go.sum
+          go-version-file: cli/go.mod
+          cache-dependency-path: cli/go.sum
       - name: format check
         run: test -z "$(gofmt -l .)"
       - run: go vet ./...
