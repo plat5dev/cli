@@ -20,7 +20,7 @@ import (
 )
 
 // The deployment's config: plat5.yml and its service files, planned and applied
-// as a whole (plat5 docs/reference/cli.md).
+// as a whole.
 
 const (
 	defaultConfigFile      = "plat5.yml"

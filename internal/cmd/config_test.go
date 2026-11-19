@@ -90,11 +90,11 @@ func TestPrintPlan(t *testing.T) {
 		"settings-and-cors": {
 			"  ~ setting deletion_grace: \"30d\" → \"7d\"\n",
 			"  ~ setting reserved_slugs: [] → [\"new\", \"settings\"]\n",
-			"  + rate_limit evals-org\n      + requests: 300\n      + window_seconds: 1\n      + count_at: \"organization\"\n",
+			"  + rate_limit evals-org\n      + requests: 300\n      + window: \"1s\"\n      + count_at: \"organization\"\n",
 			"  ~ rate_limit standard\n      ~ requests: 60 → 120\n",
 			"  ~ service e10s\n      ~ timeouts: {connect: \"10s\", read: \"30s\"} → {connect: \"5s\", read: \"20s\"}\n      ~ max_body_bytes: 10485760 → 2097152\n",
 			"      ~ GET /orgs/{organization}/plans\n          ~ rate_limit: [\"standard\"] → [\"evals-org\"]\n",
-			"Plan: 1 to add, 7 to change, 0 to remove.\n",
+			"Plan: 1 to add, 5 to change, 0 to remove.\n",
 		},
 		"services": {
 			"  - service billing\n      - url: \"http://billing:3000\"\n",
@@ -247,7 +247,7 @@ func TestExplainNamesTheFile(t *testing.T) {
 	plat5 := `kinds: { organization: { path: "/orgs/{organization}", list_permission: organization:read } }
 roles: { admin: { permissions: ["*"], bindable_at: [organization] } }
 creator_role: admin
-rate_limits: { standard: { requests: 60, window_seconds: 60 } }
+rate_limits: { standard: { requests: 60, window: 60s } }
 defaults: { rate_limit: [standard] }
 services: [services/e10s.yml]
 `
@@ -282,7 +282,7 @@ func TestConfigPullWritesServiceFiles(t *testing.T) {
 		"kinds":        map[string]any{"organization": map[string]any{"path": "/orgs/{organization}", "list_permission": "organization:read"}},
 		"roles":        map[string]any{"admin": map[string]any{"permissions": []any{"*"}, "bindable_at": []any{"organization"}}},
 		"creator_role": "admin",
-		"rate_limits":  map[string]any{"standard": map[string]any{"requests": 60, "window_seconds": 60}},
+		"rate_limits":  map[string]any{"standard": map[string]any{"requests": 60, "window": "60s"}},
 		"defaults":     map[string]any{"rate_limit": []any{"standard"}},
 		"services": map[string]any{
 			"identity": map[string]any{"url": "http://identity:3000", "scopes": map[string]any{"user": map[string]any{"routes": []any{

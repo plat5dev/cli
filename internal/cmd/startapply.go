@@ -15,7 +15,7 @@ import (
 // applyForStart applies plat5.yml as plat5 apply does, without the prompt: start
 // is not interactive. The first apply, against revision 0, prints only the
 // summary: the whole config is new. A blocked plan is printed and refused. Then it reports
-// where the gateway's replicas stand (plat5 docs/reference/cli.md#the-local-stack).
+// where the gateway's replicas stand.
 func applyForStart(client *controlplane.Client, path string, w io.Writer) (*plat5yml.Config, error) {
 	cfg, err := loadValid(path)
 	if err != nil {
@@ -65,14 +65,6 @@ func rootKinds(flat map[string]any) []devseed.RootKind {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Kind < out[j].Kind })
 	return out
-}
-
-// idpNames reports users.name.sync: each_sign_in, where the IdP's token names
-// a person on every sign-in. Absent, it is first_sign_in.
-func idpNames(flat map[string]any) bool {
-	users, _ := flat["users"].(map[string]any)
-	name, _ := users["name"].(map[string]any)
-	return name["sync"] == "each_sign_in"
 }
 
 // urlHosts is the host of every service's url in the config, sorted.

@@ -114,7 +114,7 @@ func TestOperatorEnvMatchesOperator(t *testing.T) {
 	}
 	ours, _ := content.ReadFile("stack/operator.yml")
 	op, cli := composeEnv(t, theirs), composeEnv(t, ours)
-	telemetry := map[string]bool{"OTEL_EXPORTER_OTLP_ENDPOINT": true, "OTEL_SERVICE_NAME": true, "OTEL_SERVICE_NAMESPACE": true, "DEPLOYMENT_ENV": true}
+	telemetry := map[string]bool{"OTEL_EXPORTER_OTLP_ENDPOINT": true, "OTEL_SERVICE_NAME": true, "OTEL_RESOURCE_ATTRIBUTES": true}
 	for svc, env := range cli {
 		known, ok := op[svc]
 		if !ok {

@@ -20,7 +20,7 @@ services:
       # token because operator-auth sets AUTH_TOKEN_EMAIL. Its aud is the client id.
       AUTH_ISSUER: http://localhost:${OPERATOR_AUTH_PORT:?}
       AUTH_JWKS_URI: http://operator-auth:5000/.well-known/jwks.json
-      AUTH_AUDIENCES: operator-console
+      AUTH_ALLOWED_AUDIENCES: operator-console
       AUTH_OPERATOR_ID_CLAIM: properties.user_id
       AUTH_OPERATOR_EMAIL_CLAIM: properties.email
       ALLOWED_ORIGINS: ${OPERATOR_ORIGINS:-}
@@ -86,7 +86,6 @@ services:
       - "${OPERATOR_AUTH_PORT:?}:5000"
     environment:
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
-      DEPLOYMENT_ENV: local
       DATABASE_URL: postgres://plat5:plat5@postgres:5432/operator_auth?sslmode=disable
       INTERNAL_PORT: 5001
       # Token iss: the origin operators sign in at, which the operator gateway checks.
@@ -99,7 +98,7 @@ services:
       AUTH_DEV_MODE: "true"
       AUTH_DEV_USERS: ${OPERATOR_DEV_USERS:?}
       OTEL_SERVICE_NAME: operator-auth
-      OTEL_SERVICE_NAMESPACE: operator
+      OTEL_RESOURCE_ATTRIBUTES: service.namespace=operator,deployment.environment=local
     networks:
       - plat5
     depends_on:

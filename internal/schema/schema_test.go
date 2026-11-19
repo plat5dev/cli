@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -18,7 +17,7 @@ func sample() map[string]any {
 		},
 		"creator_role": "admin",
 		"rate_limits": map[string]any{
-			"standard": map[string]any{"requests": 60, "window_seconds": 60},
+			"standard": map[string]any{"requests": 60, "window": "60s"},
 		},
 		"defaults": map[string]any{"rate_limit": []any{"standard"}},
 		"services": map[string]any{
@@ -45,27 +44,26 @@ func TestErrorsNameFieldPaths(t *testing.T) {
 	}
 }
 
-// defaults.rate_limit is required, and no policy name is: default is ordinary.
+// defaults and rate_limits are optional; when defaults is set, defaults.rate_limit is validated.
 func TestDefaultsRateLimit(t *testing.T) {
 	c := sample()
 	c["services"] = map[string]any{}
-	c["rate_limits"] = map[string]any{"default": map[string]any{"requests": 1, "window_seconds": 1}}
+	c["rate_limits"] = map[string]any{"default": map[string]any{"requests": 1, "window": "1s"}}
 	c["defaults"] = map[string]any{"rate_limit": []any{"default"}}
 	if errs, _ := ValidateConfig(c); len(errs) != 0 {
 		t.Fatalf("got %v", errs)
 	}
+	delete(c, "defaults")
+	delete(c, "rate_limits")
+	if errs, _ := ValidateConfig(c); len(errs) != 0 {
+		t.Fatalf("without rate_limits/defaults: got %v", errs)
+	}
 	for _, defaults := range []any{
-		nil,
-		map[string]any{},
 		map[string]any{"rate_limit": []any{}},
 		map[string]any{"rate_limit": []any{"a", "a"}},
 		map[string]any{"rate_limit": false},
 	} {
-		if defaults == nil {
-			delete(c, "defaults")
-		} else {
-			c["defaults"] = defaults
-		}
+		c["defaults"] = defaults
 		if errs, _ := ValidateConfig(c); len(errs) == 0 {
 			t.Errorf("defaults %v: accepted", defaults)
 		}
@@ -131,66 +129,6 @@ func TestMatchesPlat5(t *testing.T) {
 		}
 		if !bytes.Equal(data, ours[filepath.Base(path)]) {
 			t.Errorf("%s differs from plat5's: copy plat5/schema/*.json into internal/schema/files/", filepath.Base(path))
-		}
-	}
-}
-
-// users.name: each field on its own, and nothing else; name_claim is unknown.
-func TestUsersName(t *testing.T) {
-	c := sample()
-	c["services"] = map[string]any{}
-	for _, users := range []any{
-		map[string]any{},
-		map[string]any{"name": map[string]any{}},
-		map[string]any{"name": map[string]any{"claims": []any{"profile.display_name"}}},
-		map[string]any{"name": map[string]any{"claims": []any{"name", "preferred_username"}, "sync": "each_sign_in"}},
-	} {
-		c["users"] = users
-		if errs, _ := ValidateConfig(c); len(errs) != 0 {
-			t.Fatalf("%v: %v", users, errs)
-		}
-	}
-	for _, users := range []any{
-		map[string]any{"name_claim": "name"},
-		map[string]any{"name": map[string]any{"sync": "never"}},
-		map[string]any{"name": map[string]any{"claims": []any{}}},
-		map[string]any{"name": map[string]any{"claims": []any{"name", "name"}}},
-		map[string]any{"name": map[string]any{"claims": []any{"a..b"}}},
-		map[string]any{"name": map[string]any{"claims": []any{"a", "b", "c", "d", "e", "f", "g", "h", "i"}}},
-	} {
-		c["users"] = users
-		if errs, _ := ValidateConfig(c); len(errs) == 0 {
-			t.Errorf("%v: accepted", users)
-		}
-	}
-}
-
-func TestRouteChecks(t *testing.T) {
-	c := sample()
-	c["services"] = map[string]any{}
-	for _, rc := range []any{
-		map[string]any{},
-		map[string]any{"path": "/access/routes"},
-		map[string]any{"path": "/v1/can_i.check"},
-	} {
-		c["route_checks"] = rc
-		if errs, _ := ValidateConfig(c); len(errs) != 0 {
-			t.Fatalf("%v: %v", rc, errs)
-		}
-	}
-	for _, rc := range []any{
-		"/access/routes",
-		map[string]any{"path": "access/routes"},
-		map[string]any{"path": "/Access"},
-		map[string]any{"path": "/access/{id}"},
-		map[string]any{"path": "/.well-known"},
-		map[string]any{"path": "/access/"},
-		map[string]any{"path": "/" + strings.Repeat("a", 256)},
-		map[string]any{"path": "/access", "method": "POST"},
-	} {
-		c["route_checks"] = rc
-		if errs, _ := ValidateConfig(c); len(errs) == 0 {
-			t.Errorf("%v: accepted", rc)
 		}
 	}
 }

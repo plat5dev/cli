@@ -47,7 +47,7 @@ func routesConfig(t *testing.T) string {
 	plat5 := `kinds: { organization: { path: "/orgs/{organization}", list_permission: organization:read } }
 roles: { admin: { permissions: ["*"], bindable_at: [organization] } }
 creator_role: admin
-rate_limits: { standard: { requests: 60, window_seconds: 60 } }
+rate_limits: { standard: { requests: 60, window: 60s } }
 defaults: { rate_limit: [standard] }
 services: [services/e10s.yml]
 `
@@ -193,7 +193,7 @@ func TestRoutesGenerate(t *testing.T) {
   board: { parent: team, path: "/boards/{board}", list_permission: team:read }
 roles: { admin: { permissions: ["*"], bindable_at: [team, board] } }
 creator_role: admin
-rate_limits: { standard: { requests: 60, window_seconds: 60 } }
+rate_limits: { standard: { requests: 60, window: 60s } }
 defaults: { rate_limit: [standard] }
 services: [services/identity.yml, services/audit.yml]
 `

@@ -20,7 +20,6 @@ type fake struct {
 	requests []string
 	token    map[string]string // the last /dev/token body
 	name     any               // the dev person's name: nil until set
-	ownsName bool              // users.name.sync is each_sign_in: PATCH /user is 409
 	missing  string            // a route the config leaves out: 404
 	failUser bool
 }
@@ -58,10 +57,6 @@ func (f *fake) handler() http.Handler {
 			}
 			write(200, map[string]any{"id": "01jbx9q3t5vk8m2n4p6r7s8t9w", "name": f.name, "status": "active"})
 		case "PATCH /user":
-			if f.ownsName {
-				write(409, map[string]any{"error": map[string]string{"code": "NAME_OWNED_BY_IDP"}})
-				return
-			}
 			var body map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			f.name = body["name"]
@@ -197,62 +192,6 @@ func TestEnsureKeepsAName(t *testing.T) {
 		if r == "PATCH /user" {
 			t.Fatalf("renamed: %v", f.requests)
 		}
-	}
-}
-
-// Under each_sign_in the IdP names people: the seed doesn't call PATCH /user
-// and says nothing about names, on a first start or a later one.
-func TestEnsureLeavesTheNameToTheIdP(t *testing.T) {
-	f, c := newFake(t)
-	f.ownsName = true
-	c.IdPNames = true
-	var warnings []string
-	c.Warn = func(msg string) { warnings = append(warnings, msg) }
-	dev, err := Ensure(c, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	again, err := Ensure(c, dev)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if dev.Key == "" || len(dev.Nodes) != 1 || again != dev || f.name != nil || len(warnings) != 0 {
-		t.Fatalf("%+v, reused %v, name %v, warnings %v", dev, again == dev, f.name, warnings)
-	}
-	for _, r := range f.requests {
-		if r == "PATCH /user" {
-			t.Fatalf("named: %v", f.requests)
-		}
-	}
-}
-
-// Under first_sign_in, identity still running with each_sign_in refuses
-// PATCH /user with a 409: a warning, and the rest is seeded. A later start,
-// identity caught up, names the person with the key it kept.
-func TestEnsureWarnsWhenIdentityRefusesTheName(t *testing.T) {
-	f, c := newFake(t)
-	f.ownsName = true
-	var warnings []string
-	c.Warn = func(msg string) { warnings = append(warnings, msg) }
-	dev, err := Ensure(c, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if dev.Key == "" || len(dev.Nodes) != 1 || f.name != nil {
-		t.Fatalf("%+v, name %v", dev, f.name)
-	}
-	if len(warnings) != 1 || !strings.Contains(warnings[0], "409") || !strings.Contains(warnings[0], "config other than this project's plat5.yml") || !strings.Contains(warnings[0], "plat5 apply") || !strings.Contains(warnings[0], "plat5 start") {
-		t.Fatalf("warnings %v", warnings)
-	}
-
-	f.ownsName = false
-	f.requests = nil
-	again, err := Ensure(c, dev)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if again != dev || f.name != "Dev Person" || strings.Join(f.requests, ",") != "GET /user,PATCH /user" {
-		t.Fatalf("reused: %v, name %v, requests %v", again == dev, f.name, f.requests)
 	}
 }
 

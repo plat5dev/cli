@@ -396,9 +396,9 @@ func TestOperatorComposeConfig(t *testing.T) {
 	for k, want := range map[string]string{
 		"ROUTES_FILE":     "/etc/operator/routes.yml",
 		"IDENTITY_URL":    "http://identity:3000",
-		"AUTH_ISSUER":     "http://localhost:5411",
-		"AUTH_AUDIENCES":  "operator-console",
-		"ALLOWED_ORIGINS": "http://localhost:5412",
+		"AUTH_ISSUER":            "http://localhost:5411",
+		"AUTH_ALLOWED_AUDIENCES": "operator-console",
+		"ALLOWED_ORIGINS":        "http://localhost:5412",
 		"AUDIT_URL":       "http://operator-audit:8005",
 	} {
 		if op.Environment[k] != want {

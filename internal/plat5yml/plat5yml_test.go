@@ -16,7 +16,7 @@ roles:
   admin: { permissions: ["*"], bindable_at: [organization] }
 creator_role: admin
 rate_limits:
-  standard: { requests: 60, window_seconds: 60 }
+  standard: { requests: 60, window: 60s }
 defaults:
   rate_limit: [standard]
 services:

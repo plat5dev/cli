@@ -97,9 +97,6 @@ func TestInitFilesValidate(t *testing.T) {
 	if got := rootKinds(cfg.Flat); len(got) != 1 || got[0].Kind != "organization" {
 		t.Fatalf("root kinds: %+v", got)
 	}
-	if idpNames(cfg.Flat) {
-		t.Fatal("init's plat5.yml: the seed names the dev person under first_sign_in")
-	}
 }
 
 func TestParsePairs(t *testing.T) {

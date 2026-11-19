@@ -66,9 +66,9 @@ A busy port is an error naming it, never a silent move: stop what holds it, or p
 
 `start` prints its steps, and each image it has to pull, one per line. Docker compose's own pull, build, and container output goes to `start.log` in the stack dir; a failure prints its last lines and the path. `-v` / `--verbose` shows it all instead.
 
-Once the control plane is up, `start` applies `plat5.yml` as `plat5 apply` does ([plat5 `docs/reference/cli.md`](https://github.com/plat5dev/plat5/blob/master/docs/reference/cli.md#the-local-stack)). It applies without a prompt; a blocked plan (a kind removed, or its parent changed, while it has nodes) is printed and refused, and a gateway replica that refuses the new revision fails `start`. Apply checks the config's rules, as in any deployment. A role may grant any permission, and a route permission no role grants is legal: only a `"*"` role holds it.
+Once the control plane is up, `start` applies `plat5.yml` as `plat5 apply` does. It applies without a prompt; a blocked plan (a kind removed, or its parent changed, while it has nodes) is printed and refused, and a gateway replica that refuses the new revision fails `start`. Apply checks the config's rules, as in any deployment. A role may grant any permission, and a route permission no role grants is legal: only a `"*"` role holds it.
 
-Then it makes sure there is something to call with, through identity's routes at the gateway like any client: the dev person (`dev@example.com`, signed in with a dev token from local Auth; `GET /user`), their name, "Dev Person" (`PATCH /user`, while they have none, since local Auth's tokens carry no name; a name already set stays; under `users.name.sync: each_sign_in` in `plat5.yml` only the IdP's token names a person, so the seed leaves the name alone and says nothing about it), a node named `Dev` of each root kind they own (found through `GET /user/nodes?kind=organization`, or made with `POST /orgs`; `/orgs/dev`), and one personal key (`POST /user/keys`), which acts as them in every tree. Every credential, token or key, is sent as `Authorization: Bearer`. It reuses them while the key works. A config without those routes gets a warning. Then it prints every link, login, and key; `plat5 status` prints them again.
+Then it makes sure there is something to call with, through identity's routes at the gateway like any client: the dev person (`dev@example.com`, signed in with a dev token from local Auth; `GET /user`), their name, "Dev Person" (`PATCH /user`, while they have none, since local Auth's tokens carry no name; a name already set stays), a node named `Dev` of each root kind they own (found through `GET /user/nodes?kind=organization`, or made with `POST /orgs`; `/orgs/dev`), and one personal key (`POST /user/keys`), which acts as them in every tree. Every credential, token or key, is sent as `Authorization: Bearer`. It reuses them while the key works. A config without those routes gets a warning. Then it prints every link, login, and key; `plat5 status` prints them again.
 
 ```
 my-app is running.
@@ -115,7 +115,7 @@ Local Auth runs in dev mode: `POST /dev/token` mints a token for any email, and 
 | `plat5 config pull [--revision n] [dir]` | Write an applied revision as `plat5.yml` and `services/<service>.yml` |
 | `plat5 version` / `--version` | The CLI version, and the image versions `plat5.dev.yml` pins |
 
-`validate`, `plan`, `apply`, `routes list`, `routes generate` and `config pull` work on a deployment's config: `plat5.yml` and the service files it lists ([plat5 `docs/reference/cli.md`](https://github.com/plat5dev/plat5/blob/master/docs/reference/cli.md)). `validate` and `routes generate` are offline; the others talk to the local control plane (`http://localhost:5402`, `dev-admin-token`) unless `--control-plane-url` / `--admin-token` (or `PLAT5_CONTROL_PLANE_URL` / `PLAT5_ADMIN_TOKEN`) point elsewhere.
+`validate`, `plan`, `apply`, `routes list`, `routes generate` and `config pull` work on a deployment's config: `plat5.yml` and the service files it lists. `validate` and `routes generate` are offline; the others talk to the local control plane (`http://localhost:5402`, `dev-admin-token`) unless `--control-plane-url` / `--admin-token` (or `PLAT5_CONTROL_PLANE_URL` / `PLAT5_ADMIN_TOKEN`) point elsewhere.
 
 ## `plat5.dev.yml`
 
@@ -227,7 +227,7 @@ The API's service file's `url` names the app's compose service (`http://api:3000
 
 `source:` builds a module's images from a local checkout instead of pulling them, on the same embedded stack (prod targets: what ships). Keys are the `versions:` keys; a sourced module needs no version.
 
-`plat5 init --sources <dir>` runs every checkout in `<dir>`, each in its repo's folder: it writes `source:` for each of `plat5`, `auth` and `operator` that has one, and copies the starter and the consoles from theirs (`template-<name>`). One without a checkout is its release, and init says so on its line. The flag's rules: [plat5 `docs/reference/cli.md`](https://github.com/plat5dev/plat5/blob/master/docs/reference/cli.md#the-local-stack).
+`plat5 init --sources <dir>` runs every checkout in `<dir>`, each in its repo's folder: it writes `source:` for each of `plat5`, `auth` and `operator` that has one, and copies the starter and the consoles from theirs (`template-<name>`). One without a checkout is its release, and init says so on its line.
 
 ```bash
 # beside the siblings, as plat5's scripts/clone-siblings lays them out
@@ -245,7 +245,7 @@ One copy tracks plat5 too: the config schema (`internal/schema`, plat5's `schema
 
 `$XDG_STATE_HOME/plat5/projects/<project_id>/` (default `~/.local/state/plat5/…`, on macOS too): `state.json` (the folder that owns the project id, what the last start ran, and the dev keys; mode 0600) and `stack/` (the compose files, the generated override, and the sign-in themes, the operator IdP's included).
 
-One folder per project id: the id names both compose projects, the stack's (`plat5-<project_id>`) and your app's (`<project_id>`), their volumes and images, and this state, so a second folder with the same id would take over the first one's. A folder's default id is the name docker compose gives a project in it ([the id](https://github.com/plat5dev/plat5/blob/master/docs/reference/cli.md#the-local-stack)), so there `docker compose` sees your app's containers as `plat5` runs them; under another id, add `-p <project_id>`. `state.json` records the owning folder (absolute, symlinks resolved), the first one to `plat5 start` the id, and `start`, `stop`, `reset`, `status`, `logs` and `init` from any other folder refuse, naming both folders; `doctor` reports it as a failed check. A state with no folder recorded is the next `start`'s. To run both, give one its own id: `plat5 init --project-id b-work`, or in an existing project's `plat5.dev.yml`:
+One folder per project id: the id names both compose projects, the stack's (`plat5-<project_id>`) and your app's (`<project_id>`), their volumes and images, and this state, so a second folder with the same id would take over the first one's. A folder's default id is the normalized directory name docker compose gives a project in it, so there `docker compose` sees your app's containers as `plat5` runs them; under another id, add `-p <project_id>`. `state.json` records the owning folder (absolute, symlinks resolved), the first one to `plat5 start` the id, and `start`, `stop`, `reset`, `status`, `logs` and `init` from any other folder refuse, naming both folders; `doctor` reports it as a failed check. A state with no folder recorded is the next `start`'s. To run both, give one its own id: `plat5 init --project-id b-work`, or in an existing project's `plat5.dev.yml`:
 
 ```yaml
 project_id: b-work

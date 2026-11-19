@@ -65,9 +65,7 @@ services:
       - path: /nodes/{node_id}/invites/{invite_id}
         node: node_id
         methods: [DELETE]
-      # A person, by user id: ?issuer=&subject= finds one by IdP link. PATCH sets or clears
-      # their name under users.name.sync first_sign_in; under each_sign_in it's 409
-      # NAME_OWNED_BY_IDP: the IdP owns names.
+      # A person, by user id: ?issuer=&subject= finds one by IdP link. PATCH sets or clears their name.
       - path: /users
         methods: [GET]
       - path: /users/{user_id}
