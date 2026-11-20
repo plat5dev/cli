@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -104,6 +105,35 @@ func TestDurationsAndUnknownKeys(t *testing.T) {
 	}
 	if !paths["deletion_grace"] || !paths[""] {
 		t.Fatalf("got %v", errs)
+	}
+}
+
+func TestFriendlyPatternErrorsAndServiceURLs(t *testing.T) {
+	mk := func(url string) map[string]any {
+		c := sample()
+		c["services"] = map[string]any{
+			"api": map[string]any{
+				"url": url,
+				"scopes": map[string]any{
+					"public": map[string]any{
+						"routes": []any{map[string]any{"path": "/health", "methods": []any{"GET"}}},
+					},
+				},
+			},
+		}
+		return c
+	}
+	for _, okURL := range []string{"http://api", "http://api:3000", "https://api.example.com", "https://api.example.com:8443"} {
+		if errs, err := ValidateConfig(mk(okURL)); err != nil || len(errs) != 0 {
+			t.Fatalf("%s: expected valid, got %v / %v", okURL, errs, err)
+		}
+	}
+	errs, err := ValidateConfig(mk("ftp://api:3000"))
+	if err != nil || len(errs) != 1 {
+		t.Fatalf("expected 1 error, got %v / %v", errs, err)
+	}
+	if strings.Contains(errs[0].Message, "does not match pattern") || !strings.Contains(errs[0].Message, "http://host[:port]") {
+		t.Fatalf("expected friendly url message, got: %s", errs[0].Message)
 	}
 }
 

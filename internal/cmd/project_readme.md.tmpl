@@ -39,7 +39,7 @@ The operator console is at {{.Operator}}: sign in as `{{.OpEmail}}` / `{{.Passwo
 ### Add an API route
 
 1. Write the handler in `api/`, on the path your API gets: the scope's `upstream_prefix`, with the node's id in place of its placeholder, and the route's path.
-2. Add the route to your API's service file in `services/`, in its scope, with the `required_permissions` it needs (plat5 `docs/reference/config/services.md`).
+2. Add the route to your API's service file in `services/`, in its scope, with the `required_permissions` it needs ([`docs/reference/config/services.md`](https://github.com/plat5dev/plat5/blob/master/docs/reference/config/services.md)).
 3. Grant a new permission to a role in `plat5.yml`'s `roles`.
 4. `plat5 start` again, or `plat5 apply`. The gateway loads the new config; nothing restarts.
 {{if .Web}}
@@ -50,7 +50,7 @@ The operator console is at {{.Operator}}: sign in as `{{.OpEmail}}` / `{{.Passwo
 {{end}}
 ### Let operators call your API
 
-List your API's own paths, by node id, under your API's service in `operator.routes.yml` (operator `docs/reference/routes.md`). The operator gateway forwards them unchanged; `plat5 start` again restarts it on the new list.
+List your API's own paths, by node id, under your API's service in `operator.routes.yml` ([`docs/reference/routes.md`](https://github.com/plat5dev/operator/blob/master/docs/reference/routes.md)). The operator gateway forwards them unchanged; `plat5 start` again restarts it on the new list.
 
 ### Remove what you don't need
 

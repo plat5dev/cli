@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -177,9 +178,45 @@ func loadValid(paths ...string) (*plat5yml.Config, error) {
 		for _, p := range problems {
 			fmt.Fprintln(os.Stderr, "  "+p)
 		}
-		return nil, fmt.Errorf("%d schema errors; nothing sent", len(problems))
+		noun := "errors"
+		if len(problems) == 1 {
+			noun = "error"
+		}
+		return nil, fmt.Errorf("%d schema %s; nothing sent", len(problems), noun)
 	}
 	return cfg, nil
+}
+
+// printMissingIdentityKindHints prints a non-blocking hint when kinds declared
+// in plat5.yml have no scope routes in services.identity (e.g. after adding a
+// kind without re-running `plat5 routes generate`).
+func printMissingIdentityKindHints(w io.Writer, cfg *plat5yml.Config) {
+	kinds, _ := cfg.Flat["kinds"].(map[string]any)
+	services, _ := cfg.Flat["services"].(map[string]any)
+	identity, ok := services["identity"].(map[string]any)
+	if !ok || len(kinds) == 0 {
+		return
+	}
+	scopes, _ := identity["scopes"].(map[string]any)
+	var missing []string
+	for k := range kinds {
+		if _, has := scopes[k]; !has {
+			missing = append(missing, k)
+		}
+	}
+	if len(missing) == 0 {
+		return
+	}
+	sort.Strings(missing)
+	idFile := cfg.FileOf("services.identity")
+	if idFile == "" {
+		idFile = "services/identity.yml"
+	}
+	if len(missing) == 1 {
+		fmt.Fprintf(w, "Note: kind %q has no routes in %s — run \"plat5 routes generate\" if you want them.\n", missing[0], idFile)
+	} else {
+		fmt.Fprintf(w, "Note: kinds %s have no routes in %s — run \"plat5 routes generate\" if you want them.\n", strings.Join(missing, ", "), idFile)
+	}
 }
 
 // explain turns a control plane error into lines naming the file and field.
@@ -224,6 +261,7 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	fmt.Printf("%s is valid: %d services.\n", strings.Join(paths, " + "), len(cfg.Files))
+	printMissingIdentityKindHints(os.Stdout, cfg)
 	return nil
 }
 
@@ -257,6 +295,7 @@ func plan(args []string) error {
 		return explain(cfg, err)
 	}
 	printPlan(os.Stdout, p)
+	printMissingIdentityKindHints(os.Stdout, cfg)
 	if flagOut != "" {
 		if err := writeSavedPlan(flagOut, cfg.Flat, p); err != nil {
 			return err
@@ -434,7 +473,11 @@ func printPlan(w io.Writer, p *controlplane.Plan) {
 	fmt.Fprintf(w, "Plan against revision %d:\n", p.Revision)
 	for _, c := range p.Changes {
 		fmt.Fprintln(w)
-		printEntry(w, "  ", opSigns[c.Op], c.What+" "+c.Name, c.Before, c.After)
+		head := c.What
+		if c.Name != "" && c.Name != c.What {
+			head = c.What + " " + c.Name
+		}
+		printEntry(w, "  ", opSigns[c.Op], head, c.Before, c.After)
 		if c.Blocked != nil {
 			nodes := "nodes"
 			if c.Blocked.InTheWay.Nodes == 1 {

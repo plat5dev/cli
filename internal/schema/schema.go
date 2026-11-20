@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
+	"github.com/santhosh-tekuri/jsonschema/v6/kind"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
 )
@@ -97,7 +98,7 @@ func ValidateConfig(instance any) ([]FieldError, error) {
 			}
 			return
 		}
-		fe := FieldError{Path: FieldPath(instance, e.InstanceLocation), Message: e.ErrorKind.LocalizedString(p)}
+		fe := FieldError{Path: FieldPath(instance, e.InstanceLocation), Message: formatError(e, p)}
 		if key := fe.Error(); !seen[key] {
 			seen[key] = true
 			out = append(out, fe)
@@ -106,6 +107,35 @@ func ValidateConfig(instance any) ([]FieldError, error) {
 	walk(ve)
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out, nil
+}
+
+// patternHints maps schema schema-URL fragments to plain-English explanations
+// so schema errors don't dump raw regular expressions at users.
+var patternHints = map[string]string{
+	"services.json#/$defs/service/properties/url":  "must be http://host[:port] or https://host[:port] (no path, query, or credentials; port 1–65535)",
+	"services.json#/$defs/service_name":            "must be 1–128 characters of [A-Za-z0-9._-]",
+	"services.json#/$defs/scope_name":              "must start with a lowercase letter and use only lowercase letters, digits, and _ (max 32 chars)",
+	"services.json#/$defs/path":                    "must start with / and contain only visible ASCII characters",
+	"services.json#/$defs/upstream":                "must be an absolute path starting with / (no ? or #)",
+	"kinds.json#/$defs/kind_name":                  "must start with a lowercase letter and use only lowercase letters, digits, and _ (max 32 chars)",
+	"kinds.json#/$defs/path":                       "must be a canonical path like /orgs/{organization}",
+	"roles.json#/$defs/role_name":                  "must start with a lowercase letter and use only lowercase letters, digits, and _ (max 32 chars)",
+	"roles.json#/$defs/permission":                 "must be 1–64 characters of [a-z0-9:._-]",
+	"rate_limits.json#/$defs/policy_name":          "must be 1–64 characters of [a-z0-9:._-]",
+	"settings.json#/$defs/duration":                "must be a positive duration like 10s, 5m, 24h, or 30d",
+	"settings.json#/$defs/slug":                    "must be a lowercase slug (letters, digits, hyphens)",
+	"cors.json#/$defs/origin":                      "must be http://host[:port] or https://host[:port] (lowercase, no path or trailing /)",
+}
+
+func formatError(e *jsonschema.ValidationError, p *message.Printer) string {
+	if pk, ok := e.ErrorKind.(*kind.Pattern); ok {
+		for suffix, hint := range patternHints {
+			if strings.HasSuffix(e.SchemaURL, suffix) {
+				return fmt.Sprintf("%q %s", pk.Got, hint)
+			}
+		}
+	}
+	return e.ErrorKind.LocalizedString(p)
 }
 
 // FieldPath writes an instance location as a field path: [services e10s scopes project routes 2]

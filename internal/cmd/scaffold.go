@@ -263,7 +263,7 @@ func (l *layout) withCORS(base []byte) ([]byte, error) {
 	}
 	var b bytes.Buffer
 	b.Write(head[1:])
-	b.WriteString("\n# The browser origins the gateway allows (plat5 docs/reference/config/cors.md):\n")
+	b.WriteString("\n# The browser origins the gateway allows (https://github.com/plat5dev/plat5/blob/master/docs/reference/config/cors.md):\n")
 	b.WriteString("# customer-console/'s, added by plat5 init.\n")
 	fmt.Fprintf(&b, "cors:\n  allowed_origins: [%q]\n", web)
 	b.WriteString("services:")
@@ -294,7 +294,7 @@ func (l *layout) compose() string {
 // under its services:.
 func operatorRoutes(shipped []byte, starter string, starterRoutes []byte) ([]byte, error) {
 	var b bytes.Buffer
-	b.WriteString("# The operator gateway's route list (operator docs/reference/routes.md): what\n")
+	b.WriteString("# The operator gateway's route list (https://github.com/plat5dev/operator/blob/master/docs/reference/routes.md): what\n")
 	b.WriteString("# operators may call, by service, at each service's own paths. plat5 init wrote\n")
 	if starterRoutes == nil {
 		b.WriteString("# operator's shipped list. The project owns it: plat5 start's operator gateway\n")

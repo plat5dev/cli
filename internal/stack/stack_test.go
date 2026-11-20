@@ -345,6 +345,32 @@ func TestCheckOperator(t *testing.T) {
 	if err := s.CheckOperator(); err == nil || !strings.Contains(err.Error(), "file not found") {
 		t.Fatalf("missing routes file: %v", err)
 	}
+	writeFile(t, filepath.Join(s.Config.Dir, "operator.routes.yml"), "not: [valid\n")
+	if err := s.CheckOperator(); err == nil || !strings.Contains(err.Error(), "operator.routes") {
+		t.Fatalf("bad yaml: %v", err)
+	}
+	writeFile(t, filepath.Join(s.Config.Dir, "operator.routes.yml"), "services:\n  api: {routes: []}\n")
+	if err := s.CheckOperator(); err == nil || !strings.Contains(err.Error(), "services.api.url") {
+		t.Fatalf("missing url: %v", err)
+	}
+	writeFile(t, filepath.Join(s.Config.Dir, "operator.routes.yml"), "services:\n  api: {url: http://api:3000, routes: []}\n")
+	if err := s.CheckOperator(); err != nil {
+		t.Fatalf("valid routes: %v", err)
+	}
+	// OperatorRoutesChanged: false before first Prepare, false when unchanged, true after edit.
+	if s.OperatorRoutesChanged() {
+		t.Fatal("fresh stack should not report changed")
+	}
+	if err := s.Prepare(); err != nil {
+		t.Fatal(err)
+	}
+	if s.OperatorRoutesChanged() {
+		t.Fatal("unchanged routes should not report changed")
+	}
+	writeFile(t, filepath.Join(s.Config.Dir, "operator.routes.yml"), "services:\n  api: {url: http://api:4000, routes: []}\n")
+	if !s.OperatorRoutesChanged() {
+		t.Fatal("modified routes should report changed")
+	}
 }
 
 // The override mounts operator.routes.yml as the gateway's ROUTES_FILE, labels

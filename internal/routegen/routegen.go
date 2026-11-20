@@ -264,7 +264,7 @@ func Generate(kinds []Kind) (identity, audit File) {
 // Header is the comment at the top of each generated file.
 func Header(service string) string {
 	return fmt.Sprintf(`# %s's routes at the gateway, for every kind in plat5.yml. plat5 routes
-# generate wrote them (plat5 docs/reference/config/generated-routes.md); from
+# generate wrote them (https://github.com/plat5dev/plat5/blob/master/docs/reference/config/generated-routes.md); from
 # here this is an ordinary service file, served as written.
 #
 # To drop a route, delete it, or delete one verb under its methods. Edit a

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/plat5dev/cli/internal/controlplane"
+	"github.com/plat5dev/cli/internal/plat5yml"
 	"github.com/spf13/cobra"
 )
 
@@ -93,6 +94,7 @@ func TestPrintPlan(t *testing.T) {
 			"  ~ setting reserved_slugs: [] → [\"new\", \"settings\"]\n",
 			"  + rate_limit evals-org\n      + requests: 300\n      + window: \"1s\"\n      + count_at: \"organization\"\n",
 			"  ~ rate_limit standard\n      ~ requests: 60 → 120\n",
+			"  ~ cors\n",
 			"  ~ service e10s\n      ~ timeouts: {connect: \"10s\", read: \"30s\"} → {connect: \"5s\", read: \"20s\"}\n      ~ max_body_bytes: 10485760 → 2097152\n",
 			"      ~ GET /orgs/{organization}/plans\n          ~ rate_limit: [\"standard\"] → [\"evals-org\"]\n",
 			"Plan: 1 to add, 5 to change, 0 to remove.\n",
@@ -134,6 +136,28 @@ func TestConfirmedTakesOnlyYes(t *testing.T) {
 		if got := confirmed(strings.NewReader(in), &bytes.Buffer{}); got != want {
 			t.Errorf("%q: got %v", in, got)
 		}
+	}
+}
+
+func TestPrintMissingIdentityKindHints(t *testing.T) {
+	cfg := &plat5yml.Config{
+		Flat: map[string]any{
+			"kinds": map[string]any{
+				"organization": map[string]any{"path": "/orgs/{organization}"},
+				"environment":  map[string]any{"parent": "organization", "path": "/envs/{environment}"},
+			},
+			"services": map[string]any{
+				"identity": map[string]any{
+					"url":    "http://identity:3000",
+					"scopes": map[string]any{"organization": map[string]any{"routes": []any{}}},
+				},
+			},
+		},
+	}
+	var b bytes.Buffer
+	printMissingIdentityKindHints(&b, cfg)
+	if !strings.Contains(b.String(), `kind "environment"`) || !strings.Contains(b.String(), "plat5 routes generate") {
+		t.Fatalf("expected hint for environment, got: %q", b.String())
 	}
 }
 

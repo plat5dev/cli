@@ -136,6 +136,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 	if err := ports.Check(stk.Ports(), func(p int) bool { return owned[p] }); err != nil {
 		return fmt.Errorf("%w%s", err, portHolders(stk.Ports(), cfg.ComposeProject))
 	}
+	opRoutesChanged := stk.OperatorRoutesChanged()
 	if err := stk.Prepare(); err != nil {
 		return err
 	}
@@ -151,6 +152,9 @@ func runStart(cmd *cobra.Command, args []string) error {
 	defer out.Close()
 
 	fmt.Printf("Starting %s…\n", what)
+	if opRoutesChanged {
+		fmt.Printf("  operator: restarting gateway (%s changed)\n", relPath(cfg.Dir, cfg.OperatorRoutes))
+	}
 	runner := stk.Runner()
 	runner.Output = out.w
 	if err := pullMissing(runner, out); err != nil {

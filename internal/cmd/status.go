@@ -54,6 +54,16 @@ func runStatus(cmd *cobra.Command, args []string) error {
 			fmt.Println("  " + line)
 		}
 	}
+	if st.AppCompose != "" {
+		ar := stk.AppRunnerFor(st.AppCompose)
+		ar.Quiet = true
+		if out, err := ar.Ps(); err == nil && strings.TrimSpace(out) != "" {
+			fmt.Println("\nApp containers")
+			for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+				fmt.Println("  " + line)
+			}
+		}
+	}
 	return nil
 }
 

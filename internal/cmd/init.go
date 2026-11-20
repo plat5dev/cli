@@ -57,7 +57,7 @@ var initCmd = &cobra.Command{
   plat5.yml            the deployment's config: one kind, organization, its
                        roles, the service files
   services/            identity's and audit's service files
-  plat5.local.yml        how plat5 start runs it on your machine
+  plat5.local.yml      how plat5 start runs it on your machine
   operator.routes.yml  the operator gateway's route list
 
 With an API starter (--template go-fiber-api), instead:

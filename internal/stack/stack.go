@@ -16,6 +16,7 @@ import (
 	"github.com/plat5dev/cli/internal/config"
 	"github.com/plat5dev/cli/internal/ports"
 	"github.com/plat5dev/cli/internal/state"
+	"gopkg.in/yaml.v3"
 )
 
 // themeContainerPath is where the override mounts the sign-in theme.
@@ -141,8 +142,8 @@ func (s *Stack) Ports() map[ports.Name]int {
 }
 
 // CheckOperator says whether the project has what the operator module runs: the
-// route file, and the operator console's compose file if it names one. Nil
-// without the module.
+// route file (valid YAML with a services: mapping), and the operator console's
+// compose file if it names one. Nil without the module.
 func (s *Stack) CheckOperator() error {
 	if !s.Has(config.ModuleOperator) {
 		return nil
@@ -154,7 +155,67 @@ func (s *Stack) CheckOperator() error {
 	if err := config.CheckFile("operator.routes", c.OperatorRoutes); err != nil {
 		return err
 	}
+	if err := checkOperatorRoutesYAML(c.OperatorRoutes); err != nil {
+		return fmt.Errorf("operator.routes (%s): %w", c.OperatorRoutes, err)
+	}
 	return config.CheckFile("operator.console.compose", c.OperatorConsole)
+}
+
+func checkOperatorRoutesYAML(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var doc map[string]any
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return err
+	}
+	raw, ok := doc["services"]
+	if !ok {
+		return fmt.Errorf("missing top-level services: mapping")
+	}
+	services, ok := raw.(map[string]any)
+	if !ok {
+		return fmt.Errorf("services must be a mapping")
+	}
+	for name, entry := range services {
+		svc, ok := entry.(map[string]any)
+		if !ok {
+			return fmt.Errorf("services.%s must be a mapping", name)
+		}
+		if u, _ := svc["url"].(string); strings.TrimSpace(u) == "" {
+			return fmt.Errorf("services.%s.url is required", name)
+		}
+		if _, ok := svc["routes"]; !ok {
+			return fmt.Errorf("services.%s.routes is required", name)
+		}
+	}
+	return nil
+}
+
+// OperatorRoutesChanged reports whether operator.routes.yml differs from the
+// hash written to override.yml on the previous start. False on a fresh stack.
+func (s *Stack) OperatorRoutesChanged() bool {
+	if !s.Has(config.ModuleOperator) || s.Config.OperatorRoutes == "" {
+		return false
+	}
+	prev, err := os.ReadFile(filepath.Join(s.Dir, "override.yml"))
+	if err != nil {
+		return false
+	}
+	const key = "dev.plat5.routes-sha256: "
+	_, rest, ok := strings.Cut(string(prev), key)
+	if !ok {
+		return false
+	}
+	line, _, _ := strings.Cut(rest, "\n")
+	oldHash := strings.Trim(strings.TrimSpace(line), `"`)
+	data, err := os.ReadFile(s.Config.OperatorRoutes)
+	if err != nil {
+		return false
+	}
+	newHash := fmt.Sprintf("%x", sha256.Sum256(data))
+	return oldHash != "" && oldHash != newHash
 }
 
 // RunsOperatorConsole reports whether start runs the operator console: the
