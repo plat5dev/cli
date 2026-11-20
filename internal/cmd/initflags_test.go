@@ -49,8 +49,8 @@ func TestInitSources(t *testing.T) {
 	}
 	for _, want := range []string{
 		"api/               your API (go-fiber-api), from " + filepath.Join(src, "template-go-fiber-api") + "\n",
-		"customer-console/  your customers' console, from " + filepath.Join(src, "template-customer-console") + "\n",
-		"operator-console/  your operators' console, from " + filepath.Join(src, "template-operator-console") + "\n",
+		"customer-console/  your customers' console, from " + filepath.Join(src, "template-solid-customer-console") + "\n",
+		"operator-console/  your operators' console, from " + filepath.Join(src, "template-solid-operator-console") + "\n",
 		"Plat5 and its modules run from:\n" +
 			"  plat5     checkout " + filepath.Join(src, "plat5") + "\n" +
 			"  auth      release image v0.2.2, no checkout at " + filepath.Join(src, "auth") + "\n" +
@@ -92,10 +92,10 @@ func TestInitWithoutSourcesPrintsReleases(t *testing.T) {
 func TestInitSourcesMissingCheckout(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	src := fixtureTemplates(t)
-	if err := os.RemoveAll(filepath.Join(src, "template-operator-console")); err != nil {
+	if err := os.RemoveAll(filepath.Join(src, "template-solid-operator-console")); err != nil {
 		t.Fatal(err)
 	}
-	srv := consoleArchive(t, "/plat5dev/template-operator-console/archive/master.tar.gz", "template-operator-console-master", map[string]string{
+	srv := consoleArchive(t, "/plat5dev/template-solid-operator-console/archive/master.tar.gz", "template-solid-operator-console-master", map[string]string{
 		template.ManifestName: "name: operator-console\nkind: operator-console\napp:\n  compose: docker-compose.yml\n  web: http://localhost:5412\n",
 		"docker-compose.yml":  "services:\n  operator-console: {}\n",
 	})
@@ -107,8 +107,8 @@ func TestInitSourcesMissingCheckout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "operator-console/  your operators' console, from plat5dev/template-operator-console@master (0123456), no checkout at " +
-		filepath.Join(src, "template-operator-console") + "\n"
+	want := "operator-console/  your operators' console, from plat5dev/template-solid-operator-console@master (0123456), no checkout at " +
+		filepath.Join(src, "template-solid-operator-console") + "\n"
 	if !strings.Contains(out, want) {
 		t.Errorf("output lacks %q:\n%s", want, out)
 	}

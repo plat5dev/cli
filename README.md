@@ -207,7 +207,7 @@ The template contract for an app's compose file: `plat5 start` runs it with `doc
 
 ## Starters
 
-`--template` takes a first-party name (`go-fiber-api`, `node-fastify-api`, `bun-effect-api`: the repo `plat5dev/template-<name>`), `owner/repo` on GitHub, or a `.tar.gz` URL. A starter and the consoles (`plat5dev/template-customer-console`, `plat5dev/template-operator-console`) are downloaded as GitHub archives at `--template-ref` (or `PLAT5_TEMPLATE_REF`; default `master`; a branch, tag, or commit), and nothing is cached: each `init` fetches again. `init` prints the commit each came from. With `--sources`, one that has a checkout there is copied from it instead ([contributors](#contributors-run-checkouts)). It refuses a directory that already has any file a starter writes, before writing anything.
+`--template` takes a first-party name (`go-fiber-api`, `node-fastify-api`, `bun-effect-api`: the repo `plat5dev/template-<name>`), `owner/repo` on GitHub, or a `.tar.gz` URL. A starter and the consoles (`plat5dev/template-solid-customer-console`, `plat5dev/template-solid-operator-console`) are downloaded as GitHub archives at `--template-ref` (or `PLAT5_TEMPLATE_REF`; default `master`; a branch, tag, or commit), and nothing is cached: each `init` fetches again. `init` prints the commit each came from. With `--sources`, one that has a checkout there is copied from it instead ([contributors](#contributors-run-checkouts)). It refuses a directory that already has any file a starter writes, before writing anything.
 
 From an API starter, `init`:
 

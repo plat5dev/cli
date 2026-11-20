@@ -23,10 +23,10 @@ The operator console is at {{.Operator}}: sign in as `{{.OpEmail}}` / `{{.Passwo
 |--|--|
 | `api/` | Your API ({{.Starter}}). `api/README.md` says what it serves and what it trusts |
 {{- if .Web}}
-| `customer-console/` | Your customers' console: Vite + React, calling the gateway. `customer-console/README.md` says how it's laid out |
+| `customer-console/` | Your customers' console: Vite + Solid, calling the gateway. `customer-console/README.md` says how it's laid out |
 {{- end}}
 {{- if .Operator}}
-| `operator-console/` | Your operators' console: Vite + React, calling the operator gateway. `operator-console/README.md` says how it's laid out |
+| `operator-console/` | Your operators' console: Vite + Solid, calling the operator gateway. `operator-console/README.md` says how it's laid out |
 {{- end}}
 | `plat5.yml` | The deployment's config, from the starter: settings, the kinds, the roles, rate limits{{if .Web}}, the console's origin under `cors`{{end}}, and the service files. `plat5 start` applies it; `plat5 apply` applies it to any deployment |
 | `services/` | The service files `plat5.yml` lists: your API's, with its url and its routes by scope, and identity's and audit's, from `plat5 routes generate`. After changing the kinds, run `plat5 routes generate`, review the diff, and delete again any route you had dropped |
@@ -45,8 +45,8 @@ The operator console is at {{.Operator}}: sign in as `{{.OpEmail}}` / `{{.Passwo
 {{if .Web}}
 ### Add a page to the customer console
 
-1. `customer-console/src/pages/YourPage.tsx`. Call your API through `customer-console/src/api/endpoints.ts`.
-2. A route in `customer-console/src/App.tsx`, and a link in `customer-console/src/components/Layout.tsx`.
+1. `customer-console/src/pages/YourPage.tsx`. Call your API through `customer-console/src/api/endpoints.ts` and `customer-console/src/api/queries.ts`.
+2. Register it in `customer-console/src/appPages.tsx` (for node pages in the sidebar) and add its route in `customer-console/src/router.tsx`.
 {{end}}
 ### Let operators call your API
 

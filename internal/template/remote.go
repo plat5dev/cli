@@ -20,7 +20,7 @@ const DefaultRef = "master"
 type ResolveOptions struct {
 	// LocalRoot, if set, is a directory of checkouts (plat5 init --sources): a
 	// first-party template whose repo's folder is there (template-go-fiber-api,
-	// template-customer-console) loads from it; one without is downloaded.
+	// template-solid-customer-console) loads from it; one without is downloaded.
 	LocalRoot string
 	// Ref is the git branch, tag, or commit of a GitHub archive. Empty: DefaultRef.
 	Ref string

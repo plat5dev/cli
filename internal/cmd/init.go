@@ -89,7 +89,7 @@ consoles are downloaded at --template-ref (default master); nothing is cached.
 Contributors: --sources .. runs every checkout in .. instead of its release:
 the modules ../plat5, ../auth and ../operator are built from their checkouts,
 and the first-party templates are copied from theirs (../template-go-fiber-api,
-../template-customer-console, ../template-operator-console). One without a
+../template-solid-customer-console, ../template-solid-operator-console). One without a
 checkout is its release, and init says so. init prints where each came from.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runInit,

@@ -56,14 +56,14 @@ func TestResolveOfficial(t *testing.T) {
 		t.Fatalf("a checkout without a manifest names its folder: %v", err)
 	}
 
-	srv := archiveServer(t, map[string]string{"/plat5dev/template-customer-console/archive/dev.tar.gz": "template-customer-console-dev"},
+	srv := archiveServer(t, map[string]string{"/plat5dev/template-solid-customer-console/archive/dev.tar.gz": "template-solid-customer-console-dev"},
 		map[string]string{ManifestName: "kind: customer-console\napp: {compose: docker-compose.yml, web: \"http://localhost:3001\"}\n"})
 	console, err := ResolveCustomerConsole(ResolveOptions{Ref: "dev", GitHubBase: srv.URL, HTTPClient: srv.Client()})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer console.Close()
-	if console.Origin != "plat5dev/template-customer-console@dev (0123456)" || console.Manifest.App.Web != "http://localhost:3001" {
+	if console.Origin != "plat5dev/template-solid-customer-console@dev (0123456)" || console.Manifest.App.Web != "http://localhost:3001" {
 		t.Fatalf("%+v", console)
 	}
 
@@ -80,14 +80,14 @@ func TestResolveOfficial(t *testing.T) {
 		t.Fatalf("origin %q, want %q", fallback.Origin, want)
 	}
 
-	srv = archiveServer(t, map[string]string{"/plat5dev/template-operator-console/archive/dev.tar.gz": "template-operator-console-dev"},
+	srv = archiveServer(t, map[string]string{"/plat5dev/template-solid-operator-console/archive/dev.tar.gz": "template-solid-operator-console-dev"},
 		map[string]string{ManifestName: "kind: operator-console\napp: {compose: docker-compose.yml, web: \"http://localhost:5412\"}\n"})
 	ops, err := ResolveOperatorConsole(ResolveOptions{Ref: "dev", GitHubBase: srv.URL, HTTPClient: srv.Client()})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer ops.Close()
-	if ops.Origin != "plat5dev/template-operator-console@dev (0123456)" || ops.Manifest.App.Web != "http://localhost:5412" {
+	if ops.Origin != "plat5dev/template-solid-operator-console@dev (0123456)" || ops.Manifest.App.Web != "http://localhost:5412" {
 		t.Fatalf("%+v", ops)
 	}
 }

@@ -9,11 +9,11 @@ var Official = []OfficialTemplate{
 
 // CustomerConsole is the first-party customer console plat5 init adds beside an
 // API starter.
-var CustomerConsole = OfficialTemplate{Name: "customer-console", Description: "Vite + React console for your customers"}
+var CustomerConsole = OfficialTemplate{Name: "solid-customer-console", Description: "Vite + Solid console for your customers"}
 
 // OperatorConsole is the first-party operator console plat5 init adds beside an
 // API starter.
-var OperatorConsole = OfficialTemplate{Name: "operator-console", Description: "Vite + React console for your operators"}
+var OperatorConsole = OfficialTemplate{Name: "solid-operator-console", Description: "Vite + Solid console for your operators"}
 
 // OfficialTemplate is a first-party template: the repo plat5dev/template-<name>,
 // or its checkout, the folder template-<name> in the --sources directory.

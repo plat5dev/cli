@@ -46,13 +46,13 @@ func fixtureTemplates(t *testing.T) string {
 		"main.go":               "package main\n",
 		".github/ci.yml":        "on: push\n",
 	})
-	writeFiles(t, filepath.Join(root, "template-customer-console"), map[string]string{
-		"plat5.template.yml": "name: customer-console\nkind: customer-console\nsubstitute: [src/appName.ts]\napp:\n  compose: docker-compose.yml\n  web: http://localhost:3001\nexclude: [.github]\n",
+	writeFiles(t, filepath.Join(root, "template-solid-customer-console"), map[string]string{
+		"plat5.template.yml": "name: customer-console\nkind: customer-console\nsubstitute: [src/appName.ts]\napp:\n  compose: docker-compose.yml\n  web: http://localhost:3001\nexclude: [.github, AGENTS.md]\n",
 		"docker-compose.yml": "services:\n  customer-console: {}\n",
 		"src/appName.ts":     "export const appName = \"{{project_id}}\"\n",
 		".env.local":         "SECRET=1\n",
 	})
-	writeFiles(t, filepath.Join(root, "template-operator-console"), map[string]string{
+	writeFiles(t, filepath.Join(root, "template-solid-operator-console"), map[string]string{
 		"plat5.template.yml": "name: operator-console\nkind: operator-console\napp:\n  compose: docker-compose.yml\n  web: http://localhost:5412\nexclude: [.github, AGENTS.md]\n",
 		"docker-compose.yml": "services:\n  operator-console: {}\n",
 		"src/main.ts":        "export {}\n",
