@@ -35,7 +35,16 @@ services:
         methods: [POST]
       - path: /nodes/{node_id}/roles
         node: node_id
+        methods: [GET, POST]
+      - path: /nodes/{node_id}/roles/{role_id}
+        node: node_id
+        methods: [GET, PATCH, DELETE]
+      - path: /nodes/{root_id}/permissions
+        node: root_id
         methods: [GET]
+      - path: /nodes/{root_id}/security-policy
+        node: root_id
+        methods: [GET, PATCH]
       - path: /nodes/{node_id}/bindings
         node: node_id
         methods: [GET, POST]

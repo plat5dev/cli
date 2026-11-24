@@ -224,6 +224,10 @@ func Generate(kinds []Kind) (identity, audit File) {
 		if k.Root() {
 			membership.Methods = append(membership.Methods, Method{"DELETE", anyMember})
 		}
+		rolesRoute := Route{Path: "/roles", Methods: []Method{{"GET", anyMember}}}
+		if k.Root() {
+			rolesRoute.Methods = append(rolesRoute.Methods, Method{"POST", write})
+		}
 		routes = append(routes, membership,
 			Route{Path: "/bindings", Methods: []Method{{"GET", read}, {"POST", write}}},
 			Route{Path: "/bindings/{binding_id}", Methods: []Method{{"PATCH", write}, {"DELETE", write}}},
@@ -233,10 +237,13 @@ func Generate(kinds []Kind) (identity, audit File) {
 			Route{Path: "/service-accounts/{service_account_id}/keys/{key_id}", Methods: []Method{{"PATCH", write}, {"DELETE", write}}},
 			Route{Path: "/invites", Methods: []Method{{"GET", invite}, {"POST", invite}}},
 			Route{Path: "/invites/{invite_id}", Methods: []Method{{"DELETE", invite}}},
-			Route{Path: "/roles", Methods: []Method{{"GET", anyMember}}},
+			rolesRoute,
 		)
 		if k.Root() {
 			routes = append(routes,
+				Route{Path: "/roles/{role_id}", Methods: []Method{{"GET", anyMember}, {"PATCH", write}, {"DELETE", write}}},
+				Route{Path: "/permissions", Methods: []Method{{"GET", read}}},
+				Route{Path: "/security-policy", Methods: []Method{{"GET", read}, {"PATCH", write}}},
 				Route{Path: "/members", Methods: []Method{{"GET", read}}},
 				Route{Path: "/members/{member_id}", Methods: []Method{{"GET", anyMember}, {"DELETE", write}}},
 				Route{Path: "/members/{member_id}/status", Methods: []Method{{"PATCH", write}}},

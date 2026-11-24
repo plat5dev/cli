@@ -159,6 +159,39 @@ func TestKindHostAndRateLimitTiers(t *testing.T) {
 	}
 }
 
+func TestTier2CustomRolesPermissionsAndAllowPublic(t *testing.T) {
+	c := sample()
+	c["custom_roles"] = true
+	c["permissions"] = map[string]any{
+		"billing:read": map[string]any{
+			"description":            "Read billing",
+			"bindable_at":            []any{"organization"},
+			"custom_role_assignable": true,
+		},
+	}
+	c["kinds"].(map[string]any)["organization"].(map[string]any)["allow_public"] = true
+	c["services"] = map[string]any{
+		"api": map[string]any{
+			"url": "http://api:3000",
+			"scopes": map[string]any{
+				"organization": map[string]any{
+					"routes": []any{
+						map[string]any{
+							"path":                 "/status",
+							"methods":              []any{"GET"},
+							"required_permissions": []any{"organization:read"},
+							"allow_public":         true,
+						},
+					},
+				},
+			},
+		},
+	}
+	if errs, err := ValidateConfig(c); err != nil || len(errs) != 0 {
+		t.Fatalf("expected valid Tier 2 config, got %v / %v", errs, err)
+	}
+}
+
 // The copy tracks plat5's schema/. Checked when plat5 is checked out beside
 // the CLI, as in plat5dev.
 func TestMatchesPlat5(t *testing.T) {

@@ -64,6 +64,19 @@ identity:
         - path: /roles
           methods:
             GET: { required_permissions: any_member }
+            POST: { required_permissions: [organization:bindings:write] }
+        - path: /roles/{role_id}
+          methods:
+            GET: { required_permissions: any_member }
+            PATCH: { required_permissions: [organization:bindings:write] }
+            DELETE: { required_permissions: [organization:bindings:write] }
+        - path: /permissions
+          methods:
+            GET: { required_permissions: [organization:bindings:read] }
+        - path: /security-policy
+          methods:
+            GET: { required_permissions: [organization:bindings:read] }
+            PATCH: { required_permissions: [organization:bindings:write] }
         - path: /members
           methods:
             GET: { required_permissions: [organization:bindings:read] }

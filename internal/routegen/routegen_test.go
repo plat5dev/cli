@@ -112,6 +112,32 @@ func TestGenerate(t *testing.T) {
 	if r := find(t, identity, "user", "/user/keys/{key_id}"); !reflect.DeepEqual(r.Methods, []Method{{Verb: "PATCH"}, {Verb: "DELETE"}}) {
 		t.Errorf("/user/keys/{key_id}: %+v", r)
 	}
+	// Root custom roles, permissions catalog, and security policy routes.
+	if r := find(t, identity, "team", "/roles"); !reflect.DeepEqual(r.Methods, []Method{
+		{"GET", []string{AnyMember}}, {"POST", []string{"team:bindings:write"}},
+	}) {
+		t.Errorf("team /roles: %+v", r)
+	}
+	if r := find(t, identity, "board", "/roles"); !reflect.DeepEqual(r.Methods, []Method{
+		{"GET", []string{AnyMember}},
+	}) {
+		t.Errorf("board /roles: %+v", r)
+	}
+	if r := find(t, identity, "team", "/roles/{role_id}"); !reflect.DeepEqual(r.Methods, []Method{
+		{"GET", []string{AnyMember}}, {"PATCH", []string{"team:bindings:write"}}, {"DELETE", []string{"team:bindings:write"}},
+	}) {
+		t.Errorf("team /roles/{role_id}: %+v", r)
+	}
+	if r := find(t, identity, "team", "/permissions"); !reflect.DeepEqual(r.Methods, []Method{
+		{"GET", []string{"team:bindings:read"}},
+	}) {
+		t.Errorf("team /permissions: %+v", r)
+	}
+	if r := find(t, identity, "team", "/security-policy"); !reflect.DeepEqual(r.Methods, []Method{
+		{"GET", []string{"team:bindings:read"}}, {"PATCH", []string{"team:bindings:write"}},
+	}) {
+		t.Errorf("team /security-policy: %+v", r)
+	}
 	// Root groups routes.
 	if r := find(t, identity, "team", "/groups"); !reflect.DeepEqual(r.Methods, []Method{
 		{"GET", []string{"team:bindings:read"}}, {"POST", []string{"team:bindings:write"}},
