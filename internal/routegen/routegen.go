@@ -239,6 +239,10 @@ func Generate(kinds []Kind) (identity, audit File) {
 			routes = append(routes,
 				Route{Path: "/members", Methods: []Method{{"GET", read}}},
 				Route{Path: "/members/{member_id}", Methods: []Method{{"GET", anyMember}, {"DELETE", write}}},
+				Route{Path: "/groups", Methods: []Method{{"GET", read}, {"POST", write}}},
+				Route{Path: "/groups/{group_id}", Methods: []Method{{"GET", read}, {"PATCH", write}, {"DELETE", write}}},
+				Route{Path: "/groups/{group_id}/members", Methods: []Method{{"GET", read}, {"POST", write}}},
+				Route{Path: "/groups/{group_id}/members/{member_id}", Methods: []Method{{"DELETE", write}}},
 			)
 			roots = append(roots, Route{Path: k.Collection(), Upstream: "/roots/" + k.Name, Methods: []Method{{Verb: "POST"}}})
 		}

@@ -101,6 +101,17 @@ func TestGenerate(t *testing.T) {
 	if r := find(t, identity, "team", "/members"); !reflect.DeepEqual(r.Methods, []Method{{"GET", []string{"team:bindings:read"}}}) {
 		t.Errorf("/members: %+v", r)
 	}
+	// Root groups routes.
+	if r := find(t, identity, "team", "/groups"); !reflect.DeepEqual(r.Methods, []Method{
+		{"GET", []string{"team:bindings:read"}}, {"POST", []string{"team:bindings:write"}},
+	}) {
+		t.Errorf("/groups: %+v", r)
+	}
+	if r := find(t, identity, "team", "/groups/{group_id}/members/{member_id}"); !reflect.DeepEqual(r.Methods, []Method{
+		{"DELETE", []string{"team:bindings:write"}},
+	}) {
+		t.Errorf("/groups/{group_id}/members/{member_id}: %+v", r)
+	}
 	if r := find(t, identity, "board", "/restore"); !r.AllowDeleted || r.Methods[0].Required[0] != "team:delete" {
 		t.Errorf("board /restore: %+v", r)
 	}

@@ -70,6 +70,22 @@ identity:
           methods:
             GET: { required_permissions: any_member }
             DELETE: { required_permissions: [organization:bindings:write] }
+        - path: /groups
+          methods:
+            GET: { required_permissions: [organization:bindings:read] }
+            POST: { required_permissions: [organization:bindings:write] }
+        - path: /groups/{group_id}
+          methods:
+            GET: { required_permissions: [organization:bindings:read] }
+            PATCH: { required_permissions: [organization:bindings:write] }
+            DELETE: { required_permissions: [organization:bindings:write] }
+        - path: /groups/{group_id}/members
+          methods:
+            GET: { required_permissions: [organization:bindings:read] }
+            POST: { required_permissions: [organization:bindings:write] }
+        - path: /groups/{group_id}/members/{member_id}
+          methods:
+            DELETE: { required_permissions: [organization:bindings:write] }
     user:
       routes:
         - path: /orgs
