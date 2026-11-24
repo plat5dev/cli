@@ -192,6 +192,51 @@ func TestTier2CustomRolesPermissionsAndAllowPublic(t *testing.T) {
 	}
 }
 
+func TestAuthorizersSchema(t *testing.T) {
+	c := sample()
+	c["authorizers"] = map[string]any{
+		"topaz": map[string]any{
+			"url":                "http://topaz:8383",
+			"timeout":            "2s",
+			"cache_ttl":          "5s",
+			"negative_cache_ttl": "0s",
+			"token_env":          "TOPAZ_API_KEY",
+		},
+	}
+	c["kinds"].(map[string]any)["organization"].(map[string]any)["authorizer"] = map[string]any{
+		"name": "topaz",
+		"mode": "or",
+	}
+	c["services"] = map[string]any{
+		"docs": map[string]any{
+			"url":        "http://docs:3000",
+			"authorizer": "topaz",
+			"scopes": map[string]any{
+				"organization": map[string]any{
+					"routes": []any{
+						map[string]any{
+							"path":                 "/docs/{doc_id}",
+							"methods":              []any{"GET"},
+							"required_permissions": []any{"docs:read"},
+							"authorizer": map[string]any{
+								"name": "topaz",
+								"mode": "and",
+								"resource": map[string]any{
+									"type": "document",
+									"id":   "{doc_id}",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	if errs, err := ValidateConfig(c); err != nil || len(errs) != 0 {
+		t.Fatalf("expected valid authorizers config, got %v / %v", errs, err)
+	}
+}
+
 // The copy tracks plat5's schema/. Checked when plat5 is checked out beside
 // the CLI, as in plat5dev.
 func TestMatchesPlat5(t *testing.T) {

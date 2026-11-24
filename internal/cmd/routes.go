@@ -121,6 +121,12 @@ func printRoutes(w io.Writer, services map[string]controlplane.Service) {
 			if r.RequiredPermissions != nil {
 				perms = r.RequiredPermissions.String()
 			}
+			if r.Authorizer != nil {
+				if perms != "" {
+					perms += "  "
+				}
+				perms += r.Authorizer.String()
+			}
 			line := fmt.Sprintf("  %-*s  %-*s  %-*s  %-*s  %s", width[0], r.Method, width[1], r.Path, width[2], r.Scope, width[3], r.Upstream, perms)
 			fmt.Fprintln(w, strings.TrimRight(line, " "))
 		}

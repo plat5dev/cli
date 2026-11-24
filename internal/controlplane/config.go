@@ -85,10 +85,32 @@ type Route struct {
 	Scope    string `json:"scope"`
 	Upstream string `json:"upstream"`
 	// RequiredPermissions is nil outside a kind scope.
-	RequiredPermissions *Required `json:"required_permissions"`
-	RateLimit           []string  `json:"rate_limit"`
-	Audit               bool      `json:"audit"`
-	AllowDeleted        bool      `json:"allow_deleted"`
+	RequiredPermissions *Required        `json:"required_permissions"`
+	RateLimit           []string         `json:"rate_limit"`
+	Audit               bool             `json:"audit"`
+	AllowDeleted        bool             `json:"allow_deleted"`
+	AllowPublic         bool             `json:"allow_public"`
+	Authorizer          *RouteAuthorizer `json:"authorizer,omitempty"`
+}
+
+type RouteAuthorizer struct {
+	Name     string              `json:"name"`
+	Mode     string              `json:"mode"`
+	Resource *AuthorizerResource `json:"resource,omitempty"`
+	Action   string              `json:"action,omitempty"`
+}
+
+type AuthorizerResource struct {
+	Type string `json:"type"`
+	ID   string `json:"id"`
+}
+
+func (a RouteAuthorizer) String() string {
+	s := fmt.Sprintf("authz:%s(%s)", a.Name, a.Mode)
+	if a.Resource != nil {
+		s += fmt.Sprintf("[%s:%s]", a.Resource.Type, a.Resource.ID)
+	}
+	return s
 }
 
 // Required is required_permissions: a list, any one of which admits, or
