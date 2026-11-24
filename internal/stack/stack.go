@@ -4,7 +4,10 @@
 package stack
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -83,6 +86,11 @@ func (s *Stack) Prepare() error {
 			return err
 		}
 	}
+	if s.Config.Gateway.UpstreamSigning {
+		if _, _, err := s.ensureSigningKey(); err != nil {
+			return err
+		}
+	}
 	return os.WriteFile(filepath.Join(s.Dir, "override.yml"), []byte(s.override()), 0o644)
 }
 
@@ -138,7 +146,32 @@ func (s *Stack) Ports() map[ports.Name]int {
 	if s.Has(config.ModuleOperator) {
 		add(ports.Operator, ports.OperatorAuth)
 	}
+	if s.Has(config.ModuleAuthorizer) {
+		add(ports.Topaz, ports.TopazDirectory)
+	}
 	return want
+}
+
+// CheckAuthorizer validates the authorizer module's manifest file if set.
+func (s *Stack) CheckAuthorizer() error {
+	if !s.Has(config.ModuleAuthorizer) {
+		return nil
+	}
+	if s.Config.Authorizer.Manifest == "" {
+		return nil
+	}
+	if err := config.CheckFile("authorizer.manifest", s.Config.Authorizer.Manifest); err != nil {
+		return err
+	}
+	data, err := os.ReadFile(s.Config.Authorizer.Manifest)
+	if err != nil {
+		return fmt.Errorf("authorizer.manifest: %w", err)
+	}
+	var doc map[string]any
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return fmt.Errorf("authorizer.manifest (%s): %w", s.Config.Authorizer.Manifest, err)
+	}
+	return nil
 }
 
 // CheckOperator says whether the project has what the operator module runs: the
@@ -311,6 +344,7 @@ func (s *Stack) Env() []string {
 	for _, n := range ports.Names() {
 		env[strings.ToUpper(string(n))+"_PORT"] = fmt.Sprint(c.Ports[n])
 	}
+	env["TOPAZ_IMAGE"] = c.Authorizer.Image
 	return sortedEnv(env)
 }
 
@@ -337,7 +371,46 @@ func (s *Stack) AppEnv() []string {
 	} else {
 		env["PLAT5_AUTH_URL"] = c.IdP.Issuer
 	}
+	if s.Has(config.ModuleAuthorizer) {
+		env["PLAT5_AUTHORIZER_URL"] = "http://topaz:8383"
+		env["PLAT5_TOPAZ_DIRECTORY_URL"] = "http://topaz:9393"
+		env["PLAT5_GATEWAY_INTERNAL_URL"] = "http://gateway:8000"
+	}
+	if c.Gateway.UpstreamSigning {
+		if _, pub, err := s.ensureSigningKey(); err == nil {
+			env["PLAT5_UPSTREAM_SIGNING_PUBLIC_KEY"] = pub
+		}
+	}
 	return sortedEnv(env)
+}
+
+// ensureSigningKey returns the project's persistent local Ed25519 upstream
+// signing seed and public key (base64url without padding), creating one on
+// first use.
+func (s *Stack) ensureSigningKey() (seedB64, pubB64 string, err error) {
+	p := filepath.Join(s.Dir, "upstream-signing.key")
+	if data, err := os.ReadFile(p); err == nil {
+		seedStr := strings.TrimSpace(string(data))
+		if raw, err := base64.RawURLEncoding.DecodeString(seedStr); err == nil && len(raw) == ed25519.SeedSize {
+			priv := ed25519.NewKeyFromSeed(raw)
+			pub := priv.Public().(ed25519.PublicKey)
+			return seedStr, base64.RawURLEncoding.EncodeToString(pub), nil
+		}
+	}
+	var seed [ed25519.SeedSize]byte
+	if _, err := rand.Read(seed[:]); err != nil {
+		return "", "", fmt.Errorf("generate upstream signing key: %w", err)
+	}
+	seedStr := base64.RawURLEncoding.EncodeToString(seed[:])
+	if err := os.MkdirAll(s.Dir, 0o755); err != nil {
+		return "", "", err
+	}
+	if err := os.WriteFile(p, []byte(seedStr+"\n"), 0o600); err != nil {
+		return "", "", err
+	}
+	priv := ed25519.NewKeyFromSeed(seed[:])
+	pub := priv.Public().(ed25519.PublicKey)
+	return seedStr, base64.RawURLEncoding.EncodeToString(pub), nil
 }
 
 // authTitle is the sign-in page's title: the project's.
@@ -390,6 +463,27 @@ func (s *Stack) override() string {
 			if data, err := os.ReadFile(c.OperatorRoutes); err == nil {
 				get("operator").labels["dev.plat5.routes-sha256"] = fmt.Sprintf("%x", sha256.Sum256(data))
 			}
+		}
+	}
+	// Optional local gateway overrides from plat5.local.yml gateway: block.
+	if c.Gateway.ScopeClaim != "" {
+		get("gateway").env["AUTH_SCOPE_CLAIM"] = c.Gateway.ScopeClaim
+	}
+	if len(c.Gateway.PolicyClaims) > 0 {
+		get("gateway").env["AUTH_POLICY_CLAIMS"] = strings.Join(c.Gateway.PolicyClaims, ",")
+	}
+	if c.Gateway.AuditMode != "" {
+		get("gateway").env["AUDIT_MODE"] = c.Gateway.AuditMode
+	}
+	if c.Gateway.AuditEnabled != nil {
+		get("gateway").env["AUDIT_ENABLED"] = fmt.Sprintf("%t", *c.Gateway.AuditEnabled)
+	}
+	if c.Gateway.RateLimitEnabled != nil {
+		get("gateway").env["RATE_LIMIT_ENABLED"] = fmt.Sprintf("%t", *c.Gateway.RateLimitEnabled)
+	}
+	if c.Gateway.UpstreamSigning {
+		if seed, _, err := s.ensureSigningKey(); err == nil {
+			get("gateway").env["UPSTREAM_SIGNING_KEY"] = seed
 		}
 	}
 	// The app on your machine (-x app): its compose service names reach the host.

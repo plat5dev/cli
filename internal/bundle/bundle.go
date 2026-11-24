@@ -22,6 +22,7 @@ var Files = map[string]string{
 	"auth":          "auth.yml",
 	"observability": "observability.yml",
 	"operator":      "operator.yml",
+	"authorizer":    "topaz.yml",
 }
 
 // Materialize writes the embedded stack under destDir, replacing what an older

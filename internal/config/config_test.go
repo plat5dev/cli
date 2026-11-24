@@ -36,8 +36,8 @@ func TestResolveDefaults(t *testing.T) {
 		t.Fatalf("project: %q %q %q", r.ProjectID, r.ComposeProject, r.AppComposeProject)
 	}
 	for _, m := range Modules {
-		if !r.Modules[m] {
-			t.Fatalf("module %s should default on", m)
+		if r.Modules[m] != DefaultModuleOn(m) {
+			t.Fatalf("module %s = %t, want %t", m, r.Modules[m], DefaultModuleOn(m))
 		}
 	}
 	if r.Ports[ports.Gateway] != 5400 || r.GatewayURL() != "http://localhost:5400" {
@@ -297,6 +297,53 @@ func TestSanitizeProjectID(t *testing.T) {
 	} {
 		if got := SanitizeProjectID(in); got != want {
 			t.Errorf("%q: got %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestAuthorizerAndGatewayConfig(t *testing.T) {
+	r, err := resolve(t, fullYML+`modules:
+  authorizer: true
+authorizer:
+  manifest: ./topaz/manifest.yaml
+gateway:
+  scope_claim: scope
+  policy_claims: [amr, idp_connection]
+  audit_mode: async
+  audit_enabled: true
+  rate_limit_enabled: false
+  upstream_signing: true
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.Modules[ModuleAuthorizer] {
+		t.Fatal("authorizer module should be on")
+	}
+	if r.Authorizer.Provider != AuthorizerProviderTopaz || r.Authorizer.Image != DefaultTopazImage {
+		t.Fatalf("authorizer defaults: %+v", r.Authorizer)
+	}
+	if r.Authorizer.Manifest != filepath.Clean("/proj/topaz/manifest.yaml") {
+		t.Fatalf("manifest: %q", r.Authorizer.Manifest)
+	}
+	if r.Ports[ports.Topaz] != 5420 || r.Ports[ports.TopazDirectory] != 5421 {
+		t.Fatalf("topaz ports: %v", r.Ports)
+	}
+	if r.Gateway.ScopeClaim != "scope" || strings.Join(r.Gateway.PolicyClaims, ",") != "amr,idp_connection" || r.Gateway.AuditMode != "async" || !r.Gateway.UpstreamSigning {
+		t.Fatalf("gateway: %+v", r.Gateway)
+	}
+	if r.Gateway.AuditEnabled == nil || !*r.Gateway.AuditEnabled || r.Gateway.RateLimitEnabled == nil || *r.Gateway.RateLimitEnabled {
+		t.Fatalf("gateway toggles: %+v", r.Gateway)
+	}
+
+	for yml, want := range map[string]string{
+		fullYML + "authorizer: {provider: opa}\n":                                   "authorizer.provider",
+		fullYML + "gateway: {audit_mode: bogus}\n":                                  "gateway.audit_mode",
+		fullYML + "gateway: {policy_claims: [amr, \" \"]}\n":                        "gateway.policy_claims",
+		fullYML + "gateway: {policy_claims: [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q]}\n": "at most 16",
+	} {
+		if _, err := resolve(t, yml); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: want %q, got %v", yml, want, err)
 		}
 	}
 }

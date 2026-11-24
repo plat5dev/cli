@@ -171,6 +171,80 @@ func TestAppEnv(t *testing.T) {
 	}
 }
 
+func TestAuthorizerAndGatewayOverrides(t *testing.T) {
+	dir := t.TempDir()
+	manifestPath := filepath.Join(dir, "topaz", "manifest.yaml")
+	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifestPath, []byte("model:\n  version: 3\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	yml := allOn + `modules:
+  authorizer: true
+authorizer:
+  provider: topaz
+  manifest: ./topaz/manifest.yaml
+gateway:
+  scope_claim: scope
+  policy_claims: [amr, idp_connection]
+  audit_mode: async
+  rate_limit_enabled: false
+  upstream_signing: true
+`
+	f, err := config.Parse([]byte(yml))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := config.Resolve(f, filepath.Join(dir, config.FileName), config.Overrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(r, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !s.Has(config.ModuleAuthorizer) {
+		t.Fatal("expected authorizer module")
+	}
+	if err := s.CheckAuthorizer(); err != nil {
+		t.Fatalf("CheckAuthorizer: %v", err)
+	}
+	if files := strings.Join(s.Runner().Files, ","); !strings.Contains(files, ",topaz.yml,") {
+		t.Fatalf("runner files missing topaz.yml: %s", files)
+	}
+	if p := s.Ports(); p["topaz"] != 5420 || p["topaz_directory"] != 5421 {
+		t.Fatalf("topaz ports: %v", p)
+	}
+	if err := s.Prepare(); err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	ov := s.override()
+	for _, want := range []string{
+		`AUTH_SCOPE_CLAIM: "scope"`,
+		`AUTH_POLICY_CLAIMS: "amr,idp_connection"`,
+		`AUDIT_MODE: "async"`,
+		`RATE_LIMIT_ENABLED: "false"`,
+		`UPSTREAM_SIGNING_KEY: "`,
+	} {
+		if !strings.Contains(ov, want) {
+			t.Errorf("override missing %s:\n%s", want, ov)
+		}
+	}
+	appEnv := strings.Join(s.AppEnv(), " ")
+	for _, want := range []string{
+		"PLAT5_AUTHORIZER_URL=http://topaz:8383",
+		"PLAT5_TOPAZ_DIRECTORY_URL=http://topaz:9393",
+		"PLAT5_GATEWAY_INTERNAL_URL=http://gateway:8000",
+		"PLAT5_UPSTREAM_SIGNING_PUBLIC_KEY=",
+	} {
+		if !strings.Contains(appEnv, want) {
+			t.Errorf("app env missing %s: %s", want, appEnv)
+		}
+	}
+}
+
 // The real files, env, and override make a valid compose project.
 func TestComposeConfig(t *testing.T) {
 	if _, err := exec.LookPath("docker"); err != nil {
@@ -181,6 +255,7 @@ func TestComposeConfig(t *testing.T) {
 	}
 	for name, s := range map[string]*Stack{
 		"all":          newStack(t, allOn+"source: {plat5: ../plat5}\n"),
+		"topaz":        newStack(t, allOn+"modules: {authorizer: true}\nauthorizer: {provider: topaz}\n"),
 		"core":         newStack(t, allOn, "observability"),
 		"no-operator":  newStack(t, allOn, "operator"),
 		"operator-src": newStack(t, allOn+"source: {operator: ../operator, auth: ../auth}\n"),

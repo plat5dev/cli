@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/plat5dev/cli/internal/authorizer"
 	"github.com/plat5dev/cli/internal/compose"
 	"github.com/plat5dev/cli/internal/config"
 	"github.com/plat5dev/cli/internal/controlplane"
@@ -31,11 +32,12 @@ var startCmd = &cobra.Command{
 	Short: "Run Plat5, its modules, and your app in Docker",
 	Long: `Run the project's local stack in Docker, then print its links, logins, and keys.
 
-Plat5 always runs. Beside it, the modules plat5.local.yml turns on (all by default):
-  auth           Plat5 Auth, the customer IdP, in dev mode
-  observability  Grafana with logs, traces, and metrics (grafana/otel-lgtm + Alloy)
+Plat5 always runs. Beside it, the modules plat5.local.yml turns on:
+  auth           Plat5 Auth, the customer IdP, in dev mode (default on)
+  observability  Grafana with logs, traces, and metrics (default on)
   operator       the operator gateway on operator.routes.yml, operator-audit, and
-                 the operator IdP (a second Plat5 Auth, in dev mode)
+                 the operator IdP (default on)
+  authorizer     Topaz, a local OpenID AuthZEN 1.0 PDP (opt-in)
 Then your app, from app.compose in plat5.local.yml. The operator console, which
 app.compose includes, runs only with the operator module.
 
@@ -62,7 +64,7 @@ there on the url's port (beyond loopback on Linux).
 }
 
 func init() {
-	startCmd.Flags().StringSliceVarP(&startExclude, "exclude", "x", nil, "Skip modules for this run: auth, observability, operator, app")
+	startCmd.Flags().StringSliceVarP(&startExclude, "exclude", "x", nil, "Skip modules for this run: auth, observability, operator, authorizer, app")
 	startCmd.Flags().DurationVar(&startWait, "wait", 10*time.Minute, "How long to wait for the stack to be healthy")
 	startCmd.Flags().BoolVarP(&startVerbose, "verbose", "v", false, "Show docker compose's pull, build, and container output (otherwise it goes to a log file)")
 }
@@ -100,6 +102,9 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if err := stk.CheckOperator(); err != nil {
+		return err
+	}
+	if err := stk.CheckAuthorizer(); err != nil {
 		return err
 	}
 	app := stk.AppRunner()
@@ -186,6 +191,20 @@ func runStart(cmd *cobra.Command, args []string) error {
 	fmt.Println("  Waiting for every container to be healthy…")
 	if err := runner.Up(compose.UpOptions{Wait: startWait}); err != nil {
 		return out.failed(err, "plat5 logs")
+	}
+
+	if stk.Has(config.ModuleAuthorizer) {
+		dirURL := cfg.URL(ports.TopazDirectory)
+		ac := authorizer.Client{}
+		if err := ac.WaitTopazReady(dirURL, 30*time.Second); err != nil {
+			return err
+		}
+		if cfg.Authorizer.Manifest != "" {
+			fmt.Printf("Syncing %s to Topaz…\n", relPath(cfg.Dir, cfg.Authorizer.Manifest))
+			if err := ac.SyncTopazManifest(dirURL, cfg.Authorizer.Manifest); err != nil {
+				return err
+			}
+		}
 	}
 
 	st := state.State{ProjectID: cfg.ProjectID, Owner: prev.Owner, Modules: stk.Modules, StartedAt: time.Now().UTC()}

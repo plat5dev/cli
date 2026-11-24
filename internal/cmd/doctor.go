@@ -65,6 +65,9 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	if stk.Has(config.ModuleOperator) {
 		check("operator.routes", stk.CheckOperator())
 	}
+	if stk.Has(config.ModuleAuthorizer) {
+		check("authorizer.manifest", stk.CheckAuthorizer())
+	}
 	if conf, err := plat5yml.Load(cfg.ConfigPath); err != nil {
 		check(config.ConfigFileName, err)
 	} else if problems, err := conf.Validate(); err != nil || len(problems) > 0 {

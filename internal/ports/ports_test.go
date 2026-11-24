@@ -16,8 +16,11 @@ func TestDefaultsAreTheBlock(t *testing.T) {
 	if Defaults[Operator] != 5410 || Defaults[OperatorAuth] != 5411 {
 		t.Fatalf("operator defaults moved: %v", Defaults)
 	}
+	if Defaults[Topaz] != 5420 || Defaults[TopazDirectory] != 5421 {
+		t.Fatalf("topaz defaults moved: %v", Defaults)
+	}
 	names := Names()
-	if names[0] != OTLPGRPC || names[len(names)-1] != OperatorAuth {
+	if names[0] != OTLPGRPC || names[len(names)-1] != TopazDirectory {
 		t.Fatalf("order: %v", names)
 	}
 }

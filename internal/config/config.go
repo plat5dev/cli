@@ -47,15 +47,28 @@ const (
 	OperatorClient = "operator-console"
 )
 
-// Modules run beside Plat5. All on unless plat5.local.yml turns one off.
+// Modules run beside Plat5. auth, observability and operator are on unless
+// plat5.local.yml turns them off; authorizer is opt-in (off unless turned on).
 const (
 	ModuleAuth          = "auth"
 	ModuleObservability = "observability"
 	ModuleOperator      = "operator"
+	ModuleAuthorizer    = "authorizer"
 )
 
 // Modules is every module, in start order.
-var Modules = []string{ModuleAuth, ModuleObservability, ModuleOperator}
+var Modules = []string{ModuleAuth, ModuleObservability, ModuleOperator, ModuleAuthorizer}
+
+// DefaultModuleOn reports whether a module runs when plat5.local.yml leaves it unset.
+func DefaultModuleOn(m string) bool {
+	return m != ModuleAuthorizer
+}
+
+// Supported local authorizer providers and default image.
+const (
+	AuthorizerProviderTopaz = "topaz"
+	DefaultTopazImage       = "ghcr.io/aserto-dev/topaz:latest"
+)
 
 // Image pins: versions: keys, and the repos plat5 init reads the latest tag from.
 const (
@@ -99,7 +112,37 @@ type File struct {
 	IdP         IdPBlock          `yaml:"idp"`
 	Otel        OtelBlock         `yaml:"otel"`
 	Operator    OperatorBlock     `yaml:"operator"`
+	Authorizer  AuthorizerBlock   `yaml:"authorizer"`
+	Gateway     GatewayBlock      `yaml:"gateway"`
 	Source      map[string]string `yaml:"source"`
+}
+
+// AuthorizerBlock configures the local AuthZEN 1.0 PDP module (Topaz).
+type AuthorizerBlock struct {
+	// Provider is the local PDP provider ("topaz"). Defaults to "topaz" when
+	// modules.authorizer is on.
+	Provider string `yaml:"provider"`
+	// Manifest is the ReBAC manifest file pushed to Topaz on start (optional).
+	Manifest string `yaml:"manifest"`
+	// Image overrides the Topaz container image (optional).
+	Image string `yaml:"image"`
+}
+
+// GatewayBlock sets optional local gateway runtime behavior in plat5.local.yml.
+type GatewayBlock struct {
+	// ScopeClaim sets AUTH_SCOPE_CLAIM on the gateway.
+	ScopeClaim string `yaml:"scope_claim"`
+	// PolicyClaims sets AUTH_POLICY_CLAIMS on the gateway (up to 16).
+	PolicyClaims []string `yaml:"policy_claims"`
+	// AuditMode sets AUDIT_MODE ("sync" or "async").
+	AuditMode string `yaml:"audit_mode"`
+	// AuditEnabled overrides AUDIT_ENABLED (nil defaults to true).
+	AuditEnabled *bool `yaml:"audit_enabled"`
+	// RateLimitEnabled overrides RATE_LIMIT_ENABLED (nil defaults to true).
+	RateLimitEnabled *bool `yaml:"rate_limit_enabled"`
+	// UpstreamSigning generates a persistent local Ed25519 key in project state
+	// and sets UPSTREAM_SIGNING_KEY on the gateway.
+	UpstreamSigning bool `yaml:"upstream_signing"`
 }
 
 // OperatorBlock is what the operator module runs from the project.
@@ -207,6 +250,11 @@ type Resolved struct {
 	// OperatorExtraOrigins is operator.origins: more origins the operator side allows.
 	OperatorExtraOrigins []string
 
+	// Authorizer is the local AuthZEN PDP module configuration (Manifest is absolute).
+	Authorizer AuthorizerBlock
+	// Gateway holds optional local gateway overrides.
+	Gateway GatewayBlock
+
 	// Source is checkouts to build images from, by version key. Absolute.
 	Source map[string]string
 
@@ -267,7 +315,7 @@ func Resolve(f *File, path string, o Overrides) (Resolved, error) {
 	}
 	for _, m := range Modules {
 		if _, set := r.Modules[m]; !set {
-			r.Modules[m] = true
+			r.Modules[m] = DefaultModuleOn(m)
 		}
 	}
 
@@ -374,6 +422,43 @@ func Resolve(f *File, path string, o Overrides) (Resolved, error) {
 		return Resolved{}, fmt.Errorf("modules.auth is off: set idp.issuer, idp.jwks_uri, and idp.audiences to your IdP")
 	}
 	r.OtelEndpoint = strings.TrimSpace(f.Otel.Endpoint)
+
+	authzProvider := strings.TrimSpace(f.Authorizer.Provider)
+	if authzProvider != "" && authzProvider != AuthorizerProviderTopaz {
+		return Resolved{}, fmt.Errorf("authorizer.provider: unknown provider %q (want %s)", authzProvider, AuthorizerProviderTopaz)
+	}
+	if r.Modules[ModuleAuthorizer] && authzProvider == "" {
+		authzProvider = AuthorizerProviderTopaz
+	}
+	r.Authorizer = AuthorizerBlock{
+		Provider: authzProvider,
+		Manifest: resolveAgainst(dir, strings.TrimSpace(f.Authorizer.Manifest)),
+		Image:    firstNonEmpty(strings.TrimSpace(f.Authorizer.Image), DefaultTopazImage),
+	}
+
+	auditMode := strings.TrimSpace(f.Gateway.AuditMode)
+	if auditMode != "" && auditMode != "sync" && auditMode != "async" {
+		return Resolved{}, fmt.Errorf("gateway.audit_mode: %q (want sync or async)", auditMode)
+	}
+	var policyClaims []string
+	if len(f.Gateway.PolicyClaims) > 16 {
+		return Resolved{}, fmt.Errorf("gateway.policy_claims: at most 16 claims")
+	}
+	for _, c := range f.Gateway.PolicyClaims {
+		c = strings.TrimSpace(c)
+		if c == "" {
+			return Resolved{}, fmt.Errorf("gateway.policy_claims: empty claim name")
+		}
+		policyClaims = append(policyClaims, c)
+	}
+	r.Gateway = GatewayBlock{
+		ScopeClaim:       strings.TrimSpace(f.Gateway.ScopeClaim),
+		PolicyClaims:     policyClaims,
+		AuditMode:        auditMode,
+		AuditEnabled:     f.Gateway.AuditEnabled,
+		RateLimitEnabled: f.Gateway.RateLimitEnabled,
+		UpstreamSigning:  f.Gateway.UpstreamSigning,
+	}
 	return r, nil
 }
 

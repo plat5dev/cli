@@ -56,9 +56,10 @@ One compose project, `plat5-<project_id>`, with one Postgres (a database per pla
 | `operator` | Operator gateway ([operator](https://github.com/plat5dev/operator)) on `operator.routes.yml`, and operator-audit, the operator audit log | 5410 | a dev token from its IdP |
 | | Operator IdP: a second Plat5 Auth, in dev mode, never the customer IdP | 5411 | `operator@example.com` / `password` |
 | | Operator console (`operator.console`, in your app's compose file) | 5412 | `operator@example.com` / `password` |
+| `authorizer` *(opt-in)* | Topaz OpenID AuthZEN 1.0 PDP (`authorizers.topaz`, `http://topaz:8383`) and Directory v3 REST API | 5420, 5421 | none |
 | your app (`app.compose`) | whatever its compose file runs | its own | |
 
-All modules are on unless `plat5.local.yml` turns one off. `plat5 start -x observability` skips one for a run; `-x app` runs everything but your app, so you can run it on your machine.
+`auth`, `observability`, and `operator` are on unless `plat5.local.yml` turns one off; `authorizer` is off unless turned on (`plat5 init --authorizer topaz`). `plat5 start -x observability` skips one for a run; `-x app` runs everything but your app, so you can run it on your machine.
 
 The operator module runs operator's images as operator's dev compose does (operator `compose/docker-compose.yml`): the gateway on Plat5's network with `IDENTITY_URL` set to identity, the project's `operator.routes.yml` mounted as its `ROUTES_FILE`, operator-audit in its own database on the one Postgres, and the operator IdP at the project's auth pin. The operator console is an app the project owns: `docker-compose.yml` includes its compose file, and `start` runs it only with the module, so turning the module off, or `-x operator`, leaves the folder and runs none of it. `start` restarts the operator gateway when `operator.routes.yml` changes; it reads its routes at boot.
 
@@ -100,7 +101,7 @@ Local Auth runs in dev mode: `POST /dev/token` mints a token for any email, and 
 
 | Command | |
 |---------|--|
-| `plat5 init [dir] [--template <starter>]` | Create a project. Asks for the starter and the modules; `-y` takes the defaults (`--template none`, Plat5 alone, and every module). `--no-auth`, `--no-observability`, `--no-operator` turn a module off. With a starter, `--no-customer-console` and `--no-operator-console` leave a console out. `--project-id <id>` sets the project id ([State](#state)); `--sources <dir>` runs checkouts ([contributors](#contributors-run-checkouts)). Prints where Plat5, each module and each app came from |
+| `plat5 init [dir] [--template <starter>] [--preset <name>] [--authorizer <pdp>]` | Create a project. Asks for the starter, preset (with `--template none`), modules, and optional AuthZEN authorizer; `-y` takes the defaults (`--template none`, `--preset minimal`, default modules, `--authorizer none`). Presets: `minimal`, `saas`, `enterprise`, `public`. `--authorizer topaz` adds the local Topaz module, `topaz/manifest.yaml`, `authorizers.topaz`, and (with `--template none`) record-level example routes. `--no-auth`, `--no-observability`, `--no-operator` turn a module off. With a starter, `--no-customer-console` and `--no-operator-console` leave a console out. `--project-id <id>` sets the project id ([State](#state)); `--sources <dir>` runs checkouts ([contributors](#contributors-run-checkouts)) |
 | `plat5 start [-x module,…] [-v]` | Run the stack and your app, apply `plat5.yml`, seed the dev person, print the summary |
 | `plat5 status` | The summary again, and container health |
 | `plat5 stop` | Stop everything. Data (volumes) is kept |
@@ -113,6 +114,8 @@ Local Auth runs in dev mode: `POST /dev/token` mints a token for any email, and 
 | `plat5 routes list [-f file …] [plat5.yml]` | Every service's expanded routes, identity's and audit's included: method, public path, scope, upstream, permissions. A dry run: the routes the control plane expanded |
 | `plat5 routes generate [-f file …] [plat5.yml]` | Write identity's and audit's routes for every kind into `services/identity.yml` and `services/audit.yml`, overwriting them but keeping their `url`, `timeouts` and `max_body_bytes`. Offline. Run it after adding or removing a kind, or changing a kind's `path` or `list_permission`; review the diff, and delete again any route you had dropped |
 | `plat5 config pull [--revision n] [dir]` | Write an applied revision as `plat5.yml` and `services/<service>.yml` |
+| `plat5 authorizer sync [manifest.yaml]` | Upload `authorizer.manifest` (or a file argument) to Topaz's Directory v3 API without restarting the stack |
+| `plat5 authorizer invalidate [--all \| --authorizer … \| --subject … \| --resource-type … \| --resource-id …]` | Flush cached outbound authorizer decisions on the gateway (`POST /internal/authorizer-cache/invalidate`) |
 | `plat5 version` / `--version` | The CLI version, and the image versions `plat5.local.yml` pins |
 
 `validate`, `plan`, `apply`, `routes list`, `routes generate` and `config pull` work on a deployment's config: `plat5.yml` and the service files it lists. `validate` and `routes generate` are offline; the others talk to the local control plane (from `plat5.local.yml` when present, else `http://localhost:5402` and `dev-admin-token`) unless `--control-plane-url` / `--admin-token` (or `PLAT5_CONTROL_PLANE_URL` / `PLAT5_ADMIN_TOKEN`) point elsewhere.
@@ -142,10 +145,24 @@ versions:                          # image tags; plat5 init writes the latest of
   auth: v0.2.2                     # also the operator IdP's
   operator: v0.5.0
 
-modules:                           # all true unless set false
+modules:                           # auth, observability, operator default true; authorizer defaults false
   auth: true
   observability: true
   operator: true
+  authorizer: false                # local Topaz OpenID AuthZEN 1.0 PDP
+
+authorizer:                        # with modules.authorizer: true
+  provider: topaz
+  manifest: ./topaz/manifest.yaml
+  # image: ghcr.io/aserto-dev/topaz:latest
+
+gateway:                           # optional local gateway overrides
+  scope_claim: scope               # AUTH_SCOPE_CLAIM
+  policy_claims: [amr, idp_connection]  # AUTH_POLICY_CLAIMS
+  audit_mode: sync                 # sync or async
+  audit_enabled: true
+  rate_limit_enabled: true
+  upstream_signing: false          # generates local Ed25519 key in project state
 
 app:                               # your app; plat5 start runs it after Plat5
   compose: ./docker-compose.yml
@@ -168,6 +185,8 @@ ports:                             # host ports; these are the defaults
   otlp_http: 4318
   operator: 5410
   operator_auth: 5411
+  topaz: 5420
+  topaz_directory: 5421
 admin_token: dev-admin-token       # local only
 secret_brand: plat5                # API keys are {brand}-k-2-…, invite tokens {brand}-i-1-…
 auth:                              # local Auth, beyond app.web
@@ -204,6 +223,10 @@ The template contract for an app's compose file: `plat5 start` runs it with `doc
 | `PLAT5_OPERATOR_URL` | The operator gateway, as the browser reaches it |
 | `PLAT5_OPERATOR_AUTH_URL` | The operator IdP's issuer, as the browser reaches it |
 | `PLAT5_OPERATOR_CLIENT_ID` | The operator console's OAuth client id (`operator-console`) |
+| `PLAT5_AUTHORIZER_URL` | Local Topaz AuthZEN URL (`http://topaz:8383`) when `modules.authorizer` is on |
+| `PLAT5_TOPAZ_DIRECTORY_URL` | Local Topaz Directory v3 REST URL (`http://topaz:9393`) when `modules.authorizer` is on |
+| `PLAT5_GATEWAY_INTERNAL_URL` | Gateway `INTERNAL_PORT` (`http://gateway:8000`) when `modules.authorizer` is on |
+| `PLAT5_UPSTREAM_SIGNING_PUBLIC_KEY` | Base64url Ed25519 public key when `gateway.upstream_signing: true` |
 
 ## Starters
 

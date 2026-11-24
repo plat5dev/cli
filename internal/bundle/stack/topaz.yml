@@ -1,0 +1,22 @@
+# Embedded by plat5 CLI: optional local AuthZEN 1.0 PDP module (Topaz).
+# Runs on Plat5's network so gateway and identity reach http://topaz:8383,
+# and publishes :8383 (AuthZEN) and :9393 (Directory v3 REST) on loopback.
+volumes:
+  topaz_data:
+
+services:
+  topaz:
+    image: ${TOPAZ_IMAGE:-ghcr.io/aserto-dev/topaz:latest}
+    command: ["run", "--config-file", "/config/config.yaml"]
+    labels:
+      service.name: topaz
+      service.namespace: authorizer
+    ports:
+      - "127.0.0.1:${TOPAZ_PORT:?}:8383"
+      - "127.0.0.1:${TOPAZ_DIRECTORY_PORT:?}:9393"
+    volumes:
+      - ./topaz/config.yaml:/config/config.yaml:ro
+      - topaz_data:/data
+    networks:
+      - plat5
+    restart: unless-stopped

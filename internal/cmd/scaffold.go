@@ -47,12 +47,14 @@ type layout struct {
 	serviceFiles []projectFile
 	// operatorRoutes is operator.routes.yml.
 	operatorRoutes []byte
+	// authorizer is the opt-in local AuthZEN PDP ("topaz"), empty for none.
+	authorizer string
 }
 
 // loadLayout fetches the starter and the consoles, and reads what init writes
 // from them, before anything is written.
-func loadLayout(opts template.ResolveOptions, starter string, customerConsole, operatorConsole bool) (_ *layout, err error) {
-	l := &layout{}
+func loadLayout(opts template.ResolveOptions, starter string, customerConsole, operatorConsole bool, authorizer string) (_ *layout, err error) {
+	l := &layout{authorizer: authorizer}
 	defer func() {
 		if err != nil {
 			l.close()
@@ -142,7 +144,16 @@ func (l *layout) readConfig() error {
 		l.serviceFiles = append(l.serviceFiles, projectFile{filepath.ToSlash(rel), data})
 	}
 	l.config, err = l.withCORS(base)
-	return err
+	if err != nil {
+		return err
+	}
+	if l.authorizer == authorizerTopaz {
+		l.config, err = injectTopazAuthorizer(l.config)
+		if err != nil {
+			return fmt.Errorf("the starter's %s: %w", m.Config, err)
+		}
+	}
+	return nil
 }
 
 // targets is what the layout writes, relative to the project.
@@ -157,6 +168,9 @@ func (l *layout) targets() []string {
 	}
 	if l.operatorConsole != nil {
 		out = append(out, operatorConsoleDir)
+	}
+	if l.authorizer == authorizerTopaz {
+		out = append(out, topazManifestFile)
 	}
 	return append(out, projectCompose, operatorRoutesFile, projectReadmeFile)
 }
@@ -229,6 +243,11 @@ func (l *layout) write(dir, projectID string) error {
 	}
 	if err := writeFile(dir, operatorRoutesFile, l.operatorRoutes); err != nil {
 		return err
+	}
+	if l.authorizer == authorizerTopaz {
+		if err := writeFile(dir, topazManifestFile, []byte(topazStarterManifest)); err != nil {
+			return err
+		}
 	}
 	readme, err := l.readme(projectID)
 	if err != nil {

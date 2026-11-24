@@ -173,6 +173,19 @@ func (r Runner) DownVolumes() error {
 	return run(r.cmd("down", "--remove-orphans", "--volumes"))
 }
 
+// ExecOutput runs a non-interactive command inside a running service container
+// and returns its combined output.
+func (r Runner) ExecOutput(service string, command ...string) (string, error) {
+	args := append([]string{"exec", "-T", service}, command...)
+	c := r.cmd(args...)
+	c.Stdout, c.Stderr, c.Stdin = nil, nil, nil
+	out, err := c.CombinedOutput()
+	if err != nil {
+		return string(out), fmt.Errorf("docker compose exec %s: %w: %s", service, err, strings.TrimSpace(string(out)))
+	}
+	return string(out), nil
+}
+
 // Logs runs docker compose logs.
 func (r Runner) Logs(follow bool, services ...string) error {
 	args := []string{"logs"}
