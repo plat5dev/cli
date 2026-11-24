@@ -52,6 +52,7 @@ identity:
             POST: { required_permissions: [organization:bindings:write] }
         - path: /service-accounts/{service_account_id}/keys/{key_id}
           methods:
+            PATCH: { required_permissions: [organization:bindings:write] }
             DELETE: { required_permissions: [organization:bindings:write] }
         - path: /invites
           methods:
@@ -70,6 +71,9 @@ identity:
           methods:
             GET: { required_permissions: any_member }
             DELETE: { required_permissions: [organization:bindings:write] }
+        - path: /members/{member_id}/status
+          methods:
+            PATCH: { required_permissions: [organization:bindings:write] }
         - path: /groups
           methods:
             GET: { required_permissions: [organization:bindings:read] }
@@ -102,7 +106,7 @@ identity:
           methods: [GET, POST]
         - path: /user/keys/{key_id}
           upstream: /users/{user.id}/keys/{key_id}
-          methods: [DELETE]
+          methods: [PATCH, DELETE]
         - path: /user/invites/redeem
           upstream: /users/{user.id}/invites/redeem
           methods: [POST]

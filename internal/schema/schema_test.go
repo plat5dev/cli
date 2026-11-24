@@ -137,6 +137,28 @@ func TestFriendlyPatternErrorsAndServiceURLs(t *testing.T) {
 	}
 }
 
+func TestKindHostAndRateLimitTiers(t *testing.T) {
+	c := sample()
+	c["services"] = map[string]any{}
+	c["kinds"].(map[string]any)["organization"].(map[string]any)["host"] = "{organization}.api.example.com"
+	c["rate_limits"] = map[string]any{
+		"standard": map[string]any{
+			"requests": 60,
+			"window":   "60s",
+			"tiers": map[string]any{
+				"enterprise": map[string]any{"requests": 600, "window": "60s"},
+			},
+		},
+	}
+	if errs, err := ValidateConfig(c); err != nil || len(errs) != 0 {
+		t.Fatalf("expected valid host and tiers, got %v / %v", errs, err)
+	}
+	c["kinds"].(map[string]any)["organization"].(map[string]any)["host"] = "not a host"
+	if errs, _ := ValidateConfig(c); len(errs) == 0 {
+		t.Fatalf("expected invalid host to fail schema validation")
+	}
+}
+
 // The copy tracks plat5's schema/. Checked when plat5 is checked out beside
 // the CLI, as in plat5dev.
 func TestMatchesPlat5(t *testing.T) {

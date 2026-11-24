@@ -22,6 +22,10 @@ services:
       - path: /nodes/{node_id}/release-slug
         node: node_id
         methods: [POST]
+      # For roots only: sets or clears the root's opaque rate_limit_tier.
+      - path: /nodes/{node_id}/rate-limit-tier
+        node: node_id
+        methods: [PATCH]
       # Filtered by the member when listed as one. Created as one, they get creator_role.
       - path: /nodes/{node_id}/children/{kind}
         node: node_id
@@ -47,6 +51,9 @@ services:
       - path: /nodes/{root_id}/members/{member_id}
         node: root_id
         methods: [GET, DELETE]
+      - path: /nodes/{root_id}/members/{member_id}/status
+        node: root_id
+        methods: [PATCH]
       - path: /nodes/{root_id}/groups
         node: root_id
         methods: [GET, POST]
@@ -70,7 +77,7 @@ services:
         methods: [GET]
       - path: /nodes/{node_id}/service-accounts/{service_account_id}/keys/{key_id}
         node: node_id
-        methods: [DELETE]
+        methods: [PATCH, DELETE]
       - path: /nodes/{node_id}/invites
         node: node_id
         methods: [GET, POST]
@@ -89,7 +96,7 @@ services:
       - path: /users/{user_id}/keys
         methods: [GET]
       - path: /users/{user_id}/keys/{key_id}
-        methods: [DELETE]
+        methods: [PATCH, DELETE]
       - path: /users/{user_id}/invites/redeem
         methods: [POST]
       # From a member to its person.

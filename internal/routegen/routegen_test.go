@@ -101,6 +101,17 @@ func TestGenerate(t *testing.T) {
 	if r := find(t, identity, "team", "/members"); !reflect.DeepEqual(r.Methods, []Method{{"GET", []string{"team:bindings:read"}}}) {
 		t.Errorf("/members: %+v", r)
 	}
+	if r := find(t, identity, "team", "/members/{member_id}/status"); !reflect.DeepEqual(r.Methods, []Method{{"PATCH", []string{"team:bindings:write"}}}) {
+		t.Errorf("/members/{member_id}/status: %+v", r)
+	}
+	if r := find(t, identity, "team", "/service-accounts/{service_account_id}/keys/{key_id}"); !reflect.DeepEqual(r.Methods, []Method{
+		{"PATCH", []string{"team:bindings:write"}}, {"DELETE", []string{"team:bindings:write"}},
+	}) {
+		t.Errorf("/service-accounts/{service_account_id}/keys/{key_id}: %+v", r)
+	}
+	if r := find(t, identity, "user", "/user/keys/{key_id}"); !reflect.DeepEqual(r.Methods, []Method{{Verb: "PATCH"}, {Verb: "DELETE"}}) {
+		t.Errorf("/user/keys/{key_id}: %+v", r)
+	}
 	// Root groups routes.
 	if r := find(t, identity, "team", "/groups"); !reflect.DeepEqual(r.Methods, []Method{
 		{"GET", []string{"team:bindings:read"}}, {"POST", []string{"team:bindings:write"}},

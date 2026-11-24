@@ -230,7 +230,7 @@ func Generate(kinds []Kind) (identity, audit File) {
 			Route{Path: "/service-accounts", Methods: []Method{{"GET", read}, {"POST", write}}},
 			Route{Path: "/service-accounts/{service_account_id}", Methods: []Method{{"GET", read}, {"PATCH", write}, {"DELETE", write}}},
 			Route{Path: "/service-accounts/{service_account_id}/keys", Methods: []Method{{"GET", write}, {"POST", write}}},
-			Route{Path: "/service-accounts/{service_account_id}/keys/{key_id}", Methods: []Method{{"DELETE", write}}},
+			Route{Path: "/service-accounts/{service_account_id}/keys/{key_id}", Methods: []Method{{"PATCH", write}, {"DELETE", write}}},
 			Route{Path: "/invites", Methods: []Method{{"GET", invite}, {"POST", invite}}},
 			Route{Path: "/invites/{invite_id}", Methods: []Method{{"DELETE", invite}}},
 			Route{Path: "/roles", Methods: []Method{{"GET", anyMember}}},
@@ -239,6 +239,7 @@ func Generate(kinds []Kind) (identity, audit File) {
 			routes = append(routes,
 				Route{Path: "/members", Methods: []Method{{"GET", read}}},
 				Route{Path: "/members/{member_id}", Methods: []Method{{"GET", anyMember}, {"DELETE", write}}},
+				Route{Path: "/members/{member_id}/status", Methods: []Method{{"PATCH", write}}},
 				Route{Path: "/groups", Methods: []Method{{"GET", read}, {"POST", write}}},
 				Route{Path: "/groups/{group_id}", Methods: []Method{{"GET", read}, {"PATCH", write}, {"DELETE", write}}},
 				Route{Path: "/groups/{group_id}/members", Methods: []Method{{"GET", read}, {"POST", write}}},
@@ -256,7 +257,7 @@ func Generate(kinds []Kind) (identity, audit File) {
 		Route{Path: "/user", Upstream: user, Methods: []Method{{Verb: "GET"}, {Verb: "PATCH"}, {Verb: "DELETE"}}},
 		Route{Path: "/user/nodes", Upstream: user + "/nodes", Methods: []Method{{Verb: "GET"}}},
 		Route{Path: "/user/keys", Upstream: user + "/keys", Methods: []Method{{Verb: "GET"}, {Verb: "POST"}}},
-		Route{Path: "/user/keys/{key_id}", Upstream: user + "/keys/{key_id}", Methods: []Method{{Verb: "DELETE"}}},
+		Route{Path: "/user/keys/{key_id}", Upstream: user + "/keys/{key_id}", Methods: []Method{{Verb: "PATCH"}, {Verb: "DELETE"}}},
 		Route{Path: "/user/invites/redeem", Upstream: user + "/invites/redeem", Methods: []Method{{Verb: "POST"}}},
 	)})
 	audit.Scopes = append(audit.Scopes, Scope{Name: "user", Routes: []Route{
