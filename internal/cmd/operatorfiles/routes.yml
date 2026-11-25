@@ -23,8 +23,8 @@ services:
         node: node_id
         methods: [POST]
       # For roots only: sets or clears the root's opaque rate_limit_tier.
-      - path: /nodes/{node_id}/rate-limit-tier
-        node: node_id
+      - path: /nodes/{root_id}/rate-limit-tier
+        node: root_id
         methods: [PATCH]
       # Filtered by the member when listed as one. Created as one, they get creator_role.
       - path: /nodes/{node_id}/children/{kind}
@@ -36,8 +36,8 @@ services:
       - path: /nodes/{node_id}/roles
         node: node_id
         methods: [GET, POST]
-      - path: /nodes/{node_id}/roles/{role_id}
-        node: node_id
+      - path: /nodes/{root_id}/roles/{role_id}
+        node: root_id
         methods: [GET, PATCH, DELETE]
       - path: /nodes/{root_id}/permissions
         node: root_id

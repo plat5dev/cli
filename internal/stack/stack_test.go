@@ -142,6 +142,10 @@ func TestOverride(t *testing.T) {
 			t.Errorf("override missing %q:\n%s", want, o)
 		}
 	}
+	// Both gateway and operator get host aliases when running -x app.
+	if strings.Count(o, "      - \"api:host-gateway\"\n      - \"web:host-gateway\"\n") != 2 {
+		t.Errorf("want host aliases on both gateway and operator:\n%s", o)
+	}
 	// Only the control plane compiles the schema in.
 	if strings.Count(o, "additional_contexts:") != 1 {
 		t.Errorf("want the schema context on the control plane only:\n%s", o)
@@ -231,6 +235,9 @@ gateway:
 		if !strings.Contains(ov, want) {
 			t.Errorf("override missing %s:\n%s", want, ov)
 		}
+	}
+	if strings.Count(ov, `UPSTREAM_SIGNING_KEY: "`) != 2 {
+		t.Errorf("want UPSTREAM_SIGNING_KEY on both gateway and operator:\n%s", ov)
 	}
 	appEnv := strings.Join(s.AppEnv(), " ")
 	for _, want := range []string{

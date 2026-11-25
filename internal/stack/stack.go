@@ -484,12 +484,19 @@ func (s *Stack) override() string {
 	if c.Gateway.UpstreamSigning {
 		if seed, _, err := s.ensureSigningKey(); err == nil {
 			get("gateway").env["UPSTREAM_SIGNING_KEY"] = seed
+			if s.Has(config.ModuleOperator) {
+				get("operator").env["UPSTREAM_SIGNING_KEY"] = seed
+			}
 		}
 	}
 	// The app on your machine (-x app): its compose service names reach the host.
 	if len(s.OnHost) > 0 {
 		get("gateway").hostAliases = append([]string(nil), s.OnHost...)
 		sort.Strings(get("gateway").hostAliases)
+		if s.Has(config.ModuleOperator) {
+			get("operator").hostAliases = append([]string(nil), s.OnHost...)
+			sort.Strings(get("operator").hostAliases)
+		}
 	}
 	// A collector on the host: containers need host.docker.internal.
 	if config.NeedsHostGateway(c.OtelEndpoint) {
