@@ -308,9 +308,7 @@ authorizer:
   manifest: ./topaz/manifest.yaml
 gateway:
   scope_claim: scope
-  policy_claims: [amr, idp_connection]
   audit_mode: async
-  audit_enabled: true
   rate_limit_enabled: false
   upstream_signing: true
 `)
@@ -329,18 +327,19 @@ gateway:
 	if r.Ports[ports.Topaz] != 5420 || r.Ports[ports.TopazDirectory] != 5421 {
 		t.Fatalf("topaz ports: %v", r.Ports)
 	}
-	if r.Gateway.ScopeClaim != "scope" || strings.Join(r.Gateway.PolicyClaims, ",") != "amr,idp_connection" || r.Gateway.AuditMode != "async" || !r.Gateway.UpstreamSigning {
+	if r.Gateway.ScopeClaim != "scope" || r.Gateway.AuditMode != "async" || !r.Gateway.UpstreamSigning {
 		t.Fatalf("gateway: %+v", r.Gateway)
 	}
-	if r.Gateway.AuditEnabled == nil || !*r.Gateway.AuditEnabled || r.Gateway.RateLimitEnabled == nil || *r.Gateway.RateLimitEnabled {
+	if r.Gateway.RateLimitEnabled == nil || *r.Gateway.RateLimitEnabled {
 		t.Fatalf("gateway toggles: %+v", r.Gateway)
+	}
+	if r, err := resolve(t, fullYML+"gateway: {audit_mode: off}\n"); err != nil || r.Gateway.AuditMode != "off" {
+		t.Fatalf("audit_mode off: %+v %v", r.Gateway, err)
 	}
 
 	for yml, want := range map[string]string{
-		fullYML + "authorizer: {provider: opa}\n":                                   "authorizer.provider",
-		fullYML + "gateway: {audit_mode: bogus}\n":                                  "gateway.audit_mode",
-		fullYML + "gateway: {policy_claims: [amr, \" \"]}\n":                        "gateway.policy_claims",
-		fullYML + "gateway: {policy_claims: [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q]}\n": "at most 16",
+		fullYML + "authorizer: {provider: opa}\n":  "authorizer.provider",
+		fullYML + "gateway: {audit_mode: bogus}\n": "gateway.audit_mode",
 	} {
 		if _, err := resolve(t, yml); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q: want %q, got %v", yml, want, err)

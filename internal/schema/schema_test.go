@@ -159,8 +159,9 @@ func TestKindHostAndRateLimitTiers(t *testing.T) {
 	}
 }
 
-func TestTier2CustomRolesPermissionsAndAllowPublic(t *testing.T) {
+func TestTier2CustomRolesPermissionsAndPolicyClaims(t *testing.T) {
 	c := sample()
+	c["policy_claims"] = []any{"acr", "org.sso"}
 	c["custom_roles"] = true
 	c["permissions"] = map[string]any{
 		"billing:read": map[string]any{
@@ -169,7 +170,6 @@ func TestTier2CustomRolesPermissionsAndAllowPublic(t *testing.T) {
 			"custom_role_assignable": true,
 		},
 	}
-	c["kinds"].(map[string]any)["organization"].(map[string]any)["allow_public"] = true
 	c["services"] = map[string]any{
 		"api": map[string]any{
 			"url": "http://api:3000",
@@ -177,10 +177,9 @@ func TestTier2CustomRolesPermissionsAndAllowPublic(t *testing.T) {
 				"organization": map[string]any{
 					"routes": []any{
 						map[string]any{
-							"path":                 "/status",
-							"methods":              []any{"GET"},
-							"required_permissions": []any{"organization:read"},
-							"allow_public":         true,
+							"path":        "/status",
+							"methods":     []any{"GET"},
+							"permissions": "organization:read",
 						},
 					},
 				},
@@ -192,38 +191,31 @@ func TestTier2CustomRolesPermissionsAndAllowPublic(t *testing.T) {
 	}
 }
 
-func TestAuthorizersSchema(t *testing.T) {
-	c := sample()
-	c["authorizers"] = map[string]any{
-		"topaz": map[string]any{
+func TestAuthorizerSchema(t *testing.T) {
+	c := map[string]any{
+		"kinds": map[string]any{
+			"organization": map[string]any{"path": "/orgs/{organization}", "list_permission": "organization:read"},
+		},
+		"authorizer": map[string]any{
 			"url":                "http://topaz:8383",
 			"timeout":            "2s",
 			"cache_ttl":          "5s",
 			"negative_cache_ttl": "0s",
 			"token_env":          "TOPAZ_API_KEY",
 		},
-	}
-	c["kinds"].(map[string]any)["organization"].(map[string]any)["authorizer"] = map[string]any{
-		"name": "topaz",
-		"mode": "or",
-	}
-	c["services"] = map[string]any{
-		"docs": map[string]any{
-			"url":        "http://docs:3000",
-			"authorizer": "topaz",
-			"scopes": map[string]any{
-				"organization": map[string]any{
-					"routes": []any{
-						map[string]any{
-							"path":                 "/docs/{doc_id}",
-							"methods":              []any{"GET"},
-							"required_permissions": []any{"docs:read"},
-							"authorizer": map[string]any{
-								"name": "topaz",
-								"mode": "and",
+		"services": map[string]any{
+			"docs": map[string]any{
+				"url": "http://docs:3000",
+				"scopes": map[string]any{
+					"organization": map[string]any{
+						"routes": []any{
+							map[string]any{
+								"path":        "/docs/{doc_id}",
+								"methods":     []any{"GET"},
+								"permissions": "docs:read",
 								"resource": map[string]any{
 									"type": "document",
-									"id":   "{doc_id}",
+									"id":   "{organization.id}:{doc_id}",
 								},
 							},
 						},
@@ -233,7 +225,7 @@ func TestAuthorizersSchema(t *testing.T) {
 		},
 	}
 	if errs, err := ValidateConfig(c); err != nil || len(errs) != 0 {
-		t.Fatalf("expected valid authorizers config, got %v / %v", errs, err)
+		t.Fatalf("expected valid authorizer config, got %v / %v", errs, err)
 	}
 }
 

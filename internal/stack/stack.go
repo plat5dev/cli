@@ -374,7 +374,6 @@ func (s *Stack) AppEnv() []string {
 	if s.Has(config.ModuleAuthorizer) {
 		env["PLAT5_AUTHORIZER_URL"] = "http://topaz:8383"
 		env["PLAT5_TOPAZ_DIRECTORY_URL"] = "http://topaz:9393"
-		env["PLAT5_GATEWAY_INTERNAL_URL"] = "http://gateway:8000"
 	}
 	if c.Gateway.UpstreamSigning {
 		if _, pub, err := s.ensureSigningKey(); err == nil {
@@ -469,14 +468,8 @@ func (s *Stack) override() string {
 	if c.Gateway.ScopeClaim != "" {
 		get("gateway").env["AUTH_SCOPE_CLAIM"] = c.Gateway.ScopeClaim
 	}
-	if len(c.Gateway.PolicyClaims) > 0 {
-		get("gateway").env["AUTH_POLICY_CLAIMS"] = strings.Join(c.Gateway.PolicyClaims, ",")
-	}
 	if c.Gateway.AuditMode != "" {
 		get("gateway").env["AUDIT_MODE"] = c.Gateway.AuditMode
-	}
-	if c.Gateway.AuditEnabled != nil {
-		get("gateway").env["AUDIT_ENABLED"] = fmt.Sprintf("%t", *c.Gateway.AuditEnabled)
 	}
 	if c.Gateway.RateLimitEnabled != nil {
 		get("gateway").env["RATE_LIMIT_ENABLED"] = fmt.Sprintf("%t", *c.Gateway.RateLimitEnabled)

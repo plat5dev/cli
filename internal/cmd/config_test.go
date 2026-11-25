@@ -82,7 +82,7 @@ func TestPrintPlan(t *testing.T) {
 			"      - parent: \"organization\"\n      - path: \"/folders/{folder}\"\n",
 			"  ~ role admin\n      ~ bindable_at: [\"organization\", \"project\", \"folder\"] → [\"organization\", \"project\"]\n",
 			"  ~ service e10s\n      - GET /orgs/{organization}/folders/{folder}/plans\n          - scope: \"folder\"\n",
-			"          - required_permissions: [\"folder:read\"]\n          - rate_limit: [\"standard\"]\n          - audit: false\n",
+			"          - permissions: [\"folder:read\"]\n          - rate_limit: [\"standard\"]\n          - audit: false\n",
 			"\nPlan: 0 to add, 2 to change, 0 to remove. 1 blocked: nothing can apply until it's cleared.\n",
 		},
 		"parent-change-blocked": {
@@ -103,7 +103,7 @@ func TestPrintPlan(t *testing.T) {
 			"  - service billing\n      - url: \"http://billing:3000\"\n",
 			"  ~ service e10s\n      ~ url: \"http://e10s:3000\" → \"http://e10s:4000\"\n",
 			"      + GET /user/notifications\n          + scope: \"user\"\n          + upstream: \"/users/{user.id}/notifications\"\n          + rate_limit: [\"standard\"]\n",
-			"      ~ GET /orgs/{organization}/projects/{project}/plans\n          ~ required_permissions: [\"project:read\"] → [\"project:read\", \"catalog:read\"]\n",
+			"      ~ GET /orgs/{organization}/projects/{project}/plans\n          ~ permissions: [\"project:read\"] → [\"project:read\", \"catalog:read\"]\n",
 			"Plan: 1 to add, 1 to change, 1 to remove.\n",
 		},
 		"no-change": {"No changes. The deployment at revision"},

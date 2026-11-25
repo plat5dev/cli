@@ -192,7 +192,6 @@ authorizer:
   manifest: ./topaz/manifest.yaml
 gateway:
   scope_claim: scope
-  policy_claims: [amr, idp_connection]
   audit_mode: async
   rate_limit_enabled: false
   upstream_signing: true
@@ -227,7 +226,6 @@ gateway:
 	ov := s.override()
 	for _, want := range []string{
 		`AUTH_SCOPE_CLAIM: "scope"`,
-		`AUTH_POLICY_CLAIMS: "amr,idp_connection"`,
 		`AUDIT_MODE: "async"`,
 		`RATE_LIMIT_ENABLED: "false"`,
 		`UPSTREAM_SIGNING_KEY: "`,
@@ -243,7 +241,6 @@ gateway:
 	for _, want := range []string{
 		"PLAT5_AUTHORIZER_URL=http://topaz:8383",
 		"PLAT5_TOPAZ_DIRECTORY_URL=http://topaz:9393",
-		"PLAT5_GATEWAY_INTERNAL_URL=http://gateway:8000",
 		"PLAT5_UPSTREAM_SIGNING_PUBLIC_KEY=",
 	} {
 		if !strings.Contains(appEnv, want) {

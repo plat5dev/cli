@@ -17,7 +17,7 @@ audit:
       routes:
         - path: /audit-events
           methods:
-            GET: { required_permissions: [audit:read] }
+            GET: { permissions: audit:read }
     user:
       routes:
         - path: /user/audit-events

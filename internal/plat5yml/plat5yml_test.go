@@ -32,7 +32,7 @@ const e10s = `e10s:
       routes:
         - path: /plans
           methods:
-            GET: { required_permissions: [plans:read] }
+            GET: { permissions: plans:read }
 `
 
 const apiBilling = `api.billing:

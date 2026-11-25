@@ -118,14 +118,14 @@ func printRoutes(w io.Writer, services map[string]controlplane.Service) {
 		fmt.Fprintf(w, "%s  %s\n", n, s.URL)
 		for _, r := range s.Routes {
 			perms := ""
-			if r.RequiredPermissions != nil {
-				perms = r.RequiredPermissions.String()
+			if r.Permissions != nil {
+				perms = r.Permissions.String()
 			}
-			if r.Authorizer != nil {
+			if r.Resource != nil {
 				if perms != "" {
 					perms += "  "
 				}
-				perms += r.Authorizer.String()
+				perms += r.Resource.String()
 			}
 			line := fmt.Sprintf("  %-*s  %-*s  %-*s  %-*s  %s", width[0], r.Method, width[1], r.Path, width[2], r.Scope, width[3], r.Upstream, perms)
 			fmt.Fprintln(w, strings.TrimRight(line, " "))

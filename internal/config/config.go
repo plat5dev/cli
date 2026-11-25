@@ -132,12 +132,8 @@ type AuthorizerBlock struct {
 type GatewayBlock struct {
 	// ScopeClaim sets AUTH_SCOPE_CLAIM on the gateway.
 	ScopeClaim string `yaml:"scope_claim"`
-	// PolicyClaims sets AUTH_POLICY_CLAIMS on the gateway (up to 16).
-	PolicyClaims []string `yaml:"policy_claims"`
-	// AuditMode sets AUDIT_MODE ("sync" or "async").
+	// AuditMode sets AUDIT_MODE ("sync", "async", or "off").
 	AuditMode string `yaml:"audit_mode"`
-	// AuditEnabled overrides AUDIT_ENABLED (nil defaults to true).
-	AuditEnabled *bool `yaml:"audit_enabled"`
 	// RateLimitEnabled overrides RATE_LIMIT_ENABLED (nil defaults to true).
 	RateLimitEnabled *bool `yaml:"rate_limit_enabled"`
 	// UpstreamSigning generates a persistent local Ed25519 key in project state
@@ -437,25 +433,12 @@ func Resolve(f *File, path string, o Overrides) (Resolved, error) {
 	}
 
 	auditMode := strings.TrimSpace(f.Gateway.AuditMode)
-	if auditMode != "" && auditMode != "sync" && auditMode != "async" {
-		return Resolved{}, fmt.Errorf("gateway.audit_mode: %q (want sync or async)", auditMode)
-	}
-	var policyClaims []string
-	if len(f.Gateway.PolicyClaims) > 16 {
-		return Resolved{}, fmt.Errorf("gateway.policy_claims: at most 16 claims")
-	}
-	for _, c := range f.Gateway.PolicyClaims {
-		c = strings.TrimSpace(c)
-		if c == "" {
-			return Resolved{}, fmt.Errorf("gateway.policy_claims: empty claim name")
-		}
-		policyClaims = append(policyClaims, c)
+	if auditMode != "" && auditMode != "sync" && auditMode != "async" && auditMode != "off" {
+		return Resolved{}, fmt.Errorf("gateway.audit_mode: %q (want sync, async, or off)", auditMode)
 	}
 	r.Gateway = GatewayBlock{
 		ScopeClaim:       strings.TrimSpace(f.Gateway.ScopeClaim),
-		PolicyClaims:     policyClaims,
 		AuditMode:        auditMode,
-		AuditEnabled:     f.Gateway.AuditEnabled,
 		RateLimitEnabled: f.Gateway.RateLimitEnabled,
 		UpstreamSigning:  f.Gateway.UpstreamSigning,
 	}

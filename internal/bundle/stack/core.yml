@@ -120,7 +120,7 @@ services:
       # picks its own (the gateway's defaults are 5m and 10s).
       ADMIT_CACHE_TTL: 5s
       ADMIT_NEGATIVE_CACHE_TTL: 5s
-      AUDIT_ENABLED: "true"
+      AUDIT_MODE: sync
       AUDIT_URL: http://audit:3003
       RUST_LOG: info
       RATE_LIMIT_ENABLED: "true"

@@ -1,13 +1,11 @@
 package authorizer
 
 import (
-	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 )
@@ -54,31 +52,5 @@ func TestSyncTopazManifestAndWaitReady(t *testing.T) {
 	}
 	if gotCT != "application/yaml" || gotBody != manifest {
 		t.Fatalf("ct=%q body=%q", gotCT, gotBody)
-	}
-}
-
-func TestInvalidateGatewayCache(t *testing.T) {
-	var got InvalidateRequest
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || r.URL.Path != "/internal/authorizer-cache/invalidate" {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		_ = json.NewDecoder(r.Body).Decode(&got)
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"invalidated":true}`))
-	}))
-	defer srv.Close()
-
-	c := Client{HTTP: srv.Client()}
-	if err := c.InvalidateGatewayCache(srv.URL, InvalidateRequest{}); err == nil || !strings.Contains(err.Error(), "--all") {
-		t.Fatalf("empty request should fail, got %v", err)
-	}
-	req := InvalidateRequest{Authorizer: "topaz", ResourceType: "document", ResourceID: "doc-1"}
-	if err := c.InvalidateGatewayCache(srv.URL, req); err != nil {
-		t.Fatalf("InvalidateGatewayCache: %v", err)
-	}
-	if got != req {
-		t.Fatalf("got %+v, want %+v", got, req)
 	}
 }

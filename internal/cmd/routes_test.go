@@ -22,11 +22,11 @@ func TestPrintRoutes(t *testing.T) {
 		"identity": {URL: "http://identity:3000", Routes: []controlplane.Route{
 			{Method: "POST", Path: "/orgs", Scope: "user", Upstream: "/roots/organization"},
 			{Method: "GET", Path: "/orgs/{organization}/roles", Scope: "organization", Upstream: "/nodes/{organization.id}/roles",
-				RequiredPermissions: &controlplane.Required{AnyMember: true}},
+				Permissions: &controlplane.Required{AnyMember: true}},
 		}},
 		"e10s": {URL: "http://e10s:3000", Routes: []controlplane.Route{
 			{Method: "DELETE", Path: "/orgs/{organization}/plans", Scope: "organization", Upstream: "/plans",
-				RequiredPermissions: &controlplane.Required{Permissions: []string{"catalog:write", "organization:write"}}},
+				Permissions: &controlplane.Required{Permissions: []string{"catalog:write", "organization:write"}}},
 		}},
 	})
 	want := "e10s  http://e10s:3000\n" +
@@ -83,10 +83,10 @@ func TestRoutesListPrintsTheDryRunsRoutes(t *testing.T) {
 	sent := dryRunServer(t, http.StatusOK, `{"revision": 3, "summary": {"add": 0, "change": 0, "remove": 0, "blocked": 0}, "changes": [],
 		"services": {
 			"e10s": {"url": "http://e10s:3000", "timeouts": {"connect": "10s", "read": "30s"}, "max_body_bytes": 10485760, "routes": [
-				{"path": "/health", "method": "GET", "scope": "public", "upstream": "/health", "required_permissions": null, "rate_limit": ["standard"], "audit": false, "allow_deleted": false}
+				{"path": "/health", "method": "GET", "scope": "public", "upstream": "/health", "permissions": null, "rate_limit": ["standard"], "audit": false, "allow_deleted": false}
 			]},
 			"identity": {"url": "http://identity:3000", "timeouts": {"connect": "10s", "read": "30s"}, "max_body_bytes": 10485760, "routes": [
-				{"path": "/orgs/{organization}/members", "method": "GET", "scope": "organization", "upstream": "/nodes/{organization.id}/members", "required_permissions": "any_member", "rate_limit": ["standard"], "audit": false, "allow_deleted": false}
+				{"path": "/orgs/{organization}/members", "method": "GET", "scope": "organization", "upstream": "/nodes/{organization.id}/members", "permissions": "any_member", "rate_limit": ["standard"], "audit": false, "allow_deleted": false}
 			]}
 		}}`)
 	path := routesConfig(t)
@@ -221,8 +221,8 @@ services: [services/identity.yml, services/audit.yml]
 	}
 	for _, want := range []string{
 		"# Identity's routes", "  url: http://id:4000\n  timeouts:\n    read: 5s\n  max_body_bytes: 1024\n",
-		"            POST: { required_permissions: [team:create] }",
-		"            GET: { required_permissions: [team:read] }",
+		"            POST: { permissions: team:create }",
+		"            GET: { permissions: team:read }",
 		"          upstream: /nodes/{team.id}/memberships/{member.id}",
 	} {
 		if !strings.Contains(id1, want) {

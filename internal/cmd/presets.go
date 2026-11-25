@@ -32,12 +32,12 @@ var presetOptions = []namedOption{
 	{presetMinimal, "One kind (organization), admin and member roles"},
 	{presetSaaS, "organization -> project, default-deny projects, guest invites"},
 	{presetEnterprise, "organization -> project -> environment, custom roles, tiered rate limits, SSO claims"},
-	{presetPublic, "organization (subdomain host) -> project (allow_public), public portal route"},
+	{presetPublic, "organization (subdomain host) -> project, public and tenant portal routes"},
 }
 
 var authorizerOptions = []namedOption{
 	{authorizerNone, "Built-in Plat5 RBAC only"},
-	{authorizerTopaz, "Local Topaz AuthZEN 1.0 PDP with starter ReBAC manifest and record-level routes"},
+	{authorizerTopaz, "Local Topaz AuthZEN 1.0 PDP (replaces built-in RBAC) with starter ReBAC manifest"},
 }
 
 func presetNames() []string {
@@ -149,33 +149,71 @@ func writeFileIfMissing(dir, rel string, data []byte) error {
 	return writeFile(dir, rel, data)
 }
 
-// injectTopazAuthorizer inserts an authorizers.topaz block before services: in
-// plat5.yml. Refuses a config that already declares authorizers:.
+// injectTopazAuthorizer replaces built-in RBAC keys (roles, creator_role,
+// custom_roles, permissions) with a top-level authorizer: block before
+// services: in plat5.yml. Refuses a config that already declares authorizer:.
 func injectTopazAuthorizer(base []byte) ([]byte, error) {
 	var top map[string]any
 	if err := yaml.Unmarshal(base, &top); err != nil {
 		return nil, fmt.Errorf("plat5.yml: %w", err)
 	}
-	if _, ok := top["authorizers"]; ok {
-		return nil, fmt.Errorf("plat5.yml already sets authorizers: remove it or omit --authorizer")
+	if _, ok := top["authorizer"]; ok {
+		return nil, fmt.Errorf("plat5.yml already sets authorizer: remove it or omit --authorizer")
 	}
-	head, list, ok := bytes.Cut(append([]byte("\n"), base...), []byte("\nservices:"))
+	cleaned := stripRBACKeys(base)
+	head, list, ok := bytes.Cut(append([]byte("\n"), cleaned...), []byte("\nservices:"))
 	if !ok {
 		return nil, fmt.Errorf("plat5.yml has no services: list")
 	}
 	var b bytes.Buffer
 	b.Write(head[1:])
-	b.WriteString("\n# External OpenID AuthZEN 1.0 authorizer (https://github.com/plat5dev/plat5/blob/master/docs/reference/config/authorizers.md).\n")
-	b.WriteString("# Runs locally via the authorizer module (topaz/manifest.yaml).\n")
-	b.WriteString("authorizers:\n")
-	b.WriteString("  topaz:\n")
-	b.WriteString("    url: http://topaz:8383\n")
-	b.WriteString("    timeout: 2s\n")
-	b.WriteString("    cache_ttl: 5s\n")
-	b.WriteString("    negative_cache_ttl: 2s\n")
+	b.WriteString("\n# External OpenID AuthZEN 1.0 authorizer (https://github.com/plat5dev/plat5/blob/master/docs/reference/config/authorizer.md).\n")
+	b.WriteString("# Replaces built-in RBAC; runs locally via the authorizer module (topaz/manifest.yaml).\n")
+	b.WriteString("authorizer:\n")
+	b.WriteString("  url: http://topaz:8383\n")
+	b.WriteString("  timeout: 2s\n")
+	b.WriteString("  cache_ttl: 5s\n")
+	b.WriteString("  negative_cache_ttl: 2s\n")
 	b.WriteString("services:")
 	b.Write(list)
 	return b.Bytes(), nil
+}
+
+// stripRBACKeys removes top-level roles, creator_role, custom_roles, and
+// permissions blocks (mutually exclusive with top-level authorizer) and any
+// immediately preceding comment block describing roles.
+func stripRBACKeys(yml []byte) []byte {
+	lines := strings.Split(string(yml), "\n")
+	var out []string
+	skipping := false
+	for _, line := range lines {
+		isTopKey := len(line) > 0 && line[0] != ' ' && line[0] != '\t' && line[0] != '#'
+		if isTopKey {
+			key, _, _ := strings.Cut(line, ":")
+			switch key {
+			case "roles", "creator_role", "custom_roles", "permissions":
+				if key == "roles" {
+					for len(out) > 0 && strings.HasPrefix(out[len(out)-1], "#") {
+						out = out[:len(out)-1]
+					}
+				}
+				skipping = true
+				continue
+			default:
+				skipping = false
+			}
+		}
+		if skipping {
+			// Stop skipping on a top-level comment that introduces the next section.
+			if strings.HasPrefix(line, "#") {
+				skipping = false
+				out = append(out, line)
+			}
+			continue
+		}
+		out = append(out, line)
+	}
+	return []byte(strings.Join(out, "\n"))
 }
 
 func appendServiceEntry(yml []byte, rel string) []byte {
@@ -236,9 +274,10 @@ services:
 `
 
 const enterprisePresetYML = `# The deployment's config (https://github.com/plat5dev/plat5/blob/master/docs/concepts/config.md).
-# Preset: enterprise (organization -> project -> environment, custom roles, tiered rate limits).
+# Preset: enterprise (organization -> project -> environment, custom roles, tiered rate limits, SSO policy claims).
 deletion_grace: 30d
 reserved_slugs: [new, settings, api, admin]
+policy_claims: [amr, idp_connection]
 kinds:
   organization:
     path: /orgs/{organization}
@@ -315,7 +354,7 @@ services:
 `
 
 const publicPresetYML = `# The deployment's config (https://github.com/plat5dev/plat5/blob/master/docs/concepts/config.md).
-# Preset: public (subdomain host routing on organization, public principal access on project).
+# Preset: public (subdomain host routing on organization, public and tenant portal routes).
 deletion_grace: 30d
 reserved_slugs: [new, settings, api, admin]
 kinds:
@@ -325,7 +364,6 @@ kinds:
   project:
     parent: organization
     path: /projects/{project}
-    allow_public: true
     bind_creator: false
 roles:
   admin:
@@ -353,28 +391,30 @@ services:
   - services/portal.yml
 `
 
-const publicPortalServiceYML = `# Example public-capable service for the public preset.
-# Bind public_principal: all_users (or all_authenticated_users) with role: viewer
-# on a project node to expose GET /announcements without membership.
+const publicPortalServiceYML = `# Example portal service for the public preset: unauthenticated routes under
+# scopes.public and authenticated tenant routes under scopes.project.
 portal:
   url: http://portal:3000
   scopes:
+    public:
+      routes:
+        - path: /public/announcements/{slug}
+          methods: [GET]
     project:
       upstream_prefix: /projects/{project.id}
       routes:
         - path: /announcements
           methods:
-            GET:
-              required_permissions: [project:read]
-              allow_public: true
-            POST:
-              required_permissions: [project:write]
+            GET:  { permissions: project:read }
+            POST: { permissions: project:write }
 `
 
 func topazDocsServiceYML(scopeKind string) string {
 	prefix := "/orgs/{organization.id}"
+	resourceID := "{organization.id}:{doc_id}"
 	if scopeKind == "project" {
 		prefix = "/projects/{project.id}"
+		resourceID = "{project.id}:{doc_id}"
 	}
 	return fmt.Sprintf(`# Example record-level authorization routes backed by Topaz (AuthZEN 1.0).
 # Test decisions right away with POST /access/routes after plat5 start,
@@ -386,26 +426,12 @@ docs:
       upstream_prefix: %s
       routes:
         - path: /docs/{doc_id}
+          resource: { type: document, id: %q }
           methods:
-            GET:
-              required_permissions: [docs:read]
-              authorizer:
-                name: topaz
-                mode: or      # org/project RBAC allows admins; others check Topaz document grant
-                resource: { type: document, id: "{doc_id}" }
-            PATCH:
-              required_permissions: [docs:write]
-              authorizer:
-                name: topaz
-                mode: and     # requires both Plat5 RBAC and Topaz editor/owner on this document
-                resource: { type: document, id: "{doc_id}" }
-            DELETE:
-              required_permissions: [docs:delete]
-              authorizer:
-                name: topaz
-                mode: replace # Topaz document owner decides alone
-                resource: { type: document, id: "{doc_id}" }
-`, scopeKind, prefix)
+            GET:    { permissions: docs:read }
+            PATCH:  { permissions: docs:write }
+            DELETE: { permissions: docs:delete }
+`, scopeKind, prefix, resourceID)
 }
 
 func topazDocsManifest(hasProject bool) string {
@@ -413,7 +439,24 @@ func topazDocsManifest(hasProject bool) string {
 	b.WriteString("# yaml-language-server: $schema=https://www.topaz.sh/schema/manifest.json\n")
 	b.WriteString("# Starter ReBAC manifest for Plat5 + Topaz (OpenID AuthZEN 1.0).\n")
 	b.WriteString("# Edit this file and run `plat5 authorizer sync` to update Topaz.\n")
-	b.WriteString("model:\n  version: 3\n\ntypes:\n  member: {}\n")
+	b.WriteString(`model:
+  version: 3
+
+types:
+  member: {}
+
+  organization:
+    relations:
+      admin: member
+      viewer: member
+    permissions:
+      organization:read: viewer | admin
+      organization:write: admin
+      organization:delete: admin
+      organization:bindings:read: admin
+      organization:bindings:write: admin
+      project:create: admin
+`)
 	if hasProject {
 		b.WriteString(`
   project:
@@ -441,13 +484,25 @@ func topazDocsManifest(hasProject bool) string {
 
 const topazStarterManifest = `# yaml-language-server: $schema=https://www.topaz.sh/schema/manifest.json
 # Starter ReBAC manifest for Plat5 + Topaz (OpenID AuthZEN 1.0).
-# Attach ` + "`authorizer: { name: topaz, mode: or, resource: { type: task, id: \"{task_id}\" } }`" + `
-# to routes in services/api.yml, then run ` + "`plat5 authorizer sync`" + ` after editing this file.
+# Add ` + "`resource: { type: task, id: \"{project.id}:{task_id}\" }`" + ` on routes in
+# services/api.yml, then run ` + "`plat5 authorizer sync`" + ` after editing this file.
 model:
   version: 3
 
 types:
   member: {}
+
+  organization:
+    relations:
+      admin: member
+      viewer: member
+    permissions:
+      organization:read: viewer | admin
+      organization:write: admin
+      organization:delete: admin
+      organization:bindings:read: admin
+      organization:bindings:write: admin
+      project:create: admin
 
   project:
     relations:

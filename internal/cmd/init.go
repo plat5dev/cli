@@ -84,11 +84,11 @@ Presets (--preset, with --template none):
   minimal     one kind (organization), admin and member roles
   saas        organization -> project, default-deny projects, guest invites
   enterprise  organization -> project -> environment, custom roles, tiered rate limits, SSO claims
-  public      organization (subdomain host) -> project (allow_public), public portal route
+  public      organization (subdomain host) -> project, public and tenant portal routes
 
 External authorizer (--authorizer, with any preset or starter):
   none        built-in Plat5 RBAC only (default)
-  topaz       local Topaz AuthZEN 1.0 PDP, topaz/manifest.yaml, and record-level example routes
+  topaz       local Topaz AuthZEN 1.0 PDP (replaces built-in RBAC), topaz/manifest.yaml, and record-level example routes
 
 Without a directory, the project is the current directory, and the project id
 is the directory's name; --project-id sets another, written to plat5.local.yml's
@@ -559,10 +559,9 @@ func renderDevYML(projectID string, ch initChoices, versions map[string]string, 
 	}
 
 	if ch.preset == presetEnterprise {
-		p("# Local gateway overrides (enterprise preset: scope & org security policy claims).\n")
+		p("# Local gateway overrides (enterprise preset: JWT scope narrowing).\n")
 		p("gateway:\n")
-		p("  scope_claim: scope\n")
-		p("  policy_claims: [amr, idp_connection]\n\n")
+		p("  scope_claim: scope\n\n")
 	}
 
 	if lay != nil && lay.operatorConsole != nil {
@@ -607,9 +606,7 @@ func renderDevYML(projectID string, ch initChoices, versions map[string]string, 
 # secret_brand: plat5    # API keys {brand}-k-2-…, invite tokens {brand}-i-1-…
 # gateway:               # optional local gateway overrides
 #   scope_claim: scope
-#   policy_claims: [amr, idp_connection]
-#   audit_mode: sync     # sync (default) or async
-#   audit_enabled: true
+#   audit_mode: sync     # sync (default), async, or off
 #   rate_limit_enabled: true
 #   upstream_signing: false
 # authorizer:            # with modules.authorizer: true (Topaz AuthZEN 1.0 PDP)

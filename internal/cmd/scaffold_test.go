@@ -37,7 +37,7 @@ func fixtureTemplates(t *testing.T) string {
 		"plat5.template.yml":    "name: go-fiber-api\nkind: api\nconfig: plat5.yml\noperator_routes: ./routes.operator.yml\nsubstitute: [go.mod]\napp:\n  compose: docker-compose.yml\nnext:\n  - go run .\n",
 		"plat5.yml":             "# the starter's own\n" + string(mustInitFile(t, "initfiles/plat5.yml")) + "  - services/api.yml\n",
 		"plat5.local.yml":       "project_id: go-fiber-api\n",
-		"services/api.yml":      "api:\n  url: http://api:3000\n  scopes:\n    organization:\n      upstream_prefix: /orgs/{organization.id}\n      routes:\n        - path: /tasks\n          methods:\n            GET: { required_permissions: [organization:read] }\n",
+		"services/api.yml":      "api:\n  url: http://api:3000\n  scopes:\n    organization:\n      upstream_prefix: /orgs/{organization.id}\n      routes:\n        - path: /tasks\n          methods:\n            GET: { permissions: organization:read }\n",
 		"services/identity.yml": string(mustInitFile(t, "initfiles/services/identity.yml")),
 		"services/audit.yml":    "# the starter's\n" + string(mustInitFile(t, "initfiles/services/audit.yml")),
 		"routes.operator.yml":   "# operator\nservices:\n  api:\n    url: http://api:3000\n    routes:\n      - path: /projects/{project_id}/tasks\n        node: project_id\n        methods: [GET]\n",

@@ -41,7 +41,7 @@ func (k Kind) Prefix() string {
 	return k.Name
 }
 
-// AnyMember is the required_permissions value that admits any member of the tree.
+// AnyMember is the permissions value that admits any member of the tree.
 const AnyMember = "any_member"
 
 // Method is one verb of a route. Required is nil in the user scope; a kind
@@ -350,7 +350,7 @@ func Render(f File, kept map[string]any) ([]byte, error) {
 			}
 			b.WriteString("          methods:\n")
 			for _, m := range r.Methods {
-				fmt.Fprintf(&b, "            %s: { required_permissions: %s }\n", m.Verb, required(m.Required))
+				fmt.Fprintf(&b, "            %s: { permissions: %s }\n", m.Verb, required(m.Required))
 			}
 		}
 	}
@@ -358,8 +358,8 @@ func Render(f File, kept map[string]any) ([]byte, error) {
 }
 
 func required(p []string) string {
-	if len(p) == 1 && p[0] == AnyMember {
-		return AnyMember
+	if len(p) == 1 {
+		return p[0]
 	}
 	return "[" + strings.Join(p, ", ") + "]"
 }

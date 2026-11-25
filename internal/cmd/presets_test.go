@@ -63,8 +63,13 @@ func TestAllPresetsAndTopazValidate(t *testing.T) {
 					if !r.Modules[config.ModuleAuthorizer] {
 						t.Fatalf("authorizer module should be enabled")
 					}
-					if _, ok := cfg.Flat["authorizers"].(map[string]any)["topaz"]; !ok {
-						t.Fatalf("plat5.yml missing authorizers.topaz: %v", cfg.Flat["authorizers"])
+					if _, ok := cfg.Flat["authorizer"].(map[string]any)["url"]; !ok {
+						t.Fatalf("plat5.yml missing authorizer.url: %v", cfg.Flat["authorizer"])
+					}
+					for _, forbidden := range []string{"roles", "creator_role", "custom_roles", "permissions"} {
+						if _, ok := cfg.Flat[forbidden]; ok {
+							t.Fatalf("plat5.yml with top-level authorizer must not set %s", forbidden)
+						}
 					}
 					if cfg.Files["docs"] != "services/docs.yml" {
 						t.Fatalf("expected services/docs.yml, got %v", cfg.Files)
@@ -82,10 +87,14 @@ func TestAllPresetsAndTopazValidate(t *testing.T) {
 				}
 
 				if preset == presetEnterprise {
-					if r.Gateway.ScopeClaim != "scope" || len(r.Gateway.PolicyClaims) != 2 {
-						t.Fatalf("enterprise preset should set gateway claims: %+v", r.Gateway)
+					if r.Gateway.ScopeClaim != "scope" {
+						t.Fatalf("enterprise preset should set gateway scope_claim: %+v", r.Gateway)
 					}
-					if cfg.Flat["custom_roles"] != true {
+					claims, _ := cfg.Flat["policy_claims"].([]any)
+					if len(claims) != 2 {
+						t.Fatalf("enterprise preset should set policy_claims in plat5.yml: %v", cfg.Flat["policy_claims"])
+					}
+					if authz == authorizerNone && cfg.Flat["custom_roles"] != true {
 						t.Fatalf("enterprise preset should enable custom_roles")
 					}
 				}
@@ -112,8 +121,13 @@ func TestInitStarterWithTopaz(t *testing.T) {
 	if problems, err := cfg.Validate(); err != nil || len(problems) > 0 {
 		t.Fatalf("validate starter+topaz plat5.yml: %v %v", problems, err)
 	}
-	if _, ok := cfg.Flat["authorizers"].(map[string]any)["topaz"]; !ok {
-		t.Fatalf("starter+topaz missing authorizers.topaz")
+	if _, ok := cfg.Flat["authorizer"].(map[string]any)["url"]; !ok {
+		t.Fatalf("starter+topaz missing authorizer.url")
+	}
+	for _, forbidden := range []string{"roles", "creator_role", "custom_roles", "permissions"} {
+		if _, ok := cfg.Flat[forbidden]; ok {
+			t.Fatalf("starter+topaz plat5.yml must not set %s", forbidden)
+		}
 	}
 	if _, err := os.Stat(filepath.Join(dir, topazManifestFile)); err != nil {
 		t.Fatalf("starter+topaz missing manifest: %v", err)

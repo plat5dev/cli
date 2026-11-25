@@ -84,20 +84,12 @@ type Route struct {
 	Method   string `json:"method"`
 	Scope    string `json:"scope"`
 	Upstream string `json:"upstream"`
-	// RequiredPermissions is nil outside a kind scope.
-	RequiredPermissions *Required        `json:"required_permissions"`
-	RateLimit           []string         `json:"rate_limit"`
-	Audit               bool             `json:"audit"`
-	AllowDeleted        bool             `json:"allow_deleted"`
-	AllowPublic         bool             `json:"allow_public"`
-	Authorizer          *RouteAuthorizer `json:"authorizer,omitempty"`
-}
-
-type RouteAuthorizer struct {
-	Name     string              `json:"name"`
-	Mode     string              `json:"mode"`
-	Resource *AuthorizerResource `json:"resource,omitempty"`
-	Action   string              `json:"action,omitempty"`
+	// Permissions is nil outside a kind scope.
+	Permissions  *Required           `json:"permissions"`
+	RateLimit    []string            `json:"rate_limit"`
+	Audit        bool                `json:"audit"`
+	AllowDeleted bool                `json:"allow_deleted"`
+	Resource     *AuthorizerResource `json:"resource,omitempty"`
 }
 
 type AuthorizerResource struct {
@@ -105,16 +97,11 @@ type AuthorizerResource struct {
 	ID   string `json:"id"`
 }
 
-func (a RouteAuthorizer) String() string {
-	s := fmt.Sprintf("authz:%s(%s)", a.Name, a.Mode)
-	if a.Resource != nil {
-		s += fmt.Sprintf("[%s:%s]", a.Resource.Type, a.Resource.ID)
-	}
-	return s
+func (r AuthorizerResource) String() string {
+	return fmt.Sprintf("resource[%s:%s]", r.Type, r.ID)
 }
 
-// Required is required_permissions: a list, any one of which admits, or
-// any_member.
+// Required is permissions: a list, any one of which admits, or any_member.
 type Required struct {
 	AnyMember   bool
 	Permissions []string
@@ -124,7 +111,7 @@ func (r *Required) UnmarshalJSON(data []byte) error {
 	var s string
 	if json.Unmarshal(data, &s) == nil {
 		if s != "any_member" {
-			return fmt.Errorf("required_permissions: %q", s)
+			return fmt.Errorf("permissions: %q", s)
 		}
 		r.AnyMember = true
 		return nil

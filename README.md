@@ -38,7 +38,7 @@ brew install plat5dev/tap/plat5
 curl -fsSL https://plat5.com/install.sh | sh
 ```
 
-macOS and Linux, amd64 and arm64. On Windows, use WSL2. The script verifies the release's checksum and installs to `/usr/local/bin` (or `~/.local/bin`); `PLAT5_CLI_VERSION=v0.15.0` pins a release, `PLAT5_INSTALL_DIR` picks the directory. Or download a tarball from [GitHub Releases](https://github.com/plat5dev/cli/releases). `plat5 --version` prints `plat5 0.15.0` (no leading `v`); `plat5 version` adds the image versions the project pins.
+macOS and Linux, amd64 and arm64. On Windows, use WSL2. The script verifies the release's checksum and installs to `/usr/local/bin` (or `~/.local/bin`); `PLAT5_CLI_VERSION=v0.16.0` pins a release, `PLAT5_INSTALL_DIR` picks the directory. Or download a tarball from [GitHub Releases](https://github.com/plat5dev/cli/releases). `plat5 --version` prints `plat5 0.16.0` (no leading `v`); `plat5 version` adds the image versions the project pins.
 
 From source: `go install github.com/plat5dev/cli/cmd/plat5@latest`.
 
@@ -56,7 +56,7 @@ One compose project, `plat5-<project_id>`, with one Postgres (a database per pla
 | `operator` | Operator gateway ([operator](https://github.com/plat5dev/operator)) on `operator.routes.yml`, and operator-audit, the operator audit log | 5410 | a dev token from its IdP |
 | | Operator IdP: a second Plat5 Auth, in dev mode, never the customer IdP | 5411 | `operator@example.com` / `password` |
 | | Operator console (`operator.console`, in your app's compose file) | 5412 | `operator@example.com` / `password` |
-| `authorizer` *(opt-in)* | Topaz OpenID AuthZEN 1.0 PDP (`authorizers.topaz`, `http://topaz:8383`) and Directory v3 REST API | 5420, 5421 | none |
+| `authorizer` *(opt-in)* | Topaz OpenID AuthZEN 1.0 PDP (`authorizer:`, `http://topaz:8383`) and Directory v3 REST API | 5420, 5421 | none |
 | your app (`app.compose`) | whatever its compose file runs | its own | |
 
 `auth`, `observability`, and `operator` are on unless `plat5.local.yml` turns one off; `authorizer` is off unless turned on (`plat5 init --authorizer topaz`). `plat5 start -x observability` skips one for a run; `-x app` runs everything but your app, so you can run it on your machine.
@@ -101,7 +101,7 @@ Local Auth runs in dev mode: `POST /dev/token` mints a token for any email, and 
 
 | Command | |
 |---------|--|
-| `plat5 init [dir] [--template <starter>] [--preset <name>] [--authorizer <pdp>]` | Create a project. Asks for the starter, preset (with `--template none`), modules, and optional AuthZEN authorizer; `-y` takes the defaults (`--template none`, `--preset minimal`, default modules, `--authorizer none`). Presets: `minimal`, `saas`, `enterprise`, `public`. `--authorizer topaz` adds the local Topaz module, `topaz/manifest.yaml`, `authorizers.topaz`, and (with `--template none`) record-level example routes. `--no-auth`, `--no-observability`, `--no-operator` turn a module off. With a starter, `--no-customer-console` and `--no-operator-console` leave a console out. `--project-id <id>` sets the project id ([State](#state)); `--sources <dir>` runs checkouts ([contributors](#contributors-run-checkouts)) |
+| `plat5 init [dir] [--template <starter>] [--preset <name>] [--authorizer <pdp>]` | Create a project. Asks for the starter, preset (with `--template none`), modules, and optional AuthZEN authorizer; `-y` takes the defaults (`--template none`, `--preset minimal`, default modules, `--authorizer none`). Presets: `minimal`, `saas`, `enterprise`, `public`. `--authorizer topaz` adds the local Topaz module, `topaz/manifest.yaml`, top-level `authorizer:` (replacing built-in RBAC), and (with `--template none`) record-level example routes. `--no-auth`, `--no-observability`, `--no-operator` turn a module off. With a starter, `--no-customer-console` and `--no-operator-console` leave a console out. `--project-id <id>` sets the project id ([State](#state)); `--sources <dir>` runs checkouts ([contributors](#contributors-run-checkouts)) |
 | `plat5 start [-x module,…] [-v]` | Run the stack and your app, apply `plat5.yml`, seed the dev person, print the summary |
 | `plat5 status` | The summary again, and container health |
 | `plat5 stop` | Stop everything. Data (volumes) is kept |
@@ -115,7 +115,6 @@ Local Auth runs in dev mode: `POST /dev/token` mints a token for any email, and 
 | `plat5 routes generate [-f file …] [plat5.yml]` | Write identity's and audit's routes for every kind into `services/identity.yml` and `services/audit.yml`, overwriting them but keeping their `url`, `timeouts` and `max_body_bytes`. Offline. Run it after adding or removing a kind, or changing a kind's `path` or `list_permission`; review the diff, and delete again any route you had dropped |
 | `plat5 config pull [--revision n] [dir]` | Write an applied revision as `plat5.yml` and `services/<service>.yml` |
 | `plat5 authorizer sync [manifest.yaml]` | Upload `authorizer.manifest` (or a file argument) to Topaz's Directory v3 API without restarting the stack |
-| `plat5 authorizer invalidate [--all \| --authorizer … \| --subject … \| --resource-type … \| --resource-id …]` | Flush cached outbound authorizer decisions on the gateway (`POST /internal/authorizer-cache/invalidate`) |
 | `plat5 version` / `--version` | The CLI version, and the image versions `plat5.local.yml` pins |
 
 `validate`, `plan`, `apply`, `routes list`, `routes generate` and `config pull` work on a deployment's config: `plat5.yml` and the service files it lists. `validate` and `routes generate` are offline; the others talk to the local control plane (from `plat5.local.yml` when present, else `http://localhost:5402` and `dev-admin-token`) unless `--control-plane-url` / `--admin-token` (or `PLAT5_CONTROL_PLANE_URL` / `PLAT5_ADMIN_TOKEN`) point elsewhere.
@@ -134,16 +133,16 @@ Overlays merge left-to-right with RFC 7396 merge-patch semantics: maps merge rec
 
 How `plat5 start` runs the project on your machine. A deployment never reads it, and it holds nothing that's in `plat5.yml`. Found by walking up from the working directory; `plat5.yml` is the file beside it. Relative paths resolve against its directory. Unknown keys are errors, with a hint that a newer CLI may know them.
 
-`cli:` is the oldest CLI that reads the file. `plat5 init` writes the version that introduced the newest key it uses (`internal/config.SchemaVersion`), not its own version, and every command checks it first: an older CLI says the project needs a newer one and how to upgrade, instead of failing on a key. Raise `SchemaVersion` in a release that adds a key. A dev build, one built without a release version (`go build` from a checkout), passes every floor and says so in one line: `plat5: a dev build (no release version), so plat5.local.yml's cli: >=0.15.0 is not checked`.
+`cli:` is the oldest CLI that reads the file. `plat5 init` writes the version that introduced the newest key it uses (`internal/config.SchemaVersion`), not its own version, and every command checks it first: an older CLI says the project needs a newer one and how to upgrade, instead of failing on a key. Raise `SchemaVersion` in a release that adds a key. A dev build, one built without a release version (`go build` from a checkout), passes every floor and says so in one line: `plat5: a dev build (no release version), so plat5.local.yml's cli: >=0.16.0 is not checked`.
 
 ```yaml
 project_id: my-app                 # plat5 init --project-id, else the directory name; one folder per id, see State
-cli: ">=0.15.0"                    # the oldest plat5 CLI that reads this file
+cli: ">=0.16.0"                    # the oldest plat5 CLI that reads this file
 
 versions:                          # image tags; plat5 init writes the latest of each
-  plat5: v0.15.0
-  auth: v0.2.2                     # also the operator IdP's
-  operator: v0.5.0
+  plat5: v0.18.0
+  auth: v0.4.1                     # also the operator IdP's
+  operator: v0.8.0
 
 modules:                           # auth, observability, operator default true; authorizer defaults false
   auth: true
@@ -158,9 +157,7 @@ authorizer:                        # with modules.authorizer: true
 
 gateway:                           # optional local gateway overrides
   scope_claim: scope               # AUTH_SCOPE_CLAIM
-  policy_claims: [amr, idp_connection]  # AUTH_POLICY_CLAIMS
-  audit_mode: sync                 # sync or async
-  audit_enabled: true
+  audit_mode: sync                 # sync, async, or off
   rate_limit_enabled: true
   upstream_signing: false          # generates local Ed25519 key in project state
 
@@ -225,7 +222,6 @@ The template contract for an app's compose file: `plat5 start` runs it with `doc
 | `PLAT5_OPERATOR_CLIENT_ID` | The operator console's OAuth client id (`operator-console`) |
 | `PLAT5_AUTHORIZER_URL` | Local Topaz AuthZEN URL (`http://topaz:8383`) when `modules.authorizer` is on |
 | `PLAT5_TOPAZ_DIRECTORY_URL` | Local Topaz Directory v3 REST URL (`http://topaz:9393`) when `modules.authorizer` is on |
-| `PLAT5_GATEWAY_INTERNAL_URL` | Gateway `INTERNAL_PORT` (`http://gateway:8000`) when `modules.authorizer` is on |
 | `PLAT5_UPSTREAM_SIGNING_PUBLIC_KEY` | Base64url Ed25519 public key when `gateway.upstream_signing: true` |
 
 ## Starters

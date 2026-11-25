@@ -1,11 +1,9 @@
-// Package authorizer talks to a local Topaz Directory v3 API (to upload ReBAC
-// manifests) and to Plat5 gateway's internal authorizer cache invalidation
-// endpoint.
+// Package authorizer talks to a local Topaz Directory v3 API to upload ReBAC
+// manifests.
 package authorizer
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,7 +12,7 @@ import (
 	"time"
 )
 
-// Client talks to Topaz's Directory v3 REST API and/or Plat5 gateway's internal API.
+// Client talks to Topaz's Directory v3 REST API.
 type Client struct {
 	HTTP *http.Client
 }
@@ -75,47 +73,6 @@ func (c Client) SyncTopazManifestBytes(directoryURL string, data []byte) error {
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("topaz manifest upload (%s): %s: %s", u, resp.Status, strings.TrimSpace(string(body)))
-	}
-	return nil
-}
-
-// InvalidateRequest matches gateway POST /internal/authorizer-cache/invalidate.
-type InvalidateRequest struct {
-	All          bool   `json:"all,omitempty"`
-	Authorizer   string `json:"authorizer,omitempty"`
-	SubjectID    string `json:"subject_id,omitempty"`
-	ResourceType string `json:"resource_type,omitempty"`
-	ResourceID   string `json:"resource_id,omitempty"`
-}
-
-// Empty reports whether no invalidation filter was specified.
-func (r InvalidateRequest) Empty() bool {
-	return !r.All && r.Authorizer == "" && r.SubjectID == "" && r.ResourceType == "" && r.ResourceID == ""
-}
-
-// InvalidateGatewayCache posts an invalidation payload to gateway's INTERNAL_PORT.
-func (c Client) InvalidateGatewayCache(gatewayInternalURL string, payload InvalidateRequest) error {
-	if payload.Empty() {
-		return fmt.Errorf("set --all or at least one of --authorizer, --subject, --resource-type, --resource-id")
-	}
-	raw, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-	u := strings.TrimRight(gatewayInternalURL, "/") + "/internal/authorizer-cache/invalidate"
-	req, err := http.NewRequest(http.MethodPost, u, bytes.NewReader(raw))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := c.http().Do(req)
-	if err != nil {
-		return fmt.Errorf("invalidate gateway cache (%s): %w", u, err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("invalidate gateway cache (%s): %s: %s", u, resp.Status, strings.TrimSpace(string(body)))
 	}
 	return nil
 }
