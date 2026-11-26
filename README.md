@@ -140,7 +140,7 @@ project_id: my-app                 # plat5 init --project-id, else the directory
 cli: ">=0.16.0"                    # the oldest plat5 CLI that reads this file
 
 versions:                          # image tags; plat5 init writes the latest of each
-  plat5: v0.18.0
+  plat5: v0.18.1
   auth: v0.4.1                     # also the operator IdP's
   operator: v0.8.0
 
