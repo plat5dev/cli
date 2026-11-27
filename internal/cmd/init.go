@@ -37,7 +37,6 @@ var initFetch template.ResolveOptions
 var (
 	initTemplate          string
 	initPreset            string
-	initAuthorizer        string
 	initSourcesDir        string
 	initProjectID         string
 	initTemplateRef       string
@@ -60,11 +59,11 @@ var initCmd = &cobra.Command{
                        roles, the service files
   services/            identity's and audit's service files
   plat5.local.yml      how plat5 start runs it on your machine
-  operator.routes.yml  the operator gateway's route list
+  operator.routes.yml  the operator gateway's route list (when operator is on)
 
 With an API starter (--template go-fiber-api), instead:
 
-  plat5.yml            the starter's, with the customer console's origin
+  plat5.yml            the starter's config
   services/            the service files the starter's plat5.yml lists
   api/                 your API, from the starter
   customer-console/    a console for your customers (--no-customer-console: none)
@@ -74,21 +73,17 @@ With an API starter (--template go-fiber-api), instead:
 
 Each app is a starting point the project owns, not a dependency.
 
-  plat5 init my-app                           asks for a starter, preset, modules, and authorizer
+  plat5 init my-app                           asks for a starter, preset, and modules
   plat5 init my-app -y                        the defaults: Plat5 alone (minimal), default modules
   plat5 init my-app --preset enterprise -y    3-level hierarchy, custom roles, tiered rate limits
-  plat5 init my-app --preset saas --authorizer topaz -y
   plat5 init my-app --template go-fiber-api -y
+  plat5 init my-app --template go-topaz-api -y
 
 Presets (--preset, with --template none):
   minimal     one kind (organization), admin and member roles
   saas        organization -> project, default-deny projects, guest invites
   enterprise  organization -> project -> environment, custom roles, tiered rate limits, SSO claims
-  public      organization (subdomain host) -> project, public and tenant portal routes
-
-External authorizer (--authorizer, with any preset or starter):
-  none        built-in Plat5 RBAC only (default)
-  topaz       local Topaz AuthZEN 1.0 PDP (replaces built-in RBAC), topaz/manifest.yaml, and record-level example routes
+  public      organization (subdomain host) -> project
 
 Without a directory, the project is the current directory, and the project id
 is the directory's name; --project-id sets another, written to plat5.local.yml's
@@ -96,15 +91,16 @@ project_id. One folder per project id: init refuses an id another folder owns.
 An existing plat5.yml, service file or operator.routes.yml is kept with
 --template none; a starter refuses a project that has any of its files.
 
-A starter is a first-party name (go-fiber-api, node-fastify-api,
+A starter is a first-party name (go-fiber-api, go-topaz-api, node-fastify-api,
 bun-effect-api), owner/repo on GitHub, or a .tar.gz URL. Starters and the
 consoles are downloaded at --template-ref (default master); nothing is cached.
 
 Contributors: --sources .. runs every checkout in .. instead of its release:
 the modules ../plat5, ../auth and ../operator are built from their checkouts,
 and the first-party templates are copied from theirs (../template-go-fiber-api,
-../template-solid-customer-console, ../template-solid-operator-console). One without a
-checkout is its release, and init says so. init prints where each came from.`,
+../template-go-topaz-api, ../template-solid-customer-console,
+../template-solid-operator-console). One without a checkout is its release, and
+init says so. init prints where each came from.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runInit,
 }
@@ -113,7 +109,6 @@ func init() {
 	f := initCmd.Flags()
 	f.StringVar(&initTemplate, "template", noTemplate, "Starter: "+strings.Join(template.OfficialNames(), ", ")+", owner/repo, a .tar.gz URL, or none")
 	f.StringVar(&initPreset, "preset", presetMinimal, "Config preset with --template none: "+strings.Join(presetNames(), ", "))
-	f.StringVar(&initAuthorizer, "authorizer", authorizerNone, "Local AuthZEN 1.0 PDP module: "+strings.Join(authorizerNames(), ", "))
 	f.BoolVarP(&initYes, "yes", "y", false, "Don't ask; take the defaults (--template none, --preset minimal, default modules)")
 	f.BoolVar(&initForce, "force", false, "Overwrite an existing plat5.local.yml")
 	f.BoolVar(&initNoAuth, "no-auth", false, "Turn the auth module off (then set idp: in plat5.local.yml)")
@@ -132,7 +127,6 @@ type initChoices struct {
 	// starter is --template; empty for none.
 	starter           string
 	preset            string
-	authorizer        string
 	noCustomerConsole bool
 	noOperatorConsole bool
 	modules           map[string]bool
@@ -174,7 +168,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 		opts := initFetch
 		opts.LocalRoot = ch.sourcesDir
 		opts.Ref = firstNonEmpty(initTemplateRef, strings.TrimSpace(os.Getenv("PLAT5_TEMPLATE_REF")))
-		if lay, err = loadLayout(opts, ch.starter, !ch.noCustomerConsole, !ch.noOperatorConsole, ch.authorizer); err != nil {
+		if lay, err = loadLayout(opts, ch.starter, !ch.noCustomerConsole, !ch.noOperatorConsole, ch.modules[config.ModuleOperator]); err != nil {
 			return err
 		}
 		defer lay.close()
@@ -189,11 +183,13 @@ func runInit(cmd *cobra.Command, args []string) error {
 			return err
 		}
 	} else {
-		if err := writePresetFiles(ch.dir, ch.preset, ch.authorizer); err != nil {
+		if err := writePresetFiles(ch.dir, ch.preset); err != nil {
 			return err
 		}
-		if err := writeOperatorRoutes(ch.dir); err != nil {
-			return err
+		if ch.modules[config.ModuleOperator] {
+			if err := writeOperatorRoutes(ch.dir); err != nil {
+				return err
+			}
 		}
 	}
 	if err := os.WriteFile(devPath, []byte(renderDevYML(projectID, ch, versions, lay)), 0o644); err != nil {
@@ -323,22 +319,13 @@ func initChoose(cmd *cobra.Command, args []string) (initChoices, error) {
 	if !isValidPreset(preset) {
 		return initChoices{}, fmt.Errorf("--preset %q: unknown preset (want %s)", preset, strings.Join(presetNames(), ", "))
 	}
-	authorizer := strings.TrimSpace(initAuthorizer)
-	if authorizer == "" {
-		authorizer = authorizerNone
-	}
-	if !isValidAuthorizer(authorizer) {
-		return initChoices{}, fmt.Errorf("--authorizer %q: unknown authorizer (want %s)", authorizer, strings.Join(authorizerNames(), ", "))
-	}
 
 	ch := initChoices{
-		preset:     preset,
-		authorizer: authorizer,
+		preset: preset,
 		modules: map[string]bool{
 			config.ModuleAuth:          !initNoAuth,
 			config.ModuleObservability: !initNoObservability,
 			config.ModuleOperator:      !initNoOperator,
-			config.ModuleAuthorizer:    authorizer == authorizerTopaz,
 		},
 		noCustomerConsole: initNoCustomerConsole,
 		noOperatorConsole: initNoOperatorConsole,
@@ -416,13 +403,6 @@ func initChoose(cmd *cobra.Command, args []string) (initChoices, error) {
 				).
 				Value(&picked))
 		}
-		if !cmd.Flags().Changed("authorizer") {
-			var aOpts []huh.Option[string]
-			for _, o := range authorizerOptions {
-				aOpts = append(aOpts, huh.NewOption(fmt.Sprintf("%-10s %s", o.Name, o.Description), o.Name))
-			}
-			step2 = append(step2, huh.NewSelect[string]().Title("External authorizer (AuthZEN 1.0)").Options(aOpts...).Value(&authorizer))
-		}
 		if err := runForm(step2); err != nil {
 			return ch, err
 		}
@@ -432,8 +412,6 @@ func initChoose(cmd *cobra.Command, args []string) (initChoices, error) {
 			}
 		}
 		ch.preset = preset
-		ch.authorizer = authorizer
-		ch.modules[config.ModuleAuthorizer] = (authorizer == authorizerTopaz)
 	}
 
 	if starter != noTemplate && (preset != presetMinimal || cmd.Flags().Changed("preset")) {
@@ -544,21 +522,23 @@ func renderDevYML(projectID string, ch initChoices, versions map[string]string, 
 	p("modules:\n")
 	p("  %-20s # Plat5 Auth: sign-in for your users (dev mode)\n", fmt.Sprintf("auth: %t", ch.modules[config.ModuleAuth]))
 	p("  %-20s # Grafana with logs, traces, metrics\n", fmt.Sprintf("observability: %t", ch.modules[config.ModuleObservability]))
-	p("  %-20s # the operator gateway, its IdP and audit log, the operator console\n", fmt.Sprintf("operator: %t", ch.modules[config.ModuleOperator]))
-	if ch.modules[config.ModuleAuthorizer] {
-		p("  %-20s # Topaz: local OpenID AuthZEN 1.0 policy decision point\n", "authorizer: true")
-	}
-	p("\n")
+	p("  %-20s # the operator gateway, its IdP and audit log\n\n", fmt.Sprintf("operator: %t", ch.modules[config.ModuleOperator]))
 
-	if ch.modules[config.ModuleAuthorizer] {
-		p("# The authorizer module: Topaz AuthZEN 1.0 PDP on Plat5's network (http://topaz:9393).\n")
-		p("# plat5 start pushes manifest: automatically; run `plat5 authorizer sync` after edits.\n")
-		p("authorizer:\n")
-		p("  provider: %s\n", config.AuthorizerProviderTopaz)
-		p("  manifest: ./%s\n\n", topazManifestFile)
-		p("# Topaz manifest permissions forbid \":\"; use \"_\" when regenerating identity/audit routes.\n")
-		p("routes:\n")
-		p("  permission_separator: \"_\"\n\n")
+	if lay != nil {
+		r := lay.starter.Manifest.Routes
+		if r.PermissionSeparator != "" || len(r.Exclude) > 0 {
+			p("# plat5 routes generate options from the starter.\nroutes:\n")
+			if r.PermissionSeparator != "" {
+				p("  permission_separator: %s\n", yamlString(r.PermissionSeparator))
+			}
+			if len(r.Exclude) > 0 {
+				p("  exclude:\n")
+				for _, ex := range r.Exclude {
+					p("    - %s\n", yamlString(ex))
+				}
+			}
+			p("\n")
+		}
 	}
 
 	if ch.preset == presetEnterprise {
@@ -567,19 +547,21 @@ func renderDevYML(projectID string, ch initChoices, versions map[string]string, 
 		p("  scope_claim: scope\n\n")
 	}
 
-	if lay != nil && lay.operatorConsole != nil {
-		p("# The operator module: the operator gateway on operator.routes.yml, its IdP and\n")
-		p("# audit log, and operator-console/, which docker-compose.yml includes and plat5\n")
-		p("# start runs only with the module.\n")
-		p("operator:\n  routes: ./%s\n", operatorRoutesFile)
-		p("  console:\n    compose: ./%s\n", lay.operatorConsoleCompose())
-		p("    web: %s  # may sign in with the operator IdP and call the operator gateway\n", yamlString(lay.operatorWeb()))
-		p("  # origins: []          # more origins the operator side allows, each with <origin>/callback\n\n")
-	} else {
-		p("# The operator module: the operator gateway on operator.routes.yml, its IdP and\n")
-		p("# audit log.\n")
-		p("operator:\n  routes: ./%s\n", operatorRoutesFile)
-		p("  # origins: []          # browser origins the operator side allows, each with <origin>/callback\n\n")
+	if ch.modules[config.ModuleOperator] {
+		if lay != nil && lay.operatorConsole != nil {
+			p("# The operator module: the operator gateway on operator.routes.yml, its IdP and\n")
+			p("# audit log, and operator-console/, which docker-compose.yml includes and plat5\n")
+			p("# start runs only with the module.\n")
+			p("operator:\n  routes: ./%s\n", operatorRoutesFile)
+			p("  console:\n    compose: ./%s\n", lay.operatorConsoleCompose())
+			p("    web: %s  # may sign in with the operator IdP and call the operator gateway\n", yamlString(lay.operatorWeb()))
+			p("  # origins: []          # more origins the operator side allows, each with <origin>/callback\n\n")
+		} else {
+			p("# The operator module: the operator gateway on operator.routes.yml, its IdP and\n")
+			p("# audit log.\n")
+			p("operator:\n  routes: ./%s\n", operatorRoutesFile)
+			p("  # origins: []          # browser origins the operator side allows, each with <origin>/callback\n\n")
+		}
 	}
 
 	if lay != nil {
@@ -592,7 +574,7 @@ func renderDevYML(projectID string, ch initChoices, versions map[string]string, 
 		p("# names its compose service.\n")
 		p("app:\n  compose: ./%s\n", projectCompose)
 		if web := lay.web(); web != "" {
-			p("  web: %s  # customer-console/: may sign in with local Auth\n", yamlString(web))
+			p("  web: %s  # customer-console/: allowed by local Auth and gateway CORS\n", yamlString(web))
 		}
 	} else {
 		p("# Your app. Set compose: and plat5 start runs it after Plat5 (-x app to run it\n")
@@ -604,7 +586,7 @@ func renderDevYML(projectID string, ch initChoices, versions map[string]string, 
 # --- Optional ---
 # ports:                 # host ports (defaults: gateway 5400, auth 5401, control_plane 5402,
 #   gateway: 5400        #   grafana 5403, otlp_grpc 4317, otlp_http 4318, operator 5410,
-#                        #   operator_auth 5411, topaz 5420, topaz_directory 5421)
+#                        #   operator_auth 5411)
 # admin_token: dev-admin-token
 # secret_brand: plat5    # API keys {brand}-k-2-…, invite tokens {brand}-i-1-…
 # gateway:               # optional local gateway overrides
@@ -612,11 +594,11 @@ func renderDevYML(projectID string, ch initChoices, versions map[string]string, 
 #   audit_mode: sync     # sync (default), async, or off
 #   rate_limit_enabled: true
 #   upstream_signing: false
-# authorizer:            # with modules.authorizer: true (Topaz AuthZEN 1.0 PDP)
-#   provider: topaz
-#   manifest: ./topaz/manifest.yaml
+#   cors_allowed_origins: [http://localhost:5173]   # defaults to app.web + auth.origins
+#   cors_allowed_headers: [idempotency-key]
 # routes:                # plat5 routes generate options
 #   permission_separator: ":"   # ":", "_", ".", or "-"
+#   exclude: ["POST /orgs"]     # permanently omit generated routes
 # auth:                  # local Auth, beyond app.web
 #   clients: [plat5]
 #   origins: []

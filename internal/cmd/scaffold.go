@@ -41,20 +41,18 @@ type layout struct {
 	customerConsole *template.Template
 	// operatorConsole is nil with --no-operator-console.
 	operatorConsole *template.Template
-	// config is the starter's plat5.yml, with the customer console's origin.
+	// config is the starter's plat5.yml.
 	config []byte
 	// serviceFiles is the service files it lists, by path from the project.
 	serviceFiles []projectFile
-	// operatorRoutes is operator.routes.yml.
+	// operatorRoutes is operator.routes.yml (nil when the operator module is off).
 	operatorRoutes []byte
-	// authorizer is the opt-in local AuthZEN PDP ("topaz"), empty for none.
-	authorizer string
 }
 
 // loadLayout fetches the starter and the consoles, and reads what init writes
 // from them, before anything is written.
-func loadLayout(opts template.ResolveOptions, starter string, customerConsole, operatorConsole bool, authorizer string) (_ *layout, err error) {
-	l := &layout{authorizer: authorizer}
+func loadLayout(opts template.ResolveOptions, starter string, customerConsole, operatorConsole, withOperator bool) (_ *layout, err error) {
+	l := &layout{}
 	defer func() {
 		if err != nil {
 			l.close()
@@ -74,7 +72,7 @@ func loadLayout(opts template.ResolveOptions, starter string, customerConsole, o
 			return nil, err
 		}
 	}
-	if operatorConsole {
+	if operatorConsole && withOperator {
 		if l.operatorConsole, err = template.ResolveOperatorConsole(opts); err != nil {
 			return nil, err
 		}
@@ -86,14 +84,16 @@ func loadLayout(opts template.ResolveOptions, starter string, customerConsole, o
 	if err := l.readConfig(); err != nil {
 		return nil, err
 	}
-	var starterRoutes []byte
-	if m.OperatorRoutes != "" {
-		if starterRoutes, err = l.starter.ReadFile(m.OperatorRoutes); err != nil {
+	if withOperator {
+		var starterRoutes []byte
+		if m.OperatorRoutes != "" {
+			if starterRoutes, err = l.starter.ReadFile(m.OperatorRoutes); err != nil {
+				return nil, err
+			}
+		}
+		if l.operatorRoutes, err = operatorRoutes(operatorShippedRoutes, m.Name, starterRoutes); err != nil {
 			return nil, err
 		}
-	}
-	if l.operatorRoutes, err = operatorRoutes(operatorShippedRoutes, m.Name, starterRoutes); err != nil {
-		return nil, err
 	}
 	return l, nil
 }
@@ -111,9 +111,7 @@ type projectFile struct {
 	data []byte
 }
 
-// readConfig reads the starter's plat5.yml and the service files it lists. The
-// starter owns them: init adds the customer console's origin under cors, so a
-// plat5.yml that sets cors itself is refused.
+// readConfig reads the starter's plat5.yml and the service files it lists.
 func (l *layout) readConfig() error {
 	m := l.starter.Manifest
 	base, err := l.starter.ReadFile(m.Config)
@@ -123,9 +121,6 @@ func (l *layout) readConfig() error {
 	var top map[string]any
 	if err := yaml.Unmarshal(base, &top); err != nil {
 		return fmt.Errorf("the starter's %s: %w", m.Config, err)
-	}
-	if _, ok := top["cors"]; ok {
-		return fmt.Errorf("the starter's %s sets cors: init adds the customer console's origin itself", m.Config)
 	}
 	files, err := plat5yml.ServiceFiles(top, "the starter's "+m.Config)
 	if err != nil {
@@ -143,20 +138,7 @@ func (l *layout) readConfig() error {
 		}
 		l.serviceFiles = append(l.serviceFiles, projectFile{filepath.ToSlash(rel), data})
 	}
-	l.config, err = l.withCORS(base)
-	if err != nil {
-		return err
-	}
-	if l.authorizer == authorizerTopaz {
-		l.config, err = injectTopazAuthorizer(l.config)
-		if err != nil {
-			return fmt.Errorf("the starter's %s: %w", m.Config, err)
-		}
-		l.config = rewriteListPermissionSeparator(l.config, config.DefaultPermissionSeparator, "_")
-		for i := range l.serviceFiles {
-			l.serviceFiles[i].data = rewriteServicePermissionsSeparator(l.serviceFiles[i].data, config.DefaultPermissionSeparator, "_")
-		}
-	}
+	l.config = base
 	return nil
 }
 
@@ -173,10 +155,11 @@ func (l *layout) targets() []string {
 	if l.operatorConsole != nil {
 		out = append(out, operatorConsoleDir)
 	}
-	if l.authorizer == authorizerTopaz {
-		out = append(out, topazManifestFile)
+	out = append(out, projectCompose)
+	if len(l.operatorRoutes) > 0 {
+		out = append(out, operatorRoutesFile)
 	}
-	return append(out, projectCompose, operatorRoutesFile, projectReadmeFile)
+	return append(out, projectReadmeFile)
 }
 
 // web is the customer console's origin, or empty without one.
@@ -245,11 +228,8 @@ func (l *layout) write(dir, projectID string) error {
 	if err := writeFile(dir, projectCompose, []byte(l.compose())); err != nil {
 		return err
 	}
-	if err := writeFile(dir, operatorRoutesFile, l.operatorRoutes); err != nil {
-		return err
-	}
-	if l.authorizer == authorizerTopaz {
-		if err := writeFile(dir, topazManifestFile, []byte(topazStarterManifest)); err != nil {
+	if len(l.operatorRoutes) > 0 {
+		if err := writeFile(dir, operatorRoutesFile, l.operatorRoutes); err != nil {
 			return err
 		}
 	}
@@ -270,28 +250,6 @@ func writeFile(dir, rel string, data []byte) error {
 	}
 	fmt.Println("  wrote", rel)
 	return nil
-}
-
-// withCORS is the starter's plat5.yml with the customer console's origin
-// allowed at the gateway, before its services list. Without the console, it's
-// the starter's as it is.
-func (l *layout) withCORS(base []byte) ([]byte, error) {
-	web := l.web()
-	if web == "" {
-		return base, nil
-	}
-	head, list, ok := bytes.Cut(append([]byte("\n"), base...), []byte("\nservices:"))
-	if !ok {
-		return nil, fmt.Errorf("the starter's %s has no services: list", l.starter.Manifest.Config)
-	}
-	var b bytes.Buffer
-	b.Write(head[1:])
-	b.WriteString("\n# The browser origins the gateway allows (https://github.com/plat5dev/plat5/blob/master/docs/reference/config/cors.md):\n")
-	b.WriteString("# customer-console/'s, added by plat5 init.\n")
-	fmt.Fprintf(&b, "cors:\n  allowed_origins: [%q]\n", web)
-	b.WriteString("services:")
-	b.Write(list)
-	return b.Bytes(), nil
 }
 
 // compose is the project's docker-compose.yml: it includes each app's own.

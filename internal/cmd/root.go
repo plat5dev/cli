@@ -32,8 +32,7 @@ A deployment's config is plat5.yml and the service files it lists:
   plat5 apply            plan, confirm, apply
   plat5 routes list           every service's routes, as the gateway matches them
   plat5 routes generate       write identity's and audit's routes for the kinds
-  plat5 config pull           an applied revision, as files
-  plat5 authorizer sync       upload Topaz's ReBAC manifest without restarting`,
+  plat5 config pull           an applied revision, as files`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
 }
@@ -58,7 +57,7 @@ func init() {
 	rootCmd.Version = cliVersion()
 	config.CLIVersion = cliVersion()
 	rootCmd.SetVersionTemplate("plat5 {{.Version}}\n")
-	rootCmd.AddCommand(initCmd, startCmd, stopCmd, resetCmd, statusCmd, logsCmd, doctorCmd, validateCmd, planCmd, applyCmd, routesCmd, configCmd, authorizerCmd, versionCmd)
+	rootCmd.AddCommand(initCmd, startCmd, stopCmd, resetCmd, statusCmd, logsCmd, doctorCmd, validateCmd, planCmd, applyCmd, routesCmd, configCmd, versionCmd)
 }
 
 func loadConfig() (config.Resolved, error) {

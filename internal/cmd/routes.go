@@ -46,8 +46,9 @@ written afresh. Offline.
 Pass -f multiple times to merge environment overlays (-f plat5.yml -f plat5.prod.yml).
 
 Regenerate after adding or removing a kind, or changing a kind's path or
-list_permission. Then review the diff (git diff) and delete again any route
-you had dropped. plat5.yml isn't changed: the files publish their routes once
+list_permission. Routes already claimed by another service file listed in
+plat5.yml, or listed under routes.exclude in plat5.local.yml, are skipped
+automatically. plat5.yml isn't changed: the files publish their routes once
 its services list names them.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runRoutesGenerate,
@@ -60,30 +61,38 @@ func init() {
 	routesCmd.AddCommand(routesListCmd, routesGenerateCmd)
 }
 
-func resolvePermissionSeparator(configPath string) (string, error) {
-	if s := strings.TrimSpace(flagPermissionSeparator); s != "" {
-		if err := config.ValidatePermissionSeparator(s); err != nil {
-			return "", err
-		}
-		return s, nil
-	}
+func resolveRouteOptions(configPath string) (routegen.Options, error) {
+	opts := routegen.Options{PermissionSeparator: config.DefaultPermissionSeparator}
 	localPath := filepath.Join(filepath.Dir(configPath), config.FileName)
 	data, err := os.ReadFile(localPath)
 	if err == nil {
 		f, err := config.Parse(data)
 		if err != nil {
-			return "", fmt.Errorf("%s: %w", config.FileName, err)
+			return opts, fmt.Errorf("%s: %w", config.FileName, err)
 		}
 		if s := strings.TrimSpace(f.Routes.PermissionSeparator); s != "" {
 			if err := config.ValidatePermissionSeparator(s); err != nil {
-				return "", fmt.Errorf("%s: %w", config.FileName, err)
+				return opts, fmt.Errorf("%s: %w", config.FileName, err)
 			}
-			return s, nil
+			opts.PermissionSeparator = s
+		}
+		for _, raw := range f.Routes.Exclude {
+			norm, err := config.ValidateRouteExclude(raw)
+			if err != nil {
+				return opts, fmt.Errorf("%s: %w", config.FileName, err)
+			}
+			opts.Exclude = append(opts.Exclude, norm)
 		}
 	} else if !os.IsNotExist(err) {
-		return "", err
+		return opts, err
 	}
-	return config.DefaultPermissionSeparator, nil
+	if s := strings.TrimSpace(flagPermissionSeparator); s != "" {
+		if err := config.ValidatePermissionSeparator(s); err != nil {
+			return opts, err
+		}
+		opts.PermissionSeparator = s
+	}
+	return opts, nil
 }
 
 func runRoutesGenerate(cmd *cobra.Command, args []string) error {
@@ -91,18 +100,18 @@ func runRoutesGenerate(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	sep, err := resolvePermissionSeparator(paths[0])
+	opts, err := resolveRouteOptions(paths[0])
 	if err != nil {
 		return err
 	}
-	written, err := routegen.WriteFiles(routegen.Options{PermissionSeparator: sep}, paths...)
+	written, err := routegen.WriteFiles(opts, paths...)
 	if err != nil {
 		return err
 	}
 	for _, rel := range written {
 		fmt.Println("  wrote", filepath.ToSlash(rel))
 	}
-	fmt.Println("Review the diff, and delete again any route you had dropped.")
+	fmt.Println("Review the diff with git diff.")
 	return nil
 }
 

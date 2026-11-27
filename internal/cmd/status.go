@@ -93,14 +93,6 @@ func printSummary(stk *stack.Stack, st state.State) {
 		w.row("Operator gateway", c.URL(ports.Operator), "routes: "+relPath(c.Dir, c.OperatorRoutes))
 		w.row("Operator IdP", c.URL(ports.OperatorAuth), "")
 	}
-	if stk.Has(config.ModuleAuthorizer) {
-		note := ""
-		if c.Authorizer.Manifest != "" {
-			note = "manifest: " + relPath(c.Dir, c.Authorizer.Manifest)
-		}
-		w.row("Topaz (AuthZEN)", c.URL(ports.Topaz), note)
-		w.row("Topaz directory", c.URL(ports.TopazDirectory), "sync: plat5 authorizer sync")
-	}
 	if stk.Has(config.ModuleObservability) {
 		w.row("Grafana", c.URL(ports.Grafana), "Plat5 folder: Service Health, Auth, Debug")
 	}

@@ -117,7 +117,7 @@ func TestCheck(t *testing.T) {
 		"operator, no web":     {"kind: operator-console\napp: {compose: c.yml}\n", KindOperatorConsole, "needs app.web"},
 		"operator as customer": {"kind: operator-console\napp: {compose: c.yml, web: \"http://x\"}\n", KindCustomerConsole, `kind is "operator-console", want customer-console`},
 		"outside":              {"kind: api\nconfig: ../plat5.yml\napp: {compose: c.yml}\n", KindAPI, "not a path inside"},
-		"unknown key":          {"kind: api\nroutes: [./routes.yml]\n", KindAPI, "field routes not found"},
+		"unknown key":          {"kind: api\nunknown_field: [./routes.yml]\n", KindAPI, "field unknown_field not found"},
 	} {
 		dir := t.TempDir()
 		writeFiles(t, dir, map[string]string{ManifestName: tc.manifest})

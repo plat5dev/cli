@@ -157,9 +157,10 @@ func TestNodeOrdersKeysAndInlinesScalarLists(t *testing.T) {
 }
 
 func TestLoadManyDeepMergeAndProvenance(t *testing.T) {
-	base := plat5 + "cors:\n  allowed_origins: [\"http://localhost:3001\"]\n  allowed_headers: [\"x-trace\"]\n"
-	prod := `cors:
-  allowed_origins: ["https://app.example.com"]
+	base := plat5 + "reserved_slugs: [new, settings]\n"
+	prod := `reserved_slugs: [admin]
+rate_limits:
+  standard: { requests: 120 }
 services:
   e10s:
     url: http://e10s.prod.internal:3000
@@ -187,12 +188,12 @@ services:
 		t.Fatalf("%v %v", problems, err)
 	}
 	// List replaced, sibling key preserved.
-	cors := c.Flat["cors"].(map[string]any)
-	if !reflect.DeepEqual(cors["allowed_origins"], []any{"https://app.example.com"}) {
-		t.Errorf("allowed_origins: %v", cors["allowed_origins"])
+	if !reflect.DeepEqual(c.Flat["reserved_slugs"], []any{"admin"}) {
+		t.Errorf("reserved_slugs: %v", c.Flat["reserved_slugs"])
 	}
-	if !reflect.DeepEqual(cors["allowed_headers"], []any{"x-trace"}) {
-		t.Errorf("allowed_headers lost: %v", cors["allowed_headers"])
+	rl := c.Flat["rate_limits"].(map[string]any)["standard"].(map[string]any)
+	if rl["requests"] != 120 || rl["window"] != "60s" {
+		t.Errorf("rate_limits.standard: %v", rl)
 	}
 	// Service url overridden by last overlay, scopes kept from service file.
 	e10sSvc := c.Flat["services"].(map[string]any)["e10s"].(map[string]any)
@@ -205,9 +206,10 @@ services:
 	// Provenance tracks exact winning file per path.
 	for path, want := range map[string]string{
 		"creator_role":                                 "plat5.yml",
-		"cors.allowed_headers":                         "plat5.yml",
-		"cors.allowed_origins":                         "plat5.prod.yml",
-		"cors.allowed_origins[0]":                      "plat5.prod.yml",
+		"rate_limits.standard.window":                  "plat5.yml",
+		"rate_limits.standard.requests":                "plat5.prod.yml",
+		"reserved_slugs":                               "plat5.prod.yml",
+		"reserved_slugs[0]":                            "plat5.prod.yml",
 		"services.e10s.url":                            "env/eu.yml",
 		"services.e10s.scopes.organization.routes[0]":  "services/e10s.yml",
 		"services.api.billing.url":                     "services/api.billing.yml",
@@ -220,8 +222,8 @@ services:
 }
 
 func TestLoadManyNullDeletion(t *testing.T) {
-	base := plat5 + "cors:\n  allowed_origins: [\"http://localhost:3001\"]\n"
-	ov := `cors: null
+	base := plat5 + "reserved_slugs: [new]\n"
+	ov := `reserved_slugs: null
 services:
   api.billing: null
 `
@@ -235,8 +237,8 @@ services:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := c.Flat["cors"]; ok {
-		t.Errorf("cors should be deleted: %v", c.Flat["cors"])
+	if _, ok := c.Flat["reserved_slugs"]; ok {
+		t.Errorf("reserved_slugs should be deleted: %v", c.Flat["reserved_slugs"])
 	}
 	services := c.Flat["services"].(map[string]any)
 	if _, ok := services["api.billing"]; ok {
@@ -313,8 +315,7 @@ func TestLoadManyOverlayServiceList(t *testing.T) {
 
 func TestLoadManySchemaErrorAttribution(t *testing.T) {
 	badE10s := strings.Replace(e10s, "upstream_prefix: /orgs/{organization.id}", "upstream_prefix: 7", 1)
-	badOverlay := `cors:
-  allowed_origins: ["not-an-origin"]
+	badOverlay := `deletion_grace: 1w
 services:
   api.billing:
     url: 123
@@ -337,7 +338,7 @@ services:
 	for _, want := range []string{
 		"plat5.yml: creator_role:",
 		"services/e10s.yml: services.e10s.scopes.organization.upstream_prefix:",
-		"plat5.prod.yml: cors.allowed_origins[0]:",
+		"plat5.prod.yml: deletion_grace:",
 		"plat5.prod.yml: services.api.billing.url:",
 	} {
 		if !strings.Contains(joined, want) {

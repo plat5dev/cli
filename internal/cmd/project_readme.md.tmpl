@@ -28,8 +28,8 @@ The operator console is at {{.Operator}}: sign in as `{{.OpEmail}}` / `{{.Passwo
 {{- if .Operator}}
 | `operator-console/` | Your operators' console: Vite + Solid, calling the operator gateway. `operator-console/README.md` says how it's laid out |
 {{- end}}
-| `plat5.yml` | The deployment's config, from the starter: settings, the kinds, the roles, rate limits{{if .Web}}, the console's origin under `cors`{{end}}, and the service files. `plat5 start` applies it; `plat5 apply` applies it to any deployment |
-| `services/` | The service files `plat5.yml` lists: your API's, with its url and its routes by scope, and identity's and audit's, from `plat5 routes generate`. After changing the kinds, run `plat5 routes generate`, review the diff, and delete again any route you had dropped |
+| `plat5.yml` | The deployment's config, from the starter: settings, the kinds, the roles or authorizer, rate limits, and the service files. `plat5 start` applies it; `plat5 apply` applies it to any deployment |
+| `services/` | The service files `plat5.yml` lists: your API's, with its url and its routes by scope, and identity's and audit's, from `plat5 routes generate`. After changing the kinds, run `plat5 routes generate` and review the diff |
 | `plat5.local.yml` | How `plat5 start` runs the project on your machine: image versions, modules, your apps |
 | `docker-compose.yml` | Runs your apps: it includes each folder's own compose file |
 | `operator.routes.yml` | The operator gateway's route list: what operators may call, with your API's paths from the starter. `plat5 start`'s operator gateway mounts it |
@@ -54,7 +54,7 @@ List your API's own paths, by node id, under your API's service in `operator.rou
 
 ### Remove what you don't need
 
-- **An app**: delete its folder and its line in `docker-compose.yml`.{{if .Web}} Without `customer-console/`, also remove `app.web` from `plat5.local.yml` and its origin from `cors` in `plat5.yml`.{{end}}{{if .Operator}} Without `operator-console/`, also remove `operator.console` from `plat5.local.yml`.{{end}}
+- **An app**: delete its folder and its line in `docker-compose.yml`.{{if .Web}} Without `customer-console/`, also remove `app.web` from `plat5.local.yml`.{{end}}{{if .Operator}} Without `operator-console/`, also remove `operator.console` from `plat5.local.yml`.{{end}}
 - **A module** (sign-in, Grafana, the operator plane): turn it off under `modules:` in `plat5.local.yml`.{{if .Operator}} Without the operator module, `plat5 start` doesn't run `operator-console/`.{{end}}
 - **Run your apps yourself**, with your own tools: `plat5 start -x app` runs Plat5 alone{{if .Next}}, then, in `api/`:{{else}}.{{end}}
 {{- if .Next}}

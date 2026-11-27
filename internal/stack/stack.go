@@ -149,32 +149,7 @@ func (s *Stack) Ports() map[ports.Name]int {
 	if s.Has(config.ModuleOperator) {
 		add(ports.Operator, ports.OperatorAuth)
 	}
-	if s.Has(config.ModuleAuthorizer) {
-		add(ports.Topaz, ports.TopazDirectory)
-	}
 	return want
-}
-
-// CheckAuthorizer validates the authorizer module's manifest file if set.
-func (s *Stack) CheckAuthorizer() error {
-	if !s.Has(config.ModuleAuthorizer) {
-		return nil
-	}
-	if s.Config.Authorizer.Manifest == "" {
-		return nil
-	}
-	if err := config.CheckFile("authorizer.manifest", s.Config.Authorizer.Manifest); err != nil {
-		return err
-	}
-	data, err := os.ReadFile(s.Config.Authorizer.Manifest)
-	if err != nil {
-		return fmt.Errorf("authorizer.manifest: %w", err)
-	}
-	var doc map[string]any
-	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return fmt.Errorf("authorizer.manifest (%s): %w", s.Config.Authorizer.Manifest, err)
-	}
-	return nil
 }
 
 // CheckOperator says whether the project has what the operator module runs: the
@@ -313,6 +288,9 @@ func (s *Stack) Env() []string {
 		"OPERATOR_ORIGINS":           strings.Join(c.OperatorOrigins(), ","),
 		"OPERATOR_REDIRECT_URIS":     strings.Join(c.OperatorRedirectURIs(), ","),
 		"OPERATOR_DEV_USERS":         config.OperatorEmail + ":" + config.DevPassword,
+
+		"CORS_ALLOWED_ORIGINS": strings.Join(c.GatewayCORSOrigins(), ","),
+		"CORS_ALLOWED_HEADERS": strings.Join(c.GatewayCORSHeaders(), ","),
 	}
 	env["AUTH_REDIRECT_URIS"] = strings.Join(c.AuthRedirectURIs(), ",")
 
@@ -347,7 +325,6 @@ func (s *Stack) Env() []string {
 	for _, n := range ports.Names() {
 		env[strings.ToUpper(string(n))+"_PORT"] = fmt.Sprint(c.Ports[n])
 	}
-	env["TOPAZ_IMAGE"] = c.Authorizer.Image
 	return sortedEnv(env)
 }
 
@@ -373,10 +350,6 @@ func (s *Stack) AppEnv() []string {
 		env["PLAT5_AUTH_URL"] = c.URL(ports.Auth)
 	} else {
 		env["PLAT5_AUTH_URL"] = c.IdP.Issuer
-	}
-	if s.Has(config.ModuleAuthorizer) {
-		env["PLAT5_AUTHORIZER_URL"] = "http://topaz:8383"
-		env["PLAT5_TOPAZ_DIRECTORY_URL"] = "http://topaz:9393"
 	}
 	if c.Gateway.UpstreamSigning {
 		if _, pub, err := s.ensureSigningKey(); err == nil {

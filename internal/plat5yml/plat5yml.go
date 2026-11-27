@@ -385,7 +385,7 @@ func Write(dir string, flat map[string]any) ([]string, error) {
 var keyOrder = []string{
 	"url", "timeouts", "max_body_bytes",
 	"deletion_grace", "reserved_slugs", "policy_claims", "kinds", "roles", "creator_role", "custom_roles", "authorizer",
-	"defaults", "rate_limits", "cors", "services",
+	"defaults", "rate_limits", "services",
 	"parent", "path", "list_permission", "bind_creator", "host", "includes", "permissions", "bindable_at",
 	"timeout", "cache_ttl", "negative_cache_ttl", "token_env",
 	"connect", "read", "requests", "window", "count_at", "tiers", "allowed_origins", "allowed_headers",

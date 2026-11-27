@@ -3,6 +3,7 @@ package template
 // Official is the first-party API starters, in the order plat5 init offers them.
 var Official = []OfficialTemplate{
 	{Name: "go-fiber-api", Description: "Go + Fiber reference API"},
+	{Name: "go-topaz-api", Description: "Go + Fiber API with Topaz AuthZEN 1.0 ReBAC"},
 	{Name: "node-fastify-api", Description: "Node + Fastify + TypeBox reference API"},
 	{Name: "bun-effect-api", Description: "Bun + Effect reference API"},
 }

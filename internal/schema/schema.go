@@ -129,7 +129,6 @@ var patternHints = map[string]string{
 	"settings.json#/properties/policy_claims/items":           "must be dot-separated claim path segments of [A-Za-z0-9_-] (max 64 chars)",
 	"settings.json#/$defs/duration":                           "must be a positive duration like 10s, 5m, 24h, or 30d",
 	"settings.json#/$defs/slug":                               "must be a lowercase slug (letters, digits, hyphens)",
-	"cors.json#/$defs/origin":                                 "must be http://host[:port] or https://host[:port] (lowercase, no path or trailing /)",
 }
 
 func formatError(e *jsonschema.ValidationError, p *message.Printer) string {

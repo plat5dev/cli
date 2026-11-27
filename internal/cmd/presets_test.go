@@ -8,16 +8,15 @@ import (
 
 	"github.com/plat5dev/cli/internal/config"
 	"github.com/plat5dev/cli/internal/plat5yml"
-	"gopkg.in/yaml.v3"
 )
 
-func runInitPresetFlags(t *testing.T, preset, authorizer, starter, sources, dir string) (string, error) {
+func runInitPresetFlags(t *testing.T, preset, starter, sources, dir string) (string, error) {
 	t.Helper()
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	initTemplate, initPreset, initAuthorizer, initSourcesDir, initYes = starter, preset, authorizer, sources, true
+	initTemplate, initPreset, initSourcesDir, initYes = starter, preset, sources, true
 	initVersions = []string{"plat5=v0.9.0", "auth=v0.2.2", "operator=v0.5.0"}
 	defer func() {
-		initTemplate, initPreset, initAuthorizer, initSourcesDir, initYes = noTemplate, presetMinimal, authorizerNone, "", false
+		initTemplate, initPreset, initSourcesDir, initYes = noTemplate, presetMinimal, "", false
 		initVersions = nil
 	}()
 	var err error
@@ -25,144 +24,80 @@ func runInitPresetFlags(t *testing.T, preset, authorizer, starter, sources, dir 
 	return out, err
 }
 
-func TestAllPresetsAndTopazValidate(t *testing.T) {
+func TestAllPresetsValidate(t *testing.T) {
 	for _, preset := range presetNames() {
-		for _, authz := range authorizerNames() {
-			name := preset + "_" + authz
-			t.Run(name, func(t *testing.T) {
-				dir := filepath.Join(t.TempDir(), "proj")
-				if _, err := runInitPresetFlags(t, preset, authz, noTemplate, "", dir); err != nil {
-					t.Fatalf("init %s: %v", name, err)
-				}
+		t.Run(preset, func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), "proj")
+			if _, err := runInitPresetFlags(t, preset, noTemplate, "", dir); err != nil {
+				t.Fatalf("init %s: %v", preset, err)
+			}
 
-				// plat5.yml + all service files pass schema validation.
-				cfg, err := plat5yml.Load(filepath.Join(dir, "plat5.yml"))
-				if err != nil {
-					t.Fatalf("load plat5.yml: %v", err)
-				}
-				problems, err := cfg.Validate()
-				if err != nil || len(problems) > 0 {
-					t.Fatalf("validate plat5.yml: %v %v", problems, err)
-				}
+			// plat5.yml + all service files pass schema validation.
+			cfg, err := plat5yml.Load(filepath.Join(dir, "plat5.yml"))
+			if err != nil {
+				t.Fatalf("load plat5.yml: %v", err)
+			}
+			problems, err := cfg.Validate()
+			if err != nil || len(problems) > 0 {
+				t.Fatalf("validate plat5.yml: %v %v", problems, err)
+			}
 
-				// plat5.local.yml parses and resolves cleanly.
-				rawLocal, err := os.ReadFile(filepath.Join(dir, config.FileName))
-				if err != nil {
-					t.Fatalf("read %s: %v", config.FileName, err)
-				}
-				f, err := config.Parse(rawLocal)
-				if err != nil {
-					t.Fatalf("parse %s: %v\n%s", config.FileName, err, rawLocal)
-				}
-				r, err := config.Resolve(f, filepath.Join(dir, config.FileName), config.Overrides{})
-				if err != nil {
-					t.Fatalf("resolve %s: %v\n%s", config.FileName, err, rawLocal)
-				}
+			// plat5.local.yml parses and resolves cleanly.
+			rawLocal, err := os.ReadFile(filepath.Join(dir, config.FileName))
+			if err != nil {
+				t.Fatalf("read %s: %v", config.FileName, err)
+			}
+			f, err := config.Parse(rawLocal)
+			if err != nil {
+				t.Fatalf("parse %s: %v\n%s", config.FileName, err, rawLocal)
+			}
+			r, err := config.Resolve(f, filepath.Join(dir, config.FileName), config.Overrides{})
+			if err != nil {
+				t.Fatalf("resolve %s: %v\n%s", config.FileName, err, rawLocal)
+			}
 
-				if authz == authorizerTopaz {
-					if !r.Modules[config.ModuleAuthorizer] {
-						t.Fatalf("authorizer module should be enabled")
-					}
-					if r.Routes.PermissionSeparator != "_" {
-						t.Fatalf("topaz should set routes.permission_separator to _, got %q", r.Routes.PermissionSeparator)
-					}
-					if u, _ := cfg.Flat["authorizer"].(map[string]any)["url"].(string); u != "http://topaz:9393" {
-						t.Fatalf("plat5.yml authorizer.url = %q, want http://topaz:9393", u)
-					}
-					for kName, raw := range cfg.Flat["kinds"].(map[string]any) {
-						lp, _ := raw.(map[string]any)["list_permission"].(string)
-						if lp == "" || strings.Contains(lp, ":") {
-							t.Fatalf("topaz kind %s list_permission %q must not be empty or contain ':'", kName, lp)
-						}
-					}
-					for _, forbidden := range []string{"roles", "creator_role", "custom_roles", "permissions"} {
-						if _, ok := cfg.Flat[forbidden]; ok {
-							t.Fatalf("plat5.yml with top-level authorizer must not set %s", forbidden)
-						}
-					}
-					if cfg.Files["docs"] != "services/docs.yml" {
-						t.Fatalf("expected services/docs.yml, got %v", cfg.Files)
-					}
-					manifestBytes, err := os.ReadFile(filepath.Join(dir, topazManifestFile))
-					if err != nil {
-						t.Fatalf("missing %s: %v", topazManifestFile, err)
-					}
-					var doc map[string]any
-					if err := yaml.Unmarshal(manifestBytes, &doc); err != nil {
-						t.Fatalf("invalid topaz manifest YAML: %v", err)
-					}
-					if types, ok := doc["types"].(map[string]any); ok {
-						for tName, raw := range types {
-							tMap, _ := raw.(map[string]any)
-							perms, _ := tMap["permissions"].(map[string]any)
-							for pName := range perms {
-								if strings.Contains(pName, ":") {
-									t.Fatalf("topaz manifest %s permission %q contains forbidden ':'", tName, pName)
-								}
-							}
-						}
-					}
-				} else if r.Modules[config.ModuleAuthorizer] {
-					t.Fatalf("authorizer module should default off")
-				}
+			// Presets must never emit placeholder services beyond identity and audit.
+			if len(cfg.Files) != 2 || cfg.Files["identity"] != "services/identity.yml" || cfg.Files["audit"] != "services/audit.yml" {
+				t.Fatalf("preset %s services = %v, want only identity and audit", preset, cfg.Files)
+			}
 
-				if preset == presetEnterprise {
-					if r.Gateway.ScopeClaim != "scope" {
-						t.Fatalf("enterprise preset should set gateway scope_claim: %+v", r.Gateway)
-					}
-					claims, _ := cfg.Flat["policy_claims"].([]any)
-					if len(claims) != 2 {
-						t.Fatalf("enterprise preset should set policy_claims in plat5.yml: %v", cfg.Flat["policy_claims"])
-					}
-					if authz == authorizerNone && cfg.Flat["custom_roles"] != true {
-						t.Fatalf("enterprise preset should enable custom_roles")
-					}
+			if preset == presetEnterprise {
+				if r.Gateway.ScopeClaim != "scope" {
+					t.Fatalf("enterprise preset should set gateway scope_claim: %+v", r.Gateway)
 				}
-				if preset == presetPublic {
-					if cfg.Files["portal"] != "services/portal.yml" {
-						t.Fatalf("public preset should include services/portal.yml, got %v", cfg.Files)
-					}
+				claims, _ := cfg.Flat["policy_claims"].([]any)
+				if len(claims) != 2 {
+					t.Fatalf("enterprise preset should set policy_claims in plat5.yml: %v", cfg.Flat["policy_claims"])
 				}
-			})
-		}
-	}
-}
-
-func TestInitStarterWithTopaz(t *testing.T) {
-	templates := fixtureTemplates(t)
-	dir := filepath.Join(t.TempDir(), "demo")
-	if _, err := runInitPresetFlags(t, presetMinimal, authorizerTopaz, "go-fiber-api", templates, dir); err != nil {
-		t.Fatalf("starter + topaz: %v", err)
-	}
-	cfg, err := plat5yml.Load(filepath.Join(dir, "plat5.yml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if problems, err := cfg.Validate(); err != nil || len(problems) > 0 {
-		t.Fatalf("validate starter+topaz plat5.yml: %v %v", problems, err)
-	}
-	if _, ok := cfg.Flat["authorizer"].(map[string]any)["url"]; !ok {
-		t.Fatalf("starter+topaz missing authorizer.url")
-	}
-	for _, forbidden := range []string{"roles", "creator_role", "custom_roles", "permissions"} {
-		if _, ok := cfg.Flat[forbidden]; ok {
-			t.Fatalf("starter+topaz plat5.yml must not set %s", forbidden)
-		}
-	}
-	if _, err := os.Stat(filepath.Join(dir, topazManifestFile)); err != nil {
-		t.Fatalf("starter+topaz missing manifest: %v", err)
+				if cfg.Flat["custom_roles"] != true {
+					t.Fatalf("enterprise preset should enable custom_roles")
+				}
+				rls, _ := cfg.Flat["rate_limits"].(map[string]any)
+				if len(rls) != 1 || rls["standard"] == nil {
+					t.Fatalf("enterprise preset should only define used rate_limits (standard), got %v", rls)
+				}
+				std, _ := rls["standard"].(map[string]any)
+				if _, ok := std["tiers"].(map[string]any); !ok {
+					t.Fatalf("enterprise standard rate limit should define tiers: %v", std)
+				}
+			}
+			if preset == presetPublic {
+				kinds, _ := cfg.Flat["kinds"].(map[string]any)
+				org, _ := kinds["organization"].(map[string]any)
+				if org["host"] != "{organization}.localhost" {
+					t.Fatalf("public preset should set organization.host, got %v", org["host"])
+				}
+			}
+		})
 	}
 }
 
 func TestInitPresetRejectsInvalidCombinations(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "bad")
-	if _, err := runInitPresetFlags(t, "bogus", authorizerNone, noTemplate, "", dir); err == nil || !strings.Contains(err.Error(), "--preset") {
+	if _, err := runInitPresetFlags(t, "bogus", noTemplate, "", dir); err == nil || !strings.Contains(err.Error(), "--preset") {
 		t.Fatalf("want unknown preset error, got %v", err)
 	}
-	if _, err := runInitPresetFlags(t, presetMinimal, "opa", noTemplate, "", dir); err == nil || !strings.Contains(err.Error(), "--authorizer") {
-		t.Fatalf("want unknown authorizer error, got %v", err)
-	}
-	if _, err := runInitPresetFlags(t, presetEnterprise, authorizerNone, "go-fiber-api", fixtureTemplates(t), dir); err == nil || !strings.Contains(err.Error(), "--preset applies to --template none") {
+	if _, err := runInitPresetFlags(t, presetEnterprise, "go-fiber-api", fixtureTemplates(t), dir); err == nil || !strings.Contains(err.Error(), "--preset applies to --template none") {
 		t.Fatalf("want preset+starter conflict error, got %v", err)
 	}
 }

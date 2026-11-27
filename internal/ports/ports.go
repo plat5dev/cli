@@ -14,32 +14,27 @@ import (
 type Name string
 
 const (
-	Gateway        Name = "gateway"
-	Auth           Name = "auth"
-	ControlPlane   Name = "control_plane"
-	Grafana        Name = "grafana"
-	OTLPGRPC       Name = "otlp_grpc"
-	OTLPHTTP       Name = "otlp_http"
-	Operator       Name = "operator"
-	OperatorAuth   Name = "operator_auth"
-	Topaz          Name = "topaz"
-	TopazDirectory Name = "topaz_directory"
+	Gateway      Name = "gateway"
+	Auth         Name = "auth"
+	ControlPlane Name = "control_plane"
+	Grafana      Name = "grafana"
+	OTLPGRPC     Name = "otlp_grpc"
+	OTLPHTTP     Name = "otlp_http"
+	Operator     Name = "operator"
+	OperatorAuth Name = "operator_auth"
 )
 
-// Defaults is the block: Plat5 is 540x, the operator module 541x, and the
-// authorizer module (Topaz) 542x. OTLP keeps its conventional ports so SDK
-// defaults work.
+// Defaults is the block: Plat5 is 540x, and the operator module 541x. OTLP
+// keeps its conventional ports so SDK defaults work.
 var Defaults = Set{
-	Gateway:        5400,
-	Auth:           5401,
-	ControlPlane:   5402,
-	Grafana:        5403,
-	OTLPGRPC:       4317,
-	OTLPHTTP:       4318,
-	Operator:       5410,
-	OperatorAuth:   5411,
-	Topaz:          5420,
-	TopazDirectory: 5421,
+	Gateway:      5400,
+	Auth:         5401,
+	ControlPlane: 5402,
+	Grafana:      5403,
+	OTLPGRPC:     4317,
+	OTLPHTTP:     4318,
+	Operator:     5410,
+	OperatorAuth: 5411,
 }
 
 // Names is every port name, in the block's order.

@@ -160,7 +160,7 @@ func TestServices(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"gateway", "identity", "auth", "lgtm", "operator", "operator-audit", "operator-auth", "topaz"} {
+	for _, want := range []string{"gateway", "identity", "auth", "lgtm", "operator", "operator-audit", "operator-auth"} {
 		found := false
 		for _, n := range names {
 			found = found || n == want

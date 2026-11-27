@@ -191,3 +191,41 @@ func TestGenerateWithUnderscoreSeparator(t *testing.T) {
 		t.Errorf("audit project: %+v", r)
 	}
 }
+
+func TestGenerateWithExclude(t *testing.T) {
+	kinds := []Kind{
+		{Name: "organization", Path: "/orgs/{organization}", ListPermission: "organization:read"},
+		{Name: "project", Parent: "organization", Path: "/projects/{project}", ListPermission: "project:read"},
+	}
+	identity, audit := Generate(kinds, Options{
+		PermissionSeparator: ":",
+		Exclude: []string{
+			"POST /orgs",
+			"POST /orgs/{org}/projects", // different param name, same path shape
+			"GET /orgs/{organization}/audit-events",
+		},
+	})
+	for _, s := range identity.Scopes {
+		if s.Name == "user" {
+			for _, r := range s.Routes {
+				if r.Path == "/orgs" {
+					t.Errorf("expected POST /orgs to be excluded, still present: %+v", r)
+				}
+			}
+		}
+		if s.Name == "organization" {
+			for _, r := range s.Routes {
+				if r.Path == "/projects" {
+					if len(r.Methods) != 1 || r.Methods[0].Verb != "GET" {
+						t.Errorf("expected only GET on /projects after excluding POST, got %+v", r.Methods)
+					}
+				}
+			}
+		}
+	}
+	for _, s := range audit.Scopes {
+		if s.Name == "organization" {
+			t.Errorf("expected organization audit scope to be dropped when empty, got %+v", s)
+		}
+	}
+}

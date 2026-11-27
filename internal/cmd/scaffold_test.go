@@ -141,9 +141,8 @@ func TestInitStarter(t *testing.T) {
 	if cfg.Files["api"] != "services/api.yml" {
 		t.Errorf("services: %v", cfg.Files)
 	}
-	cors, _ := cfg.Flat["cors"].(map[string]any)
-	if !reflect.DeepEqual(cors["allowed_origins"], []any{"http://localhost:3001"}) {
-		t.Errorf("cors: %v", cfg.Flat["cors"])
+	if _, ok := cfg.Flat["cors"]; ok {
+		t.Errorf("plat5.yml must not contain cors: %v", cfg.Flat["cors"])
 	}
 
 	compose, _ := os.ReadFile(filepath.Join(dir, "docker-compose.yml"))
@@ -203,25 +202,6 @@ func TestInitStarter(t *testing.T) {
 	}
 }
 
-// The starter owns cors only through init: a starter's plat5.yml that sets it
-// is refused, before anything is written.
-func TestInitStarterSetsCORS(t *testing.T) {
-	templates := fixtureTemplates(t)
-	starter := filepath.Join(templates, "template-go-fiber-api", "plat5.yml")
-	b, _ := os.ReadFile(starter)
-	writeFiles(t, filepath.Dir(starter), map[string]string{"plat5.yml": "cors:\n  allowed_origins: [\"http://x\"]\n" + string(b)})
-	dir := filepath.Join(t.TempDir(), "cors")
-	err := runStarterInit(t, templates, "go-fiber-api", dir, false)
-	if err == nil || !strings.Contains(err.Error(), "sets cors") {
-		t.Fatalf("a starter setting cors: %v", err)
-	}
-	if _, err := os.Stat(dir); err == nil {
-		if entries, _ := os.ReadDir(dir); len(entries) > 0 {
-			t.Errorf("wrote %d entries before refusing", len(entries))
-		}
-	}
-}
-
 // --no-customer-console: the API alone, with no origin to allow.
 func TestInitStarterNoCustomerConsole(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "lean")
@@ -233,7 +213,6 @@ func TestInitStarterNoCustomerConsole(t *testing.T) {
 	}
 	for file, unwanted := range map[string]string{
 		"docker-compose.yml": "customer-console",
-		"plat5.yml":          "cors",
 		config.FileName:      "3001",
 		"README.md":          "customer-console/",
 	} {
@@ -278,7 +257,7 @@ func TestInitStarterNoOperatorConsole(t *testing.T) {
 	}
 }
 
-// --no-operator turns the module off; the console is still the project's.
+// --no-operator turns the module off and skips writing operator.routes.yml and operator-console/.
 func TestInitNoOperator(t *testing.T) {
 	initNoOperator = true
 	defer func() { initNoOperator = false }()
@@ -290,8 +269,24 @@ func TestInitNoOperator(t *testing.T) {
 	if !strings.Contains(string(dev), "operator: false") {
 		t.Errorf("module on:\n%s", dev)
 	}
-	if _, err := os.Stat(filepath.Join(dir, operatorConsoleDir, "docker-compose.yml")); err != nil {
-		t.Error(err)
+	if _, err := os.Stat(filepath.Join(dir, operatorRoutesFile)); err == nil {
+		t.Errorf("--no-operator should not write %s", operatorRoutesFile)
+	}
+	if _, err := os.Stat(filepath.Join(dir, operatorConsoleDir)); err == nil {
+		t.Errorf("--no-operator should not write %s", operatorConsoleDir)
+	}
+
+	// With --template none --no-operator, operator.routes.yml and operator: block are both omitted.
+	alone := filepath.Join(t.TempDir(), "alone-noop")
+	if err := runStarterInit(t, fixtureTemplates(t), noTemplate, alone, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(alone, operatorRoutesFile)); err == nil {
+		t.Errorf("--template none --no-operator should not write %s", operatorRoutesFile)
+	}
+	aloneDev, _ := os.ReadFile(filepath.Join(alone, config.FileName))
+	if strings.Contains(string(aloneDev), "\noperator:") {
+		t.Errorf("--template none --no-operator should not emit operator: block:\n%s", aloneDev)
 	}
 }
 

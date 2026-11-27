@@ -47,29 +47,18 @@ const (
 	OperatorClient = "operator-console"
 )
 
-// Modules run beside Plat5. auth, observability and operator are on unless
-// plat5.local.yml turns them off; authorizer is opt-in (off unless turned on).
+// Modules run beside Plat5; all are on unless plat5.local.yml turns one off.
 const (
 	ModuleAuth          = "auth"
 	ModuleObservability = "observability"
 	ModuleOperator      = "operator"
-	ModuleAuthorizer    = "authorizer"
 )
 
 // Modules is every module, in start order.
-var Modules = []string{ModuleAuth, ModuleObservability, ModuleOperator, ModuleAuthorizer}
+var Modules = []string{ModuleAuth, ModuleObservability, ModuleOperator}
 
-// DefaultModuleOn reports whether a module runs when plat5.local.yml leaves it unset.
-func DefaultModuleOn(m string) bool {
-	return m != ModuleAuthorizer
-}
-
-// Supported local authorizer providers and pinned default image.
-const (
-	AuthorizerProviderTopaz    = "topaz"
-	DefaultTopazImage          = "ghcr.io/aserto-dev/topaz:0.33.28"
-	DefaultPermissionSeparator = ":"
-)
+// DefaultPermissionSeparator is the default separator for generated route permissions.
+const DefaultPermissionSeparator = ":"
 
 // ValidatePermissionSeparator reports whether sep is an allowed separator for
 // generated route permissions (":", "_", ".", or "-").
@@ -80,6 +69,25 @@ func ValidatePermissionSeparator(sep string) error {
 	default:
 		return fmt.Errorf("routes.permission_separator: %q (want :, _, ., or -)", sep)
 	}
+}
+
+// ValidateRouteExclude checks and normalizes one routes.exclude entry:
+// "<METHOD> /path" (for example "POST /orgs").
+func ValidateRouteExclude(raw string) (string, error) {
+	fields := strings.Fields(raw)
+	if len(fields) != 2 {
+		return "", fmt.Errorf("routes.exclude: %q must be \"<METHOD> /path\" (for example \"POST /orgs\")", raw)
+	}
+	method, path := fields[0], fields[1]
+	switch method {
+	case "GET", "HEAD", "POST", "PUT", "PATCH", "DELETE":
+	default:
+		return "", fmt.Errorf("routes.exclude: %q has unknown method %q (want GET, HEAD, POST, PUT, PATCH, or DELETE)", raw, method)
+	}
+	if !strings.HasPrefix(path, "/") || strings.ContainsAny(path, "?#") {
+		return "", fmt.Errorf("routes.exclude: %q path must start with / and have no query or fragment", raw)
+	}
+	return method + " " + path, nil
 }
 
 // Image pins: versions: keys, and the repos plat5 init reads the latest tag from.
@@ -123,11 +131,10 @@ type File struct {
 	Auth        AuthBlock         `yaml:"auth"`
 	IdP         IdPBlock          `yaml:"idp"`
 	Otel        OtelBlock         `yaml:"otel"`
-	Operator    OperatorBlock     `yaml:"operator"`
-	Authorizer  AuthorizerBlock   `yaml:"authorizer"`
-	Gateway     GatewayBlock      `yaml:"gateway"`
-	Routes      RoutesBlock       `yaml:"routes"`
-	Source      map[string]string `yaml:"source"`
+	Operator OperatorBlock `yaml:"operator"`
+	Gateway  GatewayBlock  `yaml:"gateway"`
+	Routes   RoutesBlock   `yaml:"routes"`
+	Source   map[string]string `yaml:"source"`
 }
 
 // RoutesBlock configures `plat5 routes generate`.
@@ -135,17 +142,9 @@ type RoutesBlock struct {
 	// PermissionSeparator joins permission segments when scaffolding
 	// services/identity.yml and services/audit.yml (":", "_", ".", or "-").
 	PermissionSeparator string `yaml:"permission_separator"`
-}
-
-// AuthorizerBlock configures the local AuthZEN 1.0 PDP module (Topaz).
-type AuthorizerBlock struct {
-	// Provider is the local PDP provider ("topaz"). Defaults to "topaz" when
-	// modules.authorizer is on.
-	Provider string `yaml:"provider"`
-	// Manifest is the ReBAC manifest file pushed to Topaz on start (optional).
-	Manifest string `yaml:"manifest"`
-	// Image overrides the Topaz container image (optional).
-	Image string `yaml:"image"`
+	// Exclude omits generated routes permanently (each entry is "<METHOD> /path",
+	// for example "POST /orgs").
+	Exclude []string `yaml:"exclude"`
 }
 
 // GatewayBlock sets optional local gateway runtime behavior in plat5.local.yml.
@@ -159,6 +158,11 @@ type GatewayBlock struct {
 	// UpstreamSigning generates a persistent local Ed25519 key in project state
 	// and sets UPSTREAM_SIGNING_KEY on the gateway.
 	UpstreamSigning bool `yaml:"upstream_signing"`
+	// CORSAllowedOrigins overrides CORS_ALLOWED_ORIGINS on the gateway
+	// (defaults to app.web and auth.origins).
+	CORSAllowedOrigins []string `yaml:"cors_allowed_origins"`
+	// CORSAllowedHeaders sets CORS_ALLOWED_HEADERS on the gateway.
+	CORSAllowedHeaders []string `yaml:"cors_allowed_headers"`
 }
 
 // OperatorBlock is what the operator module runs from the project.
@@ -266,8 +270,6 @@ type Resolved struct {
 	// OperatorExtraOrigins is operator.origins: more origins the operator side allows.
 	OperatorExtraOrigins []string
 
-	// Authorizer is the local AuthZEN PDP module configuration (Manifest is absolute).
-	Authorizer AuthorizerBlock
 	// Gateway holds optional local gateway overrides.
 	Gateway GatewayBlock
 	// Routes holds options for `plat5 routes generate`.
@@ -333,7 +335,7 @@ func Resolve(f *File, path string, o Overrides) (Resolved, error) {
 	}
 	for _, m := range Modules {
 		if _, set := r.Modules[m]; !set {
-			r.Modules[m] = DefaultModuleOn(m)
+			r.Modules[m] = true
 		}
 	}
 
@@ -441,34 +443,50 @@ func Resolve(f *File, path string, o Overrides) (Resolved, error) {
 	}
 	r.OtelEndpoint = strings.TrimSpace(f.Otel.Endpoint)
 
-	authzProvider := strings.TrimSpace(f.Authorizer.Provider)
-	if authzProvider != "" && authzProvider != AuthorizerProviderTopaz {
-		return Resolved{}, fmt.Errorf("authorizer.provider: unknown provider %q (want %s)", authzProvider, AuthorizerProviderTopaz)
-	}
-	if r.Modules[ModuleAuthorizer] && authzProvider == "" {
-		authzProvider = AuthorizerProviderTopaz
-	}
-	r.Authorizer = AuthorizerBlock{
-		Provider: authzProvider,
-		Manifest: resolveAgainst(dir, strings.TrimSpace(f.Authorizer.Manifest)),
-		Image:    firstNonEmpty(strings.TrimSpace(f.Authorizer.Image), DefaultTopazImage),
-	}
-
 	auditMode := strings.TrimSpace(f.Gateway.AuditMode)
 	if auditMode != "" && auditMode != "sync" && auditMode != "async" && auditMode != "off" {
 		return Resolved{}, fmt.Errorf("gateway.audit_mode: %q (want sync, async, or off)", auditMode)
 	}
+	var corsOrigins []string
+	for _, raw := range f.Gateway.CORSAllowedOrigins {
+		origin, err := parseOrigin(strings.TrimSpace(raw))
+		if err != nil {
+			return Resolved{}, fmt.Errorf("gateway.cors_allowed_origins: %w", err)
+		}
+		corsOrigins = append(corsOrigins, origin)
+	}
+	var corsHeaders []string
+	for _, raw := range f.Gateway.CORSAllowedHeaders {
+		h := strings.TrimSpace(raw)
+		if h == "" {
+			return Resolved{}, fmt.Errorf("gateway.cors_allowed_headers: empty header name")
+		}
+		corsHeaders = append(corsHeaders, h)
+	}
 	r.Gateway = GatewayBlock{
-		ScopeClaim:       strings.TrimSpace(f.Gateway.ScopeClaim),
-		AuditMode:        auditMode,
-		RateLimitEnabled: f.Gateway.RateLimitEnabled,
-		UpstreamSigning:  f.Gateway.UpstreamSigning,
+		ScopeClaim:         strings.TrimSpace(f.Gateway.ScopeClaim),
+		AuditMode:          auditMode,
+		RateLimitEnabled:   f.Gateway.RateLimitEnabled,
+		UpstreamSigning:    f.Gateway.UpstreamSigning,
+		CORSAllowedOrigins: corsOrigins,
+		CORSAllowedHeaders: corsHeaders,
 	}
 	permSep := firstNonEmpty(strings.TrimSpace(f.Routes.PermissionSeparator), DefaultPermissionSeparator)
 	if err := ValidatePermissionSeparator(permSep); err != nil {
 		return Resolved{}, err
 	}
-	r.Routes = RoutesBlock{PermissionSeparator: permSep}
+	var excludes []string
+	for _, raw := range f.Routes.Exclude {
+		norm, err := ValidateRouteExclude(raw)
+		if err != nil {
+			return Resolved{}, err
+		}
+		excludes = append(excludes, norm)
+	}
+	r.Routes = RoutesBlock{
+		PermissionSeparator: permSep,
+		Exclude:             uniq(excludes),
+	}
 	return r, nil
 }
 
@@ -506,6 +524,20 @@ func (r Resolved) AuthOrigins() []string {
 		out = append(out, r.AppWeb)
 	}
 	return uniq(append(out, r.Auth.Origins...))
+}
+
+// GatewayCORSOrigins is CORS_ALLOWED_ORIGINS for the local gateway:
+// gateway.cors_allowed_origins when set, otherwise app.web and auth.origins.
+func (r Resolved) GatewayCORSOrigins() []string {
+	if len(r.Gateway.CORSAllowedOrigins) > 0 {
+		return uniq(r.Gateway.CORSAllowedOrigins)
+	}
+	return r.AuthOrigins()
+}
+
+// GatewayCORSHeaders is CORS_ALLOWED_HEADERS for the local gateway.
+func (r Resolved) GatewayCORSHeaders() []string {
+	return uniq(r.Gateway.CORSAllowedHeaders)
 }
 
 // AuthRedirectURIs is <origin>/callback for each allowed origin, and any extra.

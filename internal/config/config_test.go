@@ -36,8 +36,8 @@ func TestResolveDefaults(t *testing.T) {
 		t.Fatalf("project: %q %q %q", r.ProjectID, r.ComposeProject, r.AppComposeProject)
 	}
 	for _, m := range Modules {
-		if r.Modules[m] != DefaultModuleOn(m) {
-			t.Fatalf("module %s = %t, want %t", m, r.Modules[m], DefaultModuleOn(m))
+		if !r.Modules[m] {
+			t.Fatalf("module %s = %t, want true", m, r.Modules[m])
 		}
 	}
 	if r.Ports[ports.Gateway] != 5400 || r.GatewayURL() != "http://localhost:5400" {
@@ -302,31 +302,20 @@ func TestSanitizeProjectID(t *testing.T) {
 	}
 }
 
-func TestAuthorizerAndGatewayConfig(t *testing.T) {
-	r, err := resolve(t, fullYML+`modules:
-  authorizer: true
-authorizer:
-  manifest: ./topaz/manifest.yaml
-gateway:
+func TestGatewayAndRoutesConfig(t *testing.T) {
+	r, err := resolve(t, fullYML+`gateway:
   scope_claim: scope
   audit_mode: async
   rate_limit_enabled: false
   upstream_signing: true
+  cors_allowed_origins: ["http://localhost:3001/", "https://app.example.com"]
+  cors_allowed_headers: ["X-Trace", "X-Custom"]
+routes:
+  permission_separator: "_"
+  exclude: ["POST /orgs", "DELETE /orgs/{organization}/invites/{invite_id}"]
 `)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if !r.Modules[ModuleAuthorizer] {
-		t.Fatal("authorizer module should be on")
-	}
-	if r.Authorizer.Provider != AuthorizerProviderTopaz || r.Authorizer.Image != DefaultTopazImage {
-		t.Fatalf("authorizer defaults: %+v", r.Authorizer)
-	}
-	if r.Authorizer.Manifest != filepath.Clean("/proj/topaz/manifest.yaml") {
-		t.Fatalf("manifest: %q", r.Authorizer.Manifest)
-	}
-	if r.Ports[ports.Topaz] != 5420 || r.Ports[ports.TopazDirectory] != 5421 {
-		t.Fatalf("topaz ports: %v", r.Ports)
 	}
 	if r.Gateway.ScopeClaim != "scope" || r.Gateway.AuditMode != "async" || !r.Gateway.UpstreamSigning {
 		t.Fatalf("gateway: %+v", r.Gateway)
@@ -334,13 +323,33 @@ gateway:
 	if r.Gateway.RateLimitEnabled == nil || *r.Gateway.RateLimitEnabled {
 		t.Fatalf("gateway toggles: %+v", r.Gateway)
 	}
+	if got := strings.Join(r.GatewayCORSOrigins(), ","); got != "http://localhost:3001,https://app.example.com" {
+		t.Fatalf("cors origins: %q", got)
+	}
+	if got := strings.Join(r.GatewayCORSHeaders(), ","); got != "X-Trace,X-Custom" {
+		t.Fatalf("cors headers: %q", got)
+	}
+	if r.Routes.PermissionSeparator != "_" || len(r.Routes.Exclude) != 2 {
+		t.Fatalf("routes: %+v", r.Routes)
+	}
+	// When gateway.cors_allowed_origins is omitted, it defaults to app.web + auth.origins.
+	def, err := resolve(t, fullYML+"auth:\n  origins: [\"http://localhost:5173/\"]\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(def.GatewayCORSOrigins(), ","); got != "http://localhost:3001,http://localhost:5173" {
+		t.Fatalf("default cors origins: %q", got)
+	}
 	if r, err := resolve(t, fullYML+"gateway: {audit_mode: off}\n"); err != nil || r.Gateway.AuditMode != "off" {
 		t.Fatalf("audit_mode off: %+v %v", r.Gateway, err)
 	}
 
 	for yml, want := range map[string]string{
-		fullYML + "authorizer: {provider: opa}\n":  "authorizer.provider",
-		fullYML + "gateway: {audit_mode: bogus}\n": "gateway.audit_mode",
+		fullYML + "gateway: {audit_mode: bogus}\n":            "gateway.audit_mode",
+		fullYML + "gateway: {cors_allowed_origins: [bad]}\n":  "gateway.cors_allowed_origins",
+		fullYML + "gateway: {cors_allowed_headers: [\" \"]}\n": "gateway.cors_allowed_headers",
+		fullYML + "routes: {exclude: [\"BAD /orgs\"]}\n":      "routes.exclude",
+		fullYML + "routes: {exclude: [\"GET orgs\"]}\n":       "routes.exclude",
 	} {
 		if _, err := resolve(t, yml); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q: want %q, got %v", yml, want, err)

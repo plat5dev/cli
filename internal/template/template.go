@@ -49,8 +49,17 @@ type Manifest struct {
 	App App `yaml:"app"`
 	// Next is how to run the app on your own machine instead (plat5 start -x app).
 	Next []string `yaml:"next"`
+	// Routes holds optional defaults for plat5.local.yml's routes: block (for
+	// example permission_separator: "_" for Topaz starters).
+	Routes Routes `yaml:"routes"`
 	// Exclude is paths, relative to the root, that plat5 init doesn't copy.
 	Exclude []string `yaml:"exclude"`
+}
+
+// Routes holds optional routes: settings copied into plat5.local.yml by plat5 init.
+type Routes struct {
+	PermissionSeparator string   `yaml:"permission_separator"`
+	Exclude             []string `yaml:"exclude"`
 }
 
 // App is the template's compose file (relative to its root) and the browser

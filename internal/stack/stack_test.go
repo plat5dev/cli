@@ -184,26 +184,15 @@ func TestAppEnv(t *testing.T) {
 	}
 }
 
-func TestAuthorizerAndGatewayOverrides(t *testing.T) {
+func TestGatewayOverridesAndCORS(t *testing.T) {
 	dir := t.TempDir()
-	manifestPath := filepath.Join(dir, "topaz", "manifest.yaml")
-	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(manifestPath, []byte("model:\n  version: 3\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	yml := allOn + `modules:
-  authorizer: true
-authorizer:
-  provider: topaz
-  manifest: ./topaz/manifest.yaml
-gateway:
+	yml := allOn + `gateway:
   scope_claim: scope
   audit_mode: async
   rate_limit_enabled: false
   upstream_signing: true
+  cors_allowed_headers: ["X-Custom"]
 `
 	f, err := config.Parse([]byte(yml))
 	if err != nil {
@@ -217,20 +206,15 @@ gateway:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !s.Has(config.ModuleAuthorizer) {
-		t.Fatal("expected authorizer module")
-	}
-	if err := s.CheckAuthorizer(); err != nil {
-		t.Fatalf("CheckAuthorizer: %v", err)
-	}
-	if files := strings.Join(s.Runner().Files, ","); !strings.Contains(files, ",topaz.yml,") {
-		t.Fatalf("runner files missing topaz.yml: %s", files)
-	}
-	if p := s.Ports(); p["topaz"] != 5420 || p["topaz_directory"] != 5421 {
-		t.Fatalf("topaz ports: %v", p)
-	}
 	if err := s.Prepare(); err != nil {
 		t.Fatalf("Prepare: %v", err)
+	}
+	e := env(s)
+	if e["CORS_ALLOWED_ORIGINS"] != "http://localhost:3001" {
+		t.Errorf("CORS_ALLOWED_ORIGINS = %q, want http://localhost:3001", e["CORS_ALLOWED_ORIGINS"])
+	}
+	if e["CORS_ALLOWED_HEADERS"] != "X-Custom" {
+		t.Errorf("CORS_ALLOWED_HEADERS = %q, want X-Custom", e["CORS_ALLOWED_HEADERS"])
 	}
 	ov := s.override()
 	for _, want := range []string{
@@ -247,14 +231,8 @@ gateway:
 		t.Errorf("want UPSTREAM_SIGNING_KEY on both gateway and operator:\n%s", ov)
 	}
 	appEnv := strings.Join(s.AppEnv(), " ")
-	for _, want := range []string{
-		"PLAT5_AUTHORIZER_URL=http://topaz:8383",
-		"PLAT5_TOPAZ_DIRECTORY_URL=http://topaz:9393",
-		"PLAT5_UPSTREAM_SIGNING_PUBLIC_KEY=",
-	} {
-		if !strings.Contains(appEnv, want) {
-			t.Errorf("app env missing %s: %s", want, appEnv)
-		}
+	if !strings.Contains(appEnv, "PLAT5_UPSTREAM_SIGNING_PUBLIC_KEY=") {
+		t.Errorf("app env missing PLAT5_UPSTREAM_SIGNING_PUBLIC_KEY: %s", appEnv)
 	}
 }
 
@@ -268,7 +246,6 @@ func TestComposeConfig(t *testing.T) {
 	}
 	for name, s := range map[string]*Stack{
 		"all":          newStack(t, allOn+"source: {plat5: ../plat5}\n"),
-		"topaz":        newStack(t, allOn+"modules: {authorizer: true}\nauthorizer: {provider: topaz}\n"),
 		"core":         newStack(t, allOn, "observability"),
 		"no-operator":  newStack(t, allOn, "operator"),
 		"operator-src": newStack(t, allOn+"source: {operator: ../operator, auth: ../auth}\n"),

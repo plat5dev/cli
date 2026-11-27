@@ -274,3 +274,73 @@ services: [services/identity.yml, services/audit.yml]
 		t.Errorf("audit.yml missing audit_read:\n%s", auBytes)
 	}
 }
+
+func TestRoutesGenerateSkipsClaimedAndExcludedRoutes(t *testing.T) {
+	dir := t.TempDir()
+	plat5 := `kinds:
+  organization: { path: "/orgs/{organization}", list_permission: organization:read }
+  project: { parent: organization, path: "/projects/{project}", list_permission: project:read }
+roles: { admin: { permissions: ["*"], bindable_at: [organization, project] } }
+creator_role: admin
+services:
+  - services/identity.yml
+  - services/audit.yml
+  - services/api.yml
+`
+	apiSvc := `api:
+  url: http://api:3000
+  scopes:
+    user:
+      routes:
+        - path: /orgs
+          methods: [POST]
+    organization:
+      upstream_prefix: /orgs/{organization.id}
+      routes:
+        - path: /projects
+          methods:
+            POST: { permissions: project:create }
+`
+	local := "project_id: demo\nroutes:\n  exclude:\n    - \"DELETE /orgs/{organization}/invites/{invite_id}\"\n    - \"GET /orgs/{organization}/audit-events\"\n"
+	_ = os.MkdirAll(filepath.Join(dir, "services"), 0o755)
+	_ = os.WriteFile(filepath.Join(dir, "plat5.yml"), []byte(plat5), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "services", "api.yml"), []byte(apiSvc), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "plat5.local.yml"), []byte(local), 0o644)
+
+	captureStdout(t, func() {
+		if err := runRoutesGenerate(routesGenerateCmd, []string{filepath.Join(dir, "plat5.yml")}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	idBytes, _ := os.ReadFile(filepath.Join(dir, "services", "identity.yml"))
+	auBytes, _ := os.ReadFile(filepath.Join(dir, "services", "audit.yml"))
+
+	// POST /orgs was claimed by services/api.yml.
+	if strings.Contains(string(idBytes), "upstream: /roots/organization") {
+		t.Errorf("identity.yml should skip POST /orgs claimed by api.yml:\n%s", idBytes)
+	}
+	// POST /orgs/{organization}/projects was claimed by services/api.yml, while GET stays.
+	if strings.Contains(string(idBytes), "POST: { permissions: project:create }") {
+		t.Errorf("identity.yml should skip POST /projects claimed by api.yml:\n%s", idBytes)
+	}
+	if !strings.Contains(string(idBytes), "upstream: /nodes/{organization.id}/children/project") {
+		t.Errorf("identity.yml should keep GET /projects:\n%s", idBytes)
+	}
+	// DELETE /orgs/{organization}/invites/{invite_id} was excluded via routes.exclude,
+	// while the project scope's /invites/{invite_id} remains.
+	orgSection, projSection, _ := strings.Cut(string(idBytes), "\n    project:")
+	if strings.Contains(orgSection, "- path: /invites/{invite_id}") {
+		t.Errorf("organization scope should omit excluded /invites/{invite_id}:\n%s", orgSection)
+	}
+	if !strings.Contains(projSection, "- path: /invites/{invite_id}") {
+		t.Errorf("project scope should keep /invites/{invite_id}:\n%s", projSection)
+	}
+	// GET /orgs/{organization}/audit-events was excluded via routes.exclude.
+	if strings.Contains(string(auBytes), "organization:") {
+		t.Errorf("audit.yml should omit empty excluded organization scope:\n%s", auBytes)
+	}
+	// Resulting config must pass full schema validation.
+	if _, err := loadValid(filepath.Join(dir, "plat5.yml")); err != nil {
+		t.Fatalf("generated config failed validation: %v", err)
+	}
+}

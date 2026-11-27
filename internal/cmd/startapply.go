@@ -60,20 +60,27 @@ func rootKinds(flat map[string]any) []devseed.RootKind {
 	return out
 }
 
-// urlHosts is the host of every service's url in the config, sorted.
+// urlHosts is the host of every service url and optional authorizer url in the config, sorted.
 func urlHosts(flat map[string]any) []string {
-	services, _ := flat["services"].(map[string]any)
 	seen := map[string]bool{}
 	var out []string
-	for _, raw := range services {
-		svc, _ := raw.(map[string]any)
-		s, _ := svc["url"].(string)
-		u, err := url.Parse(s)
+	add := func(rawURL string) {
+		u, err := url.Parse(rawURL)
 		if err != nil || u.Hostname() == "" || seen[u.Hostname()] {
-			continue
+			return
 		}
 		seen[u.Hostname()] = true
 		out = append(out, u.Hostname())
+	}
+	services, _ := flat["services"].(map[string]any)
+	for _, raw := range services {
+		svc, _ := raw.(map[string]any)
+		s, _ := svc["url"].(string)
+		add(s)
+	}
+	if authz, ok := flat["authorizer"].(map[string]any); ok {
+		s, _ := authz["url"].(string)
+		add(s)
 	}
 	sort.Strings(out)
 	return out

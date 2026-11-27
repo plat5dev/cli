@@ -132,12 +132,15 @@ func TestLoadValidChecksTheSchema(t *testing.T) {
 }
 
 func TestURLHosts(t *testing.T) {
-	flat := map[string]any{"services": map[string]any{
-		"api":      map[string]any{"url": "http://api:3000"},
-		"identity": map[string]any{"url": "http://identity:3000"},
-		"worker":   map[string]any{"url": "http://api:3001"},
-	}}
-	if got := strings.Join(urlHosts(flat), ","); got != "api,identity" {
+	flat := map[string]any{
+		"authorizer": map[string]any{"url": "http://topaz:9393"},
+		"services": map[string]any{
+			"api":      map[string]any{"url": "http://api:3000"},
+			"identity": map[string]any{"url": "http://identity:3000"},
+			"worker":   map[string]any{"url": "http://api:3001"},
+		},
+	}
+	if got := strings.Join(urlHosts(flat), ","); got != "api,identity,topaz" {
 		t.Fatalf("%s", got)
 	}
 }

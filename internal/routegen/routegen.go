@@ -32,10 +32,13 @@ func (k Kind) Collection() string {
 	return "/" + c
 }
 
-// Options controls how Generate names permissions on scaffolded routes.
+// Options controls how Generate names permissions and filters scaffolded routes.
 type Options struct {
 	// PermissionSeparator joins permission segments (e.g. ":", "_", ".", "-").
 	PermissionSeparator string
+	// Exclude omits matching generated routes (each entry is "<METHOD> /path",
+	// for example "POST /orgs"). Matched by HTTP method and path shape.
+	Exclude []string
 }
 
 // Prefix is the kind's permission prefix: its list_permission without
@@ -280,7 +283,202 @@ func Generate(kinds []Kind, opts Options) (identity, audit File) {
 	audit.Scopes = append(audit.Scopes, Scope{Name: "user", Routes: []Route{
 		{Path: "/user/audit-events", Upstream: user + "/audit-events", Methods: []Method{{Verb: "GET"}}},
 	}})
+	if len(opts.Exclude) > 0 {
+		skip := buildSkipSet(opts.Exclude)
+		identity = filterFile(identity, kinds, skip)
+		audit = filterFile(audit, kinds, skip)
+	}
 	return identity, audit
+}
+
+// pathShape replaces every {param} segment with {} so matching matches Plat5's
+// route-shape rules regardless of parameter name.
+func pathShape(p string) string {
+	if p == "/" || p == "" {
+		return "/"
+	}
+	parts := strings.Split(p, "/")
+	for i, seg := range parts {
+		if strings.HasPrefix(seg, "{") && strings.HasSuffix(seg, "}") && len(seg) >= 2 {
+			parts[i] = "{}"
+		}
+	}
+	return strings.Join(parts, "/")
+}
+
+func routeKey(method, publicPath string) string {
+	return strings.ToUpper(strings.TrimSpace(method)) + " " + pathShape(strings.TrimSpace(publicPath))
+}
+
+func buildSkipSet(entries []string) map[string]bool {
+	out := map[string]bool{}
+	for _, raw := range entries {
+		fields := strings.Fields(raw)
+		if len(fields) != 2 {
+			continue
+		}
+		out[routeKey(fields[0], fields[1])] = true
+	}
+	return out
+}
+
+func kindChainPath(kinds []Kind) map[string]string {
+	byName := make(map[string]Kind, len(kinds))
+	for _, k := range kinds {
+		byName[k.Name] = k
+	}
+	out := make(map[string]string, len(kinds))
+	for _, k := range kinds {
+		var pieces []string
+		cur := k
+		seen := map[string]bool{}
+		for !seen[cur.Name] {
+			seen[cur.Name] = true
+			pieces = append(pieces, cur.Path)
+			if cur.Parent == "" {
+				break
+			}
+			p, ok := byName[cur.Parent]
+			if !ok {
+				break
+			}
+			cur = p
+		}
+		for i, j := 0, len(pieces)-1; i < j; i, j = i+1, j-1 {
+			pieces[i], pieces[j] = pieces[j], pieces[i]
+		}
+		out[k.Name] = strings.Join(pieces, "")
+	}
+	return out
+}
+
+func expandPublicPath(chainPaths map[string]string, scope, routePath string) string {
+	if scope == "user" || scope == "public" {
+		return routePath
+	}
+	base := chainPaths[scope]
+	if routePath == "/" {
+		return base
+	}
+	return base + routePath
+}
+
+func filterFile(f File, kinds []Kind, skip map[string]bool) File {
+	if len(skip) == 0 {
+		return f
+	}
+	chainPaths := kindChainPath(kinds)
+	var scopes []Scope
+	for _, sc := range f.Scopes {
+		var routes []Route
+		for _, r := range sc.Routes {
+			pub := expandPublicPath(chainPaths, sc.Name, r.Path)
+			var methods []Method
+			for _, m := range r.Methods {
+				if skip[routeKey(m.Verb, pub)] {
+					continue
+				}
+				methods = append(methods, m)
+			}
+			if len(methods) > 0 {
+				r.Methods = methods
+				routes = append(routes, r)
+			}
+		}
+		if len(routes) > 0 {
+			sc.Routes = routes
+			scopes = append(scopes, sc)
+		}
+	}
+	f.Scopes = scopes
+	return f
+}
+
+// claimedRoutes reads every non-identity, non-audit service file listed in
+// paths' services: entries and returns their claimed "<METHOD> <public_path>"
+// entries so WriteFiles skips routes already wrapped by the project's services.
+func claimedRoutes(kinds []Kind, docs [][]byte, paths []string) []string {
+	chainPaths := kindChainPath(kinds)
+	var claimed []string
+	for idx, data := range docs {
+		var top map[string]any
+		if err := yaml.Unmarshal(data, &top); err != nil {
+			continue
+		}
+		baseDir := filepath.Dir(paths[idx])
+		rawSvc, ok := top["services"]
+		if !ok {
+			continue
+		}
+		list, ok := rawSvc.([]any)
+		if !ok {
+			continue
+		}
+		for _, item := range list {
+			rel, ok := item.(string)
+			if !ok || strings.TrimSpace(rel) == "" {
+				continue
+			}
+			svcPath := filepath.Clean(filepath.Join(baseDir, rel))
+			svcBytes, err := os.ReadFile(svcPath)
+			if err != nil {
+				continue
+			}
+			var svcFile map[string]any
+			if err := yaml.Unmarshal(svcBytes, &svcFile); err != nil {
+				continue
+			}
+			for name, body := range svcFile {
+				if name == Identity || name == Audit {
+					continue
+				}
+				m, ok := body.(map[string]any)
+				if !ok {
+					continue
+				}
+				scopesMap, ok := m["scopes"].(map[string]any)
+				if !ok {
+					continue
+				}
+				for scopeName, scopeVal := range scopesMap {
+					sm, ok := scopeVal.(map[string]any)
+					if !ok {
+						continue
+					}
+					routesList, ok := sm["routes"].([]any)
+					if !ok {
+						continue
+					}
+					for _, rawRoute := range routesList {
+						rm, ok := rawRoute.(map[string]any)
+						if !ok {
+							continue
+						}
+						rpath, _ := rm["path"].(string)
+						if rpath == "" {
+							continue
+						}
+						pub := expandPublicPath(chainPaths, scopeName, rpath)
+						switch mv := rm["methods"].(type) {
+						case []any:
+							for _, v := range mv {
+								if verb, ok := v.(string); ok && verb != "" {
+									claimed = append(claimed, verb+" "+pub)
+								}
+							}
+						case map[string]any:
+							for verb := range mv {
+								if verb != "" {
+									claimed = append(claimed, verb+" "+pub)
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return claimed
 }
 
 // Header is the comment at the top of each generated file.
@@ -289,13 +487,14 @@ func Header(service string) string {
 # generate wrote them (https://github.com/plat5dev/plat5/blob/master/docs/reference/config/generated-routes.md); from
 # here this is an ordinary service file, served as written.
 #
-# To drop a route, delete it, or delete one verb under its methods. Edit a
-# path or a permission the same way.
+# To wrap a route in your own service, claim that method and path in your
+# service file; plat5 routes generate skips it automatically. To permanently
+# disable a route without replacing it, list "<METHOD> /path" under
+# routes.exclude in plat5.local.yml.
 #
 # Regenerate after adding or removing a kind, or changing a kind's path or
 # list_permission: plat5 routes generate. It overwrites this file, keeping only
-# url, timeouts and max_body_bytes, so review the diff and delete again what
-# you had dropped.
+# url, timeouts and max_body_bytes.
 `, strings.ToUpper(service[:1])+service[1:])
 }
 
@@ -406,7 +605,11 @@ func WriteFiles(opts Options, paths ...string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", filepath.Base(paths[0]), err)
 	}
-	identity, audit := Generate(kinds, opts)
+	genOpts := opts
+	if claimed := claimedRoutes(kinds, docs, paths); len(claimed) > 0 {
+		genOpts.Exclude = append(append([]string(nil), opts.Exclude...), claimed...)
+	}
+	identity, audit := Generate(kinds, genOpts)
 	dir := filepath.Dir(paths[0])
 	// Read and render both before writing either, so a refusal writes nothing.
 	files := map[string][]byte{}

@@ -94,10 +94,9 @@ func TestPrintPlan(t *testing.T) {
 			"  ~ setting reserved_slugs: [] → [\"new\", \"settings\"]\n",
 			"  + rate_limit evals-org\n      + requests: 300\n      + window: \"1s\"\n      + count_at: \"organization\"\n",
 			"  ~ rate_limit standard\n      ~ requests: 60 → 120\n",
-			"  ~ cors\n",
 			"  ~ service e10s\n      ~ timeouts: {connect: \"10s\", read: \"30s\"} → {connect: \"5s\", read: \"20s\"}\n      ~ max_body_bytes: 10485760 → 2097152\n",
 			"      ~ GET /orgs/{organization}/plans\n          ~ rate_limit: [\"standard\"] → [\"evals-org\"]\n",
-			"Plan: 1 to add, 5 to change, 0 to remove.\n",
+			"Plan: 1 to add, 4 to change, 0 to remove.\n",
 		},
 		"services": {
 			"  - service billing\n      - url: \"http://billing:3000\"\n",
@@ -489,11 +488,10 @@ roles: { admin: { permissions: ["*"], bindable_at: [organization] } }
 creator_role: admin
 rate_limits: { standard: { requests: 60, window: 60s } }
 defaults: { rate_limit: [standard] }
-cors: { allowed_origins: ["http://localhost:3001"] }
 services: [services/e10s.yml]
 `
 	e10s := "e10s:\n  url: http://e10s:3000\n  scopes:\n    public:\n      routes:\n        - { path: /health, methods: [GET] }\n"
-	prod := "cors:\n  allowed_origins: [\"https://app.example.com\"]\nservices:\n  e10s:\n    url: http://e10s.prod.internal:3000\n"
+	prod := "rate_limits:\n  standard: { requests: 120, window: 60s }\nservices:\n  e10s:\n    url: http://e10s.prod.internal:3000\n"
 	_ = os.MkdirAll(filepath.Join(dir, "services"), 0o755)
 	_ = os.WriteFile(filepath.Join(dir, "plat5.yml"), []byte(plat5), 0o644)
 	_ = os.WriteFile(filepath.Join(dir, "plat5.prod.yml"), []byte(prod), 0o644)

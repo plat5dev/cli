@@ -22,7 +22,6 @@ var Files = map[string]string{
 	"auth":          "auth.yml",
 	"observability": "observability.yml",
 	"operator":      "operator.yml",
-	"authorizer":    "topaz.yml",
 }
 
 // DBInitFile creates the databases and roles for auth and operator on the
