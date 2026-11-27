@@ -13,11 +13,11 @@ for db in auth operator operator_auth; do
     psql -d plat5 -c "CREATE DATABASE $db"
 done
 
-# The operator audit log's roles and the schema its owner migrates, as operator's
-# compose/postgres-init.sh makes them: the owner migrates, the writer serves and can't
-# change or delete an event.
+# Audit log roles and schemas owned by audit_owner (plat5 and operator): the
+# owner migrates/prunes, the writer serves and can't change or delete an event.
 for role in audit_owner audit_writer; do
   psql -d plat5 -tc "SELECT 1 FROM pg_roles WHERE rolname = '$role'" | grep -q 1 ||
     psql -d plat5 -c "CREATE ROLE $role LOGIN PASSWORD '$role'"
 done
+psql -d plat5 -c "CREATE SCHEMA IF NOT EXISTS audit AUTHORIZATION audit_owner"
 psql -d operator -c "CREATE SCHEMA IF NOT EXISTS audit AUTHORIZATION audit_owner"

@@ -68,13 +68,12 @@ func TestModulesAndExclude(t *testing.T) {
 	if files != "core.yml,db-init.yml,auth.yml,operator.yml,override.yml" {
 		t.Fatalf("files: %s", files)
 	}
-	// With both auth and operator off, db-init.yml is omitted so compose --wait
-	// has no exited one-shot container without a dependent.
+	// Core still includes db-init.yml because audit-migrate depends on it for audit roles/schema.
 	coreOnly := newStack(t, `versions: {plat5: v0.18.1}
 modules: {auth: false, observability: false, operator: false}
 idp: {issuer: "https://idp.test", jwks_uri: "https://idp.test/jwks", audiences: [api]}
 `)
-	if got := strings.Join(coreOnly.Runner().Files, ","); got != "core.yml,override.yml" {
+	if got := strings.Join(coreOnly.Runner().Files, ","); got != "core.yml,db-init.yml,override.yml" {
 		t.Fatalf("core-only files: %s", got)
 	}
 	if _, err := New(s.Config, []string{"grafana"}); err == nil {

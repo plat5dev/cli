@@ -96,10 +96,7 @@ func (s *Stack) Prepare() error {
 
 // Runner is docker compose for the stack.
 func (s *Stack) Runner() compose.Runner {
-	files := []string{bundle.Files["core"]}
-	if s.Has(config.ModuleAuth) || s.Has(config.ModuleOperator) {
-		files = append(files, bundle.DBInitFile)
-	}
+	files := []string{bundle.Files["core"], bundle.DBInitFile}
 	for _, m := range s.Modules {
 		files = append(files, bundle.Files[m])
 	}
@@ -537,7 +534,7 @@ func (s *Stack) override() string {
 
 // services is every Plat5-built service the stack runs.
 func (s *Stack) services() []string {
-	out := []string{"control-plane", "gateway", "identity", "audit"}
+	out := []string{"control-plane", "gateway", "identity", "audit", "audit-migrate"}
 	if s.Has(config.ModuleAuth) {
 		out = append(out, "auth")
 	}
@@ -568,6 +565,7 @@ func (s *Stack) sourceBuilds() []sourceBuild {
 			}
 			out = append(out, sb)
 		}
+		out = append(out, sourceBuild{service: "audit-migrate", context: filepath.Join(dir, "services", "audit"), target: "prod"})
 	}
 	if dir := src[config.VersionAuth]; dir != "" && s.Has(config.ModuleAuth) {
 		out = append(out, sourceBuild{service: "auth", context: filepath.Join(dir, "issuer"), target: "prod"})

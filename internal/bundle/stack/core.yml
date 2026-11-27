@@ -168,8 +168,23 @@ services:
       retries: 60
     restart: unless-stopped
 
+  # Runs once per start: migrations and writer grants, as the owner role db-init made.
+  audit-migrate:
+    image: ghcr.io/plat5dev/audit:${PLAT5_VERSION:?}
+    command: ["migrate"]
+    environment:
+      DATABASE_URL: postgres://audit_owner:audit_owner@postgres:5432/plat5?sslmode=disable
+      WRITER_ROLE: audit_writer
+    networks:
+      - plat5
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    restart: "no"
+
   audit:
     image: ghcr.io/plat5dev/audit:${PLAT5_VERSION:?}
+    command: ["serve"]
     labels:
       service.name: audit
       service.namespace: audit
@@ -178,14 +193,14 @@ services:
       <<: *otel
       PORT: 3002
       INTERNAL_PORT: 3003
-      DATABASE_URL: postgres://plat5:plat5@postgres:5432/plat5?sslmode=disable
+      DATABASE_URL: postgres://audit_writer:audit_writer@postgres:5432/plat5?sslmode=disable
       OTEL_SERVICE_NAME: audit
       OTEL_RESOURCE_ATTRIBUTES: service.namespace=audit,deployment.environment=local
     networks:
       - plat5
     depends_on:
-      postgres:
-        condition: service_healthy
+      audit-migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3003/health/ready"]
       interval: 2s

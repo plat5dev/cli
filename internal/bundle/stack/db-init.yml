@@ -1,6 +1,5 @@
-# Embedded by plat5 CLI: creates the non-core planes' databases and roles on the
-# shared local Postgres. Included only when auth or operator is enabled, so a
-# core-only start has no exited one-shot container without a dependent.
+# Embedded by plat5 CLI: creates databases, audit roles, and audit schemas on
+# the shared local Postgres. Always included since core's audit-migrate depends on it.
 services:
   db-init:
     image: postgres:17
