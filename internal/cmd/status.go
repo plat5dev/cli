@@ -90,7 +90,7 @@ func printSummary(stk *stack.Stack, st state.State) {
 	}
 	w.row("Control plane", c.ControlPlaneURL, "admin token "+c.AdminToken)
 	if stk.Has(config.ModuleOperator) {
-		w.row("Operator gateway", c.URL(ports.Operator), "routes: "+relPath(c.Dir, c.OperatorRoutes))
+		w.row("Operator gateway", c.URL(ports.Operator), "config: "+relPath(c.Dir, c.OperatorConfig))
 		w.row("Operator IdP", c.URL(ports.OperatorAuth), "")
 	}
 	if stk.Has(config.ModuleObservability) {

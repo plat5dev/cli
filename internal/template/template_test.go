@@ -23,7 +23,6 @@ func writeFiles(t *testing.T, dir string, files map[string]string) {
 const apiManifest = `name: demo-api
 kind: api
 config: plat5.yml
-operator_routes: ./routes.operator.yml
 substitute: [package.json]
 app:
   compose: docker-compose.yml
@@ -38,7 +37,6 @@ func writeStarter(t *testing.T, dir string) {
 		"plat5.yml":             "services: [services/api.yml]\n",
 		"plat5.local.yml":       "project_id: demo-api\n",
 		"services/api.yml":      "api: {url: \"http://api:3000\"}\n",
-		"routes.operator.yml":   "services: {}\n",
 		".github/workflows/ci":  "on: push\n",
 		"package.json":          `{"name":"{{project_id}}"}`,
 		"docker-compose.yml":    "services:\n  api: {}\n",
@@ -79,7 +77,6 @@ func TestCopy(t *testing.T) {
 		"plat5.yml":             false,
 		"plat5.local.yml":       false,
 		"services":              false,
-		"routes.operator.yml":   false,
 		".github":               false,
 		"node_modules":          false,
 		"dist":                  false,

@@ -38,10 +38,6 @@ type Manifest struct {
 	// config. plat5 init copies it and the service files it lists, adding only
 	// the customer console's origin.
 	Config string `yaml:"config"`
-	// OperatorRoutes is an API starter's routes for an operator gateway: a
-	// services: block in operator's route format. plat5 init adds its services to
-	// operator.routes.yml.
-	OperatorRoutes string `yaml:"operator_routes"`
 	// Substitute is the files whose {{project_id}} plat5 init replaces with the
 	// project id.
 	Substitute []string `yaml:"substitute"`
@@ -146,7 +142,7 @@ func (t *Template) Check(want string) error {
 	if len(missing) > 0 {
 		return fmt.Errorf("%s: %s needs %s", t.Origin, ManifestName, strings.Join(missing, ", "))
 	}
-	for _, p := range append([]string{m.App.Compose, m.Config, m.OperatorRoutes}, m.Substitute...) {
+	for _, p := range append([]string{m.App.Compose, m.Config}, m.Substitute...) {
 		if _, err := t.Path(p); p != "" && err != nil {
 			return err
 		}
@@ -179,9 +175,6 @@ func (t *Template) Copy(dest, projectID string) error {
 	root := append([]string{}, projectFiles...)
 	if t.Manifest.Config != "" {
 		root = append(root, filepath.Clean(t.Manifest.Config))
-	}
-	if t.Manifest.OperatorRoutes != "" {
-		root = append(root, filepath.Clean(t.Manifest.OperatorRoutes))
 	}
 	root = append(root, t.Manifest.Exclude...)
 

@@ -40,12 +40,12 @@ func TestRenderedDevYMLResolves(t *testing.T) {
 		if ch.modules[config.ModuleObservability] != r.Modules[config.ModuleObservability] || ch.modules[config.ModuleOperator] != r.Modules[config.ModuleOperator] {
 			t.Fatalf("%s: modules %v", name, r.Modules)
 		}
-		wantRoutes := ""
+		wantConfig := ""
 		if ch.modules[config.ModuleOperator] {
-			wantRoutes = filepath.Clean("/proj/operator.routes.yml")
+			wantConfig = filepath.Clean("/proj/operator.yml")
 		}
-		if r.OperatorRoutes != wantRoutes || r.OperatorConsole != "" {
-			t.Fatalf("%s: operator: %q %q (want %q)", name, r.OperatorRoutes, r.OperatorConsole, wantRoutes)
+		if r.OperatorConfig != wantConfig || r.OperatorConsole != "" {
+			t.Fatalf("%s: operator: %q %q (want %q)", name, r.OperatorConfig, r.OperatorConsole, wantConfig)
 		}
 		if !strings.Contains(yml, `cli: ">=`+config.SchemaVersion+`"`) {
 			t.Fatalf("%s: cli floor:\n%s", name, yml)

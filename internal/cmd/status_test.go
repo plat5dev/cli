@@ -17,7 +17,7 @@ func summaryStack(t *testing.T, exclude ...string) *stack.Stack {
 versions: {plat5: v0.9.0, auth: v0.2.2, operator: v0.5.0}
 app: {compose: ./docker-compose.yml, web: "http://localhost:3001"}
 operator:
-  routes: ./operator.routes.yml
+  config: ./operator.yml
   console: {compose: ./operator-console/docker-compose.yml, web: "http://localhost:5412"}
 `))
 	if err != nil {
@@ -51,7 +51,7 @@ Plat5
   Gateway           http://localhost:5400
   Auth              http://localhost:5401  sign-up codes: plat5 logs auth | grep code
   Control plane     http://localhost:5402  admin token dev-admin-token
-  Operator gateway  http://localhost:5410  routes: operator.routes.yml
+  Operator gateway  http://localhost:5410  config: operator.yml
   Operator IdP      http://localhost:5411
   Grafana           http://localhost:5403  Plat5 folder: Service Health, Auth, Debug
 

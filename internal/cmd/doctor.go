@@ -63,7 +63,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	}
 	check("app.compose", config.CheckFile("app.compose", cfg.AppCompose))
 	if stk.Has(config.ModuleOperator) {
-		check("operator.routes", stk.CheckOperator())
+		check("operator.config", stk.CheckOperator())
 	}
 	if conf, err := plat5yml.Load(cfg.ConfigPath); err != nil {
 		check(config.ConfigFileName, err)

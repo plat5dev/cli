@@ -32,7 +32,7 @@ The operator console is at {{.Operator}}: sign in as `{{.OpEmail}}` / `{{.Passwo
 | `services/` | The service files `plat5.yml` lists: your API's, with its url and its routes by scope, and identity's and audit's, from `plat5 routes generate`. After changing the kinds, run `plat5 routes generate` and review the diff |
 | `plat5.local.yml` | How `plat5 start` runs the project on your machine: image versions, modules, your apps |
 | `docker-compose.yml` | Runs your apps: it includes each folder's own compose file |
-| `operator.routes.yml` | The operator gateway's route list: what operators may call, with your API's paths from the starter. `plat5 start`'s operator gateway mounts it |
+| `operator.yml` | The operator gateway's config: core services, control-plane discovery, and AuthZEN authorizer settings. `plat5 start`'s operator gateway mounts it |
 
 ## Extend it
 
@@ -50,7 +50,7 @@ The operator console is at {{.Operator}}: sign in as `{{.OpEmail}}` / `{{.Passwo
 {{end}}
 ### Let operators call your API
 
-List your API's own paths, by node id, under your API's service in `operator.routes.yml` ([`docs/reference/routes.md`](https://github.com/plat5dev/operator/blob/master/docs/reference/routes.md)). The operator gateway forwards them unchanged; `plat5 start` again restarts it on the new list.
+Your API's services and routes in `plat5.yml` are discovered automatically by the operator gateway at `/services/<service>/<upstream_path>` ([`docs/reference/config.md`](https://github.com/plat5dev/operator/blob/master/docs/reference/config.md)). Add internal-only services or switch `authorizer.mode` to `authzen` in `operator.yml`; `plat5 start` again restarts it on the new config.
 
 ### Remove what you don't need
 

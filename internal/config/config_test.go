@@ -196,7 +196,7 @@ source: {plat5: ../plat5, operator: ../operator}
 // the console's origin from operator:.
 func TestOperator(t *testing.T) {
 	r, err := resolve(t, fullYML+`operator:
-  routes: ./operator.routes.yml
+  config: ./operator.yml
   console:
     compose: ./operator-console/docker-compose.yml
     web: http://localhost:5412/
@@ -207,8 +207,8 @@ func TestOperator(t *testing.T) {
 	if !r.Modules[ModuleOperator] || strings.Join(r.NeededVersions(), ",") != "plat5,auth,operator" {
 		t.Fatalf("modules %v, needed %v", r.Modules, r.NeededVersions())
 	}
-	if r.OperatorRoutes != filepath.Clean("/proj/operator.routes.yml") || r.OperatorConsole != filepath.Clean("/proj/operator-console/docker-compose.yml") {
-		t.Fatalf("files: %q %q", r.OperatorRoutes, r.OperatorConsole)
+	if r.OperatorConfig != filepath.Clean("/proj/operator.yml") || r.OperatorConsole != filepath.Clean("/proj/operator-console/docker-compose.yml") {
+		t.Fatalf("files: %q %q", r.OperatorConfig, r.OperatorConsole)
 	}
 	if r.OperatorWeb != "http://localhost:5412" || strings.Join(r.OperatorRedirectURIs(), ",") != "http://localhost:5412/callback" {
 		t.Fatalf("console: %q %v", r.OperatorWeb, r.OperatorRedirectURIs())
@@ -219,7 +219,7 @@ func TestOperator(t *testing.T) {
 
 	// operator.origins adds to the console's origin, each with its /callback.
 	r, err = resolve(t, fullYML+`operator:
-  routes: ./operator.routes.yml
+  config: ./operator.yml
   console: {web: "http://localhost:5412"}
   origins: ["http://localhost:5173/", "http://localhost:5412"]
 `)
@@ -234,7 +234,7 @@ func TestOperator(t *testing.T) {
 	}
 
 	// Without a console, only operator.origins.
-	r, err = resolve(t, fullYML+`operator: {routes: ./operator.routes.yml, origins: ["http://localhost:5173"]}
+	r, err = resolve(t, fullYML+`operator: {config: ./operator.yml, origins: ["http://localhost:5173"]}
 `)
 	if err != nil || strings.Join(r.OperatorOrigins(), ",") != "http://localhost:5173" {
 		t.Fatalf("no console: %v %v", r.OperatorOrigins(), err)

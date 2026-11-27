@@ -1,5 +1,5 @@
 # Embedded by plat5 CLI: the operator module. Operator's gateway on the project's
-# operator.routes.yml (the override mounts it), operator-audit with the operator audit
+# operator.yml (the override mounts it), operator-audit with the operator audit
 # log in its own database, and the operator IdP: a second Plat5 Auth in dev mode,
 # never the customer IdP, with POST /dev/token and the seeded operator@example.com /
 # password. Env and health checks follow operator's compose/docker-compose.yml.
@@ -14,7 +14,7 @@ services:
     ports:
       - "${OPERATOR_PORT:?}:5004"
     environment:
-      ROUTES_FILE: /etc/operator/routes.yml
+      CONFIG_FILE: /etc/operator/operator.yml
       IDENTITY_URL: http://identity:3000
       # The operator IdP: the operator id is its user id, and the email is in the
       # token because operator-auth sets AUTH_TOKEN_EMAIL. Its aud is the client id.
@@ -33,6 +33,8 @@ services:
       operator-audit:
         condition: service_healthy
       identity:
+        condition: service_started
+      control-plane:
         condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8004/health/ready"]

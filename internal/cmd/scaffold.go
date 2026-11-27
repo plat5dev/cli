@@ -21,20 +21,19 @@ const (
 	customerConsoleDir = template.KindCustomerConsole
 	operatorConsoleDir = template.KindOperatorConsole
 	projectCompose     = "docker-compose.yml"
-	operatorRoutesFile = "operator.routes.yml"
+	operatorConfigFile = "operator.yml"
 	projectReadmeFile  = "README.md"
 )
 
-// operatorShippedRoutes is operator's shipped route list (operator's routes.yml),
-// which operator.routes.yml starts from.
+// operatorDefaultConfig is the starter operator.yml written by plat5 init.
 //
-//go:embed operatorfiles/routes.yml
-var operatorShippedRoutes []byte
+//go:embed operatorfiles/operator.yml
+var operatorDefaultConfig []byte
 
 // layout is a project laid out from an API starter: the starter's plat5.yml and
 // service files at the root, the starter in api/, the customer console in
 // customer-console/, the operator console in operator-console/, a
-// docker-compose.yml that includes each app's, and operator.routes.yml.
+// docker-compose.yml that includes each app's, and operator.yml.
 type layout struct {
 	starter *template.Template
 	// customerConsole is nil with --no-customer-console.
@@ -45,8 +44,8 @@ type layout struct {
 	config []byte
 	// serviceFiles is the service files it lists, by path from the project.
 	serviceFiles []projectFile
-	// operatorRoutes is operator.routes.yml (nil when the operator module is off).
-	operatorRoutes []byte
+	// operatorConfig is operator.yml (nil when the operator module is off).
+	operatorConfig []byte
 }
 
 // loadLayout fetches the starter and the consoles, and reads what init writes
@@ -80,20 +79,11 @@ func loadLayout(opts template.ResolveOptions, starter string, customerConsole, o
 			return nil, err
 		}
 	}
-	m := l.starter.Manifest
 	if err := l.readConfig(); err != nil {
 		return nil, err
 	}
 	if withOperator {
-		var starterRoutes []byte
-		if m.OperatorRoutes != "" {
-			if starterRoutes, err = l.starter.ReadFile(m.OperatorRoutes); err != nil {
-				return nil, err
-			}
-		}
-		if l.operatorRoutes, err = operatorRoutes(operatorShippedRoutes, m.Name, starterRoutes); err != nil {
-			return nil, err
-		}
+		l.operatorConfig = operatorDefaultConfig
 	}
 	return l, nil
 }
@@ -156,8 +146,8 @@ func (l *layout) targets() []string {
 		out = append(out, operatorConsoleDir)
 	}
 	out = append(out, projectCompose)
-	if len(l.operatorRoutes) > 0 {
-		out = append(out, operatorRoutesFile)
+	if len(l.operatorConfig) > 0 {
+		out = append(out, operatorConfigFile)
 	}
 	return append(out, projectReadmeFile)
 }
@@ -228,8 +218,8 @@ func (l *layout) write(dir, projectID string) error {
 	if err := writeFile(dir, projectCompose, []byte(l.compose())); err != nil {
 		return err
 	}
-	if len(l.operatorRoutes) > 0 {
-		if err := writeFile(dir, operatorRoutesFile, l.operatorRoutes); err != nil {
+	if len(l.operatorConfig) > 0 {
+		if err := writeFile(dir, operatorConfigFile, l.operatorConfig); err != nil {
 			return err
 		}
 	}
@@ -268,57 +258,6 @@ func (l *layout) compose() string {
 		fmt.Fprintf(&b, "  - %s\n", c)
 	}
 	return b.String()
-}
-
-// operatorRoutes is operator.routes.yml: operator's shipped list, with the
-// starter's routes.operator.yml services (starterRoutes, nil for none) added
-// under its services:.
-func operatorRoutes(shipped []byte, starter string, starterRoutes []byte) ([]byte, error) {
-	var b bytes.Buffer
-	b.WriteString("# The operator gateway's route list (https://github.com/plat5dev/operator/blob/master/docs/reference/routes.md): what\n")
-	b.WriteString("# operators may call, by service, at each service's own paths. plat5 init wrote\n")
-	if starterRoutes == nil {
-		b.WriteString("# operator's shipped list. The project owns it: plat5 start's operator gateway\n")
-		b.WriteString("# mounts it as its ROUTES_FILE (operator.routes in plat5.local.yml); a deployed\n")
-		b.WriteString("# one mounts a copy with the deployment's addresses.\n#\n")
-	} else {
-		b.WriteString("# operator's shipped list and the starter's operator routes. The project owns\n")
-		b.WriteString("# it: plat5 start's operator gateway mounts it as its ROUTES_FILE (operator.routes\n")
-		b.WriteString("# in plat5.local.yml); a deployed one mounts a copy with the deployment's addresses.\n#\n")
-	}
-	b.Write(shipped)
-	if starterRoutes == nil {
-		return b.Bytes(), nil
-	}
-
-	var doc map[string]map[string]any
-	if err := yaml.Unmarshal(starterRoutes, &doc); err != nil {
-		return nil, fmt.Errorf("the starter's operator routes: %w", err)
-	}
-	if len(doc) != 1 || len(doc["services"]) == 0 {
-		return nil, fmt.Errorf("the starter's operator routes: want a services: block alone")
-	}
-	_, services, ok := bytes.Cut(append([]byte("\n"), starterRoutes...), []byte("\nservices:\n"))
-	if !ok {
-		return nil, fmt.Errorf("the starter's operator routes: want a line services: at the top level")
-	}
-	fmt.Fprintf(&b, "  # %s's API, from its routes.operator.yml.\n", starter)
-	b.Write(services)
-
-	var merged struct {
-		Services map[string]any `yaml:"services"`
-	}
-	var own map[string]map[string]any
-	if err := yaml.Unmarshal(shipped, &own); err != nil {
-		return nil, err
-	}
-	if err := yaml.Unmarshal(b.Bytes(), &merged); err != nil {
-		return nil, fmt.Errorf("the starter's operator routes don't fit operator's list: %w", err)
-	}
-	if len(merged.Services) != len(own["services"])+len(doc["services"]) {
-		return nil, fmt.Errorf("the starter's operator routes don't fit operator's list: a service is named twice, or services: isn't its last key")
-	}
-	return b.Bytes(), nil
 }
 
 //go:embed project_readme.md.tmpl

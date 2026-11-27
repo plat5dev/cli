@@ -167,8 +167,8 @@ type GatewayBlock struct {
 
 // OperatorBlock is what the operator module runs from the project.
 type OperatorBlock struct {
-	// Routes is the operator gateway's route list, its ROUTES_FILE.
-	Routes string `yaml:"routes"`
+	// Config is the operator gateway's config file, its CONFIG_FILE (operator.yml).
+	Config string `yaml:"config"`
 	// Console is the operator console: its compose file, which app.compose
 	// includes and plat5 start runs only with the module, and its browser origin,
 	// allowed to sign in with the operator IdP and to call the operator gateway.
@@ -261,8 +261,8 @@ type Resolved struct {
 	IdP          IdPBlock
 	OtelEndpoint string
 
-	// OperatorRoutes is the operator gateway's route file. Absolute; empty = unset.
-	OperatorRoutes string
+	// OperatorConfig is the operator gateway's config file. Absolute; empty = unset.
+	OperatorConfig string
 	// OperatorConsole is the operator console's compose file (absolute), and
 	// OperatorWeb its origin. Empty: no operator console.
 	OperatorConsole string
@@ -354,7 +354,7 @@ func Resolve(f *File, path string, o Overrides) (Resolved, error) {
 		r.Versions[k] = strings.TrimSpace(v)
 	}
 
-	r.OperatorRoutes = resolveAgainst(dir, strings.TrimSpace(f.Operator.Routes))
+	r.OperatorConfig = resolveAgainst(dir, strings.TrimSpace(f.Operator.Config))
 	r.OperatorConsole = resolveAgainst(dir, strings.TrimSpace(f.Operator.Console.Compose))
 	if web := strings.TrimSpace(f.Operator.Console.Web); web != "" {
 		origin, err := parseOrigin(web)

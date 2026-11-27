@@ -25,9 +25,9 @@ import (
 // themeContainerPath is where the override mounts the sign-in theme.
 const themeContainerPath = "/config/theme.json"
 
-// operatorRoutesPath is where the override mounts operator.routes.yml, the
-// operator gateway's ROUTES_FILE.
-const operatorRoutesPath = "/etc/operator/routes.yml"
+// operatorConfigPath is where the override mounts operator.yml, the
+// operator gateway's CONFIG_FILE.
+const operatorConfigPath = "/etc/operator/operator.yml"
 
 // Stack is one project's local stack.
 type Stack struct {
@@ -153,26 +153,26 @@ func (s *Stack) Ports() map[ports.Name]int {
 }
 
 // CheckOperator says whether the project has what the operator module runs: the
-// route file (valid YAML with a services: mapping), and the operator console's
-// compose file if it names one. Nil without the module.
+// config file (valid YAML with services: or control_plane:), and the operator
+// console's compose file if it names one. Nil without the module.
 func (s *Stack) CheckOperator() error {
 	if !s.Has(config.ModuleOperator) {
 		return nil
 	}
 	c := s.Config
-	if c.OperatorRoutes == "" {
-		return fmt.Errorf("operator.routes: the operator gateway's route list is required with the operator module (plat5 init writes operator.routes.yml); or turn modules.operator off")
+	if c.OperatorConfig == "" {
+		return fmt.Errorf("operator.config: the operator gateway's config file is required with the operator module (plat5 init writes operator.yml); or turn modules.operator off")
 	}
-	if err := config.CheckFile("operator.routes", c.OperatorRoutes); err != nil {
+	if err := config.CheckFile("operator.config", c.OperatorConfig); err != nil {
 		return err
 	}
-	if err := checkOperatorRoutesYAML(c.OperatorRoutes); err != nil {
-		return fmt.Errorf("operator.routes (%s): %w", c.OperatorRoutes, err)
+	if err := checkOperatorConfigYAML(c.OperatorConfig); err != nil {
+		return fmt.Errorf("operator.config (%s): %w", c.OperatorConfig, err)
 	}
 	return config.CheckFile("operator.console.compose", c.OperatorConsole)
 }
 
-func checkOperatorRoutesYAML(path string) error {
+func checkOperatorConfigYAML(path string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
@@ -181,47 +181,47 @@ func checkOperatorRoutesYAML(path string) error {
 	if err := yaml.Unmarshal(data, &doc); err != nil {
 		return err
 	}
-	raw, ok := doc["services"]
-	if !ok {
-		return fmt.Errorf("missing top-level services: mapping")
+	_, hasServices := doc["services"]
+	_, hasCP := doc["control_plane"]
+	if !hasServices && !hasCP {
+		return fmt.Errorf("must set services: or control_plane:")
 	}
-	services, ok := raw.(map[string]any)
-	if !ok {
-		return fmt.Errorf("services must be a mapping")
-	}
-	for name, entry := range services {
-		svc, ok := entry.(map[string]any)
+	if raw, ok := doc["services"]; ok && raw != nil {
+		services, ok := raw.(map[string]any)
 		if !ok {
-			return fmt.Errorf("services.%s must be a mapping", name)
+			return fmt.Errorf("services must be a mapping")
 		}
-		if u, _ := svc["url"].(string); strings.TrimSpace(u) == "" {
-			return fmt.Errorf("services.%s.url is required", name)
-		}
-		if _, ok := svc["routes"]; !ok {
-			return fmt.Errorf("services.%s.routes is required", name)
+		for name, entry := range services {
+			svc, ok := entry.(map[string]any)
+			if !ok {
+				return fmt.Errorf("services.%s must be a mapping", name)
+			}
+			if u, _ := svc["url"].(string); strings.TrimSpace(u) == "" && !hasCP {
+				return fmt.Errorf("services.%s.url is required when control_plane is not set", name)
+			}
 		}
 	}
 	return nil
 }
 
-// OperatorRoutesChanged reports whether operator.routes.yml differs from the
+// OperatorConfigChanged reports whether operator.yml differs from the
 // hash written to override.yml on the previous start. False on a fresh stack.
-func (s *Stack) OperatorRoutesChanged() bool {
-	if !s.Has(config.ModuleOperator) || s.Config.OperatorRoutes == "" {
+func (s *Stack) OperatorConfigChanged() bool {
+	if !s.Has(config.ModuleOperator) || s.Config.OperatorConfig == "" {
 		return false
 	}
 	prev, err := os.ReadFile(filepath.Join(s.Dir, "override.yml"))
 	if err != nil {
 		return false
 	}
-	const key = "dev.plat5.routes-sha256: "
+	const key = "dev.plat5.operator-config-sha256: "
 	_, rest, ok := strings.Cut(string(prev), key)
 	if !ok {
 		return false
 	}
 	line, _, _ := strings.Cut(rest, "\n")
 	oldHash := strings.Trim(strings.TrimSpace(line), `"`)
-	data, err := os.ReadFile(s.Config.OperatorRoutes)
+	data, err := os.ReadFile(s.Config.OperatorConfig)
 	if err != nil {
 		return false
 	}
@@ -432,11 +432,11 @@ func (s *Stack) override() string {
 	if s.Has(config.ModuleOperator) {
 		get("operator-auth").env["AUTH_THEME_FILE"] = themeContainerPath
 		mount("operator-auth", filepath.Join(s.Dir, "operator-auth-theme.json"), themeContainerPath)
-		if c.OperatorRoutes != "" {
-			mount("operator", c.OperatorRoutes, operatorRoutesPath)
-			// The gateway reads its routes at boot: a changed file recreates it.
-			if data, err := os.ReadFile(c.OperatorRoutes); err == nil {
-				get("operator").labels["dev.plat5.routes-sha256"] = fmt.Sprintf("%x", sha256.Sum256(data))
+		if c.OperatorConfig != "" {
+			mount("operator", c.OperatorConfig, operatorConfigPath)
+			// The gateway reads its config at boot: a changed file recreates it.
+			if data, err := os.ReadFile(c.OperatorConfig); err == nil {
+				get("operator").labels["dev.plat5.operator-config-sha256"] = fmt.Sprintf("%x", sha256.Sum256(data))
 			}
 		}
 	}

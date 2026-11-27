@@ -34,7 +34,7 @@ var startCmd = &cobra.Command{
 Plat5 always runs. Beside it, the modules plat5.local.yml turns on:
   auth           Plat5 Auth, the customer IdP, in dev mode (default on)
   observability  Grafana with logs, traces, and metrics (default on)
-  operator       the operator gateway on operator.routes.yml, operator-audit, and
+  operator       the operator gateway on operator.yml, operator-audit, and
                  the operator IdP (default on)
 Then your app, from app.compose in plat5.local.yml. The operator console, which
 app.compose includes, runs only with the operator module.
@@ -136,7 +136,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 	if err := ports.Check(stk.Ports(), func(p int) bool { return owned[p] }); err != nil {
 		return fmt.Errorf("%w%s", err, portHolders(stk.Ports(), cfg.ComposeProject))
 	}
-	opRoutesChanged := stk.OperatorRoutesChanged()
+	opConfigChanged := stk.OperatorConfigChanged()
 	if err := stk.Prepare(); err != nil {
 		return err
 	}
@@ -152,8 +152,8 @@ func runStart(cmd *cobra.Command, args []string) error {
 	defer out.Close()
 
 	fmt.Printf("Starting %s…\n", what)
-	if opRoutesChanged {
-		fmt.Printf("  operator: restarting gateway (%s changed)\n", relPath(cfg.Dir, cfg.OperatorRoutes))
+	if opConfigChanged {
+		fmt.Printf("  operator: restarting gateway (%s changed)\n", relPath(cfg.Dir, cfg.OperatorConfig))
 	}
 	runner := stk.Runner()
 	runner.Output = out.w

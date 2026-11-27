@@ -1,0 +1,23 @@
+# Operator gateway config (https://github.com/plat5dev/operator/blob/master/docs/reference/config.md).
+# Services in plat5.yml and their upstream route templates are discovered automatically
+# from Plat5's control plane. Core services (identity, audit, operator-audit) carry
+# built-in route templates for node resolution and normalized audit routes.
+control_plane:
+  url: http://control-plane:5003
+
+services:
+  identity:
+    url: http://identity:3000
+  audit:
+    url: http://audit:3002
+  operator-audit:
+    url: http://operator-audit:5005
+
+# Local dev defaults to disabled. For production (or local AuthZEN testing), switch to
+# mode: authzen and point url at your OpenID AuthZEN 1.0 PDP (e.g. Topaz or Cerbos):
+# authorizer:
+#   mode: authzen
+#   url: http://topaz:8383
+#   timeout: 2s
+authorizer:
+  mode: disabled

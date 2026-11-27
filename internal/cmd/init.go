@@ -59,7 +59,7 @@ var initCmd = &cobra.Command{
                        roles, the service files
   services/            identity's and audit's service files
   plat5.local.yml      how plat5 start runs it on your machine
-  operator.routes.yml  the operator gateway's route list (when operator is on)
+  operator.yml         the operator gateway's config (when operator is on)
 
 With an API starter (--template go-fiber-api), instead:
 
@@ -88,7 +88,7 @@ Presets (--preset, with --template none):
 Without a directory, the project is the current directory, and the project id
 is the directory's name; --project-id sets another, written to plat5.local.yml's
 project_id. One folder per project id: init refuses an id another folder owns.
-An existing plat5.yml, service file or operator.routes.yml is kept with
+An existing plat5.yml, service file or operator.yml is kept with
 --template none; a starter refuses a project that has any of its files.
 
 A starter is a first-party name (go-fiber-api, go-topaz-api, node-fastify-api,
@@ -187,7 +187,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		if ch.modules[config.ModuleOperator] {
-			if err := writeOperatorRoutes(ch.dir); err != nil {
+			if err := writeOperatorConfig(ch.dir); err != nil {
 				return err
 			}
 		}
@@ -295,18 +295,14 @@ func writeInitFiles(dir string) error {
 	})
 }
 
-// writeOperatorRoutes writes operator.routes.yml from operator's shipped list
-// alone, keeping one that exists: --template none has no starter routes.
-func writeOperatorRoutes(dir string) error {
-	if _, err := os.Stat(filepath.Join(dir, operatorRoutesFile)); err == nil {
-		fmt.Println("  kept", operatorRoutesFile)
+// writeOperatorConfig writes operator.yml from the default operator config,
+// keeping one that exists.
+func writeOperatorConfig(dir string) error {
+	if _, err := os.Stat(filepath.Join(dir, operatorConfigFile)); err == nil {
+		fmt.Println("  kept", operatorConfigFile)
 		return nil
 	}
-	routes, err := operatorRoutes(operatorShippedRoutes, "", nil)
-	if err != nil {
-		return err
-	}
-	return writeFile(dir, operatorRoutesFile, routes)
+	return writeFile(dir, operatorConfigFile, operatorDefaultConfig)
 }
 
 // initChoose settles the directory, starter, preset, authorizer, modules,
@@ -549,17 +545,17 @@ func renderDevYML(projectID string, ch initChoices, versions map[string]string, 
 
 	if ch.modules[config.ModuleOperator] {
 		if lay != nil && lay.operatorConsole != nil {
-			p("# The operator module: the operator gateway on operator.routes.yml, its IdP and\n")
+			p("# The operator module: the operator gateway on operator.yml, its IdP and\n")
 			p("# audit log, and operator-console/, which docker-compose.yml includes and plat5\n")
 			p("# start runs only with the module.\n")
-			p("operator:\n  routes: ./%s\n", operatorRoutesFile)
+			p("operator:\n  config: ./%s\n", operatorConfigFile)
 			p("  console:\n    compose: ./%s\n", lay.operatorConsoleCompose())
 			p("    web: %s  # may sign in with the operator IdP and call the operator gateway\n", yamlString(lay.operatorWeb()))
 			p("  # origins: []          # more origins the operator side allows, each with <origin>/callback\n\n")
 		} else {
-			p("# The operator module: the operator gateway on operator.routes.yml, its IdP and\n")
+			p("# The operator module: the operator gateway on operator.yml, its IdP and\n")
 			p("# audit log.\n")
-			p("operator:\n  routes: ./%s\n", operatorRoutesFile)
+			p("operator:\n  config: ./%s\n", operatorConfigFile)
 			p("  # origins: []          # browser origins the operator side allows, each with <origin>/callback\n\n")
 		}
 	}

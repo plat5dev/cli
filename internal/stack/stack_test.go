@@ -29,7 +29,7 @@ func resolved(t *testing.T, yml string) config.Resolved {
 const allOn = `project_id: demo
 versions: {plat5: v0.7.0, auth: v0.2.0, operator: v0.5.0}
 app: {web: "http://localhost:3001"}
-operator: {routes: ./operator.routes.yml}
+operator: {config: ./operator.yml}
 `
 
 func newStack(t *testing.T, yml string, exclude ...string) *Stack {
@@ -308,10 +308,10 @@ func TestAppOverride(t *testing.T) {
 func withConsole(t *testing.T, extra string, exclude ...string) *Stack {
 	t.Helper()
 	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, "operator.routes.yml"), "services: {}\n")
+	writeFile(t, filepath.Join(dir, "operator.yml"), "services: {}\n")
 	writeFile(t, filepath.Join(dir, "operator-console", "docker-compose.yml"), "services:\n  operator-console:\n    image: busybox\n")
-	yml := strings.Replace(allOn, "operator: {routes: ./operator.routes.yml}\n",
-		"operator:\n  routes: ./operator.routes.yml\n  console: {compose: ./operator-console/docker-compose.yml, web: \"http://localhost:5412\"}\n", 1) + extra
+	yml := strings.Replace(allOn, "operator: {config: ./operator.yml}\n",
+		"operator:\n  config: ./operator.yml\n  console: {compose: ./operator-console/docker-compose.yml, web: \"http://localhost:5412\"}\n", 1) + extra
 	f, err := config.Parse([]byte(yml))
 	if err != nil {
 		t.Fatal(err)
@@ -402,52 +402,52 @@ func TestOperatorOff(t *testing.T) {
 }
 
 func TestCheckOperator(t *testing.T) {
-	s := newStack(t, strings.Replace(allOn, "operator: {routes: ./operator.routes.yml}\n", "", 1))
-	if err := s.CheckOperator(); err == nil || !strings.Contains(err.Error(), "operator.routes") {
-		t.Fatalf("no routes: %v", err)
+	s := newStack(t, strings.Replace(allOn, "operator: {config: ./operator.yml}\n", "", 1))
+	if err := s.CheckOperator(); err == nil || !strings.Contains(err.Error(), "operator.config") {
+		t.Fatalf("no config: %v", err)
 	}
 	s = newStack(t, allOn)
 	if err := s.CheckOperator(); err == nil || !strings.Contains(err.Error(), "file not found") {
-		t.Fatalf("missing routes file: %v", err)
+		t.Fatalf("missing config file: %v", err)
 	}
-	writeFile(t, filepath.Join(s.Config.Dir, "operator.routes.yml"), "not: [valid\n")
-	if err := s.CheckOperator(); err == nil || !strings.Contains(err.Error(), "operator.routes") {
+	writeFile(t, filepath.Join(s.Config.Dir, "operator.yml"), "not: [valid\n")
+	if err := s.CheckOperator(); err == nil || !strings.Contains(err.Error(), "operator.config") {
 		t.Fatalf("bad yaml: %v", err)
 	}
-	writeFile(t, filepath.Join(s.Config.Dir, "operator.routes.yml"), "services:\n  api: {routes: []}\n")
+	writeFile(t, filepath.Join(s.Config.Dir, "operator.yml"), "services:\n  api: {}\n")
 	if err := s.CheckOperator(); err == nil || !strings.Contains(err.Error(), "services.api.url") {
 		t.Fatalf("missing url: %v", err)
 	}
-	writeFile(t, filepath.Join(s.Config.Dir, "operator.routes.yml"), "services:\n  api: {url: http://api:3000, routes: []}\n")
+	writeFile(t, filepath.Join(s.Config.Dir, "operator.yml"), "services:\n  api: {url: http://api:3000}\nauthorizer: {mode: disabled}\n")
 	if err := s.CheckOperator(); err != nil {
-		t.Fatalf("valid routes: %v", err)
+		t.Fatalf("valid config: %v", err)
 	}
-	// OperatorRoutesChanged: false before first Prepare, false when unchanged, true after edit.
-	if s.OperatorRoutesChanged() {
+	// OperatorConfigChanged: false before first Prepare, false when unchanged, true after edit.
+	if s.OperatorConfigChanged() {
 		t.Fatal("fresh stack should not report changed")
 	}
 	if err := s.Prepare(); err != nil {
 		t.Fatal(err)
 	}
-	if s.OperatorRoutesChanged() {
-		t.Fatal("unchanged routes should not report changed")
+	if s.OperatorConfigChanged() {
+		t.Fatal("unchanged config should not report changed")
 	}
-	writeFile(t, filepath.Join(s.Config.Dir, "operator.routes.yml"), "services:\n  api: {url: http://api:4000, routes: []}\n")
-	if !s.OperatorRoutesChanged() {
-		t.Fatal("modified routes should report changed")
+	writeFile(t, filepath.Join(s.Config.Dir, "operator.yml"), "services:\n  api: {url: http://api:4000}\nauthorizer: {mode: disabled}\n")
+	if !s.OperatorConfigChanged() {
+		t.Fatal("modified config should report changed")
 	}
 }
 
-// The override mounts operator.routes.yml as the gateway's ROUTES_FILE, labels
-// it with the file's hash so a changed list recreates the gateway, themes the
+// The override mounts operator.yml as the gateway's CONFIG_FILE, labels
+// it with the file's hash so a changed config recreates the gateway, themes the
 // operator IdP, and builds operator's images from a checkout.
 func TestOperatorOverride(t *testing.T) {
 	s := withConsole(t, "source: {operator: ../operator, auth: ../auth}\n")
 	o := s.override()
 	for _, want := range []string{
-		filepath.Join(s.Config.Dir, "operator.routes.yml") + ":/etc/operator/routes.yml:ro",
+		filepath.Join(s.Config.Dir, "operator.yml") + ":/etc/operator/operator.yml:ro",
 		"operator-auth-theme.json:/config/theme.json:ro",
-		"dev.plat5.routes-sha256: ",
+		"dev.plat5.operator-config-sha256: ",
 		"image: plat5-source/operator:demo",
 		"image: plat5-source/operator-audit:demo",
 		"image: plat5-source/operator-audit-migrate:demo",
@@ -508,7 +508,7 @@ func TestOperatorComposeConfig(t *testing.T) {
 		t.Errorf("images: %s %s %s", op.Image, cfg.Services["operator-audit"].Image, cfg.Services["operator-auth"].Image)
 	}
 	for k, want := range map[string]string{
-		"ROUTES_FILE":            "/etc/operator/routes.yml",
+		"CONFIG_FILE":            "/etc/operator/operator.yml",
 		"IDENTITY_URL":           "http://identity:3000",
 		"AUTH_ISSUER":            "http://localhost:5411",
 		"AUTH_ALLOWED_AUDIENCES": "operator-console",
@@ -524,7 +524,7 @@ func TestOperatorComposeConfig(t *testing.T) {
 	}
 	mounted := false
 	for _, v := range op.Volumes {
-		mounted = mounted || (v.Target == "/etc/operator/routes.yml" && v.Source == filepath.Join(s.Config.Dir, "operator.routes.yml"))
+		mounted = mounted || (v.Target == "/etc/operator/operator.yml" && v.Source == filepath.Join(s.Config.Dir, "operator.yml"))
 	}
 	if !mounted || len(op.Ports) != 1 || op.Ports[0].Published != "5410" || op.Ports[0].Target != 5004 {
 		t.Errorf("operator volumes %+v, ports %+v", op.Volumes, op.Ports)
