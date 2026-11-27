@@ -38,7 +38,7 @@ brew install plat5dev/tap/plat5
 curl -fsSL https://plat5.com/install.sh | sh
 ```
 
-macOS and Linux, amd64 and arm64. On Windows, use WSL2. The script verifies the release's checksum and installs to `/usr/local/bin` (or `~/.local/bin`); `PLAT5_CLI_VERSION=v0.16.0` pins a release, `PLAT5_INSTALL_DIR` picks the directory. Or download a tarball from [GitHub Releases](https://github.com/plat5dev/cli/releases). `plat5 --version` prints `plat5 0.16.0` (no leading `v`); `plat5 version` adds the image versions the project pins.
+macOS and Linux, amd64 and arm64. On Windows, use WSL2. The script verifies the release's checksum and installs to `/usr/local/bin` (or `~/.local/bin`); `PLAT5_CLI_VERSION=v0.17.0` pins a release, `PLAT5_INSTALL_DIR` picks the directory. Or download a tarball from [GitHub Releases](https://github.com/plat5dev/cli/releases). `plat5 --version` prints `plat5 0.17.0` (no leading `v`); `plat5 version` adds the image versions the project pins.
 
 From source: `go install github.com/plat5dev/cli/cmd/plat5@latest`.
 
@@ -144,16 +144,16 @@ Overlays merge left-to-right with RFC 7396 merge-patch semantics: maps merge rec
 
 How `plat5 start` runs the project on your machine. A deployment never reads it, and it holds nothing that's in `plat5.yml`. Found by walking up from the working directory; `plat5.yml` is the file beside it. Relative paths resolve against its directory. Unknown keys are errors, with a hint that a newer CLI may know them.
 
-`cli:` is the oldest CLI that reads the file. `plat5 init` writes the version that introduced the newest key it uses (`internal/config.SchemaVersion`), not its own version, and every command checks it first: an older CLI says the project needs a newer one and how to upgrade, instead of failing on a key. Raise `SchemaVersion` in a release that adds a key. A dev build, one built without a release version (`go build` from a checkout), passes every floor and says so in one line: `plat5: a dev build (no release version), so plat5.local.yml's cli: >=0.16.0 is not checked`.
+`cli:` is the oldest CLI that reads the file. `plat5 init` writes the version that introduced the newest key it uses (`internal/config.SchemaVersion`), not its own version, and every command checks it first: an older CLI says the project needs a newer one and how to upgrade, instead of failing on a key. Raise `SchemaVersion` in a release that adds a key. A dev build, one built without a release version (`go build` from a checkout), passes every floor and says so in one line: `plat5: a dev build (no release version), so plat5.local.yml's cli: >=0.17.0 is not checked`.
 
 ```yaml
 project_id: my-app                 # plat5 init --project-id, else the directory name; one folder per id, see State
-cli: ">=0.16.0"                    # the oldest plat5 CLI that reads this file
+cli: ">=0.17.0"                    # the oldest plat5 CLI that reads this file
 
 versions:                          # image tags; plat5 init writes the latest of each
-  plat5: v0.18.1
-  auth: v0.4.1                     # also the operator IdP's
-  operator: v0.8.0
+  plat5: v0.19.0
+  auth: v0.4.2                     # also the operator IdP's
+  operator: v0.9.0
 
 modules:                           # auth, observability, operator default true; authorizer defaults false
   auth: true
