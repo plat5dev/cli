@@ -275,7 +275,7 @@ rate_limits: { standard: { requests: 60, window: 60s } }
 defaults: { rate_limit: [standard] }
 services: [services/e10s.yml]
 `
-	e10s := "e10s:\n  url: http://e10s:3000\n  scopes:\n    team:\n      routes:\n        - { path: /h, methods: [GET] }\n"
+	e10s := "e10s:\n  url: http://e10s:3000\n  scopes:\n    public:\n      routes:\n        - { path: /h, methods: [GET] }\n"
 	_ = os.MkdirAll(filepath.Join(dir, "services"), 0o755)
 	_ = os.WriteFile(filepath.Join(dir, "plat5.yml"), []byte(plat5), 0o644)
 	_ = os.WriteFile(filepath.Join(dir, "services/e10s.yml"), []byte(e10s), 0o644)

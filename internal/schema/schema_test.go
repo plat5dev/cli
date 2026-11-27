@@ -229,6 +229,77 @@ func TestAuthorizerSchema(t *testing.T) {
 	}
 }
 
+func TestStaticRulesOffline(t *testing.T) {
+	// audit: true on public route (method-level and route-level) must fail offline.
+	c := sample()
+	c["services"] = map[string]any{
+		"pub": map[string]any{
+			"url": "http://pub:3000",
+			"scopes": map[string]any{
+				"public": map[string]any{
+					"routes": []any{
+						map[string]any{
+							"path":    "/public/audited",
+							"methods": map[string]any{"GET": map[string]any{"audit": true}},
+						},
+						map[string]any{
+							"path":    "/public/audited-route",
+							"audit":   true,
+							"methods": []any{"GET"},
+						},
+					},
+				},
+			},
+		},
+	}
+	errs, err := ValidateConfig(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(errs) != 2 ||
+		errs[0].Path != "services.pub.scopes.public.routes[0].methods.GET.audit" ||
+		errs[1].Path != "services.pub.scopes.public.routes[1].audit" {
+		t.Fatalf("expected 2 public-audit errors, got %v", errs)
+	}
+
+	// permissions/allow_deleted on user scope and missing permissions on kind scope fail offline.
+	c2 := sample()
+	c2["services"] = map[string]any{
+		"api": map[string]any{
+			"url": "http://api:3000",
+			"scopes": map[string]any{
+				"user": map[string]any{
+					"routes": []any{
+						map[string]any{"path": "/user/x", "methods": []any{"GET"}, "permissions": "organization:read", "allow_deleted": true},
+					},
+				},
+				"organization": map[string]any{
+					"routes": []any{
+						map[string]any{"path": "/items", "methods": []any{"GET"}},
+					},
+				},
+			},
+		},
+	}
+	errs, err = ValidateConfig(c2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := map[string]bool{}
+	for _, e := range errs {
+		paths[e.Path] = true
+	}
+	for _, want := range []string{
+		"services.api.scopes.user.routes[0].permissions",
+		"services.api.scopes.user.routes[0].allow_deleted",
+		"services.api.scopes.organization.routes[0].permissions",
+	} {
+		if !paths[want] {
+			t.Errorf("missing expected error at %s; got %v", want, errs)
+		}
+	}
+}
+
 // The copy tracks plat5's schema/. Checked when plat5 is checked out beside
 // the CLI, as in plat5dev.
 func TestMatchesPlat5(t *testing.T) {

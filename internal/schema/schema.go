@@ -81,7 +81,7 @@ func ValidateConfig(instance any) ([]FieldError, error) {
 	}
 	err = sch.Validate(instance)
 	if err == nil {
-		return nil, nil
+		return checkStaticRules(instance), nil
 	}
 	ve, ok := err.(*jsonschema.ValidationError)
 	if !ok {
