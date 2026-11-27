@@ -403,6 +403,14 @@ func TestExplainWithoutConfigPrintsFieldErrors(t *testing.T) {
 func TestConfigClientResolution(t *testing.T) {
 	t.Setenv("PLAT5_CONTROL_PLANE_URL", "")
 	t.Setenv("PLAT5_ADMIN_TOKEN", "")
+	t.Setenv("PLAT5_TOKEN", "")
+	t.Setenv("PLAT5_TOKEN_FILE", "")
+	t.Setenv("PLAT5_TOKEN_CMD", "")
+	t.Setenv("PLAT5_OIDC_TOKEN", "")
+	t.Setenv("PLAT5_OIDC_AUDIENCE", "")
+	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", "")
+	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	oldURL, oldTok := flagControlPlaneURL, flagAdminToken
 	flagControlPlaneURL, flagAdminToken = "", ""
 	t.Cleanup(func() { flagControlPlaneURL, flagAdminToken = oldURL, oldTok })
