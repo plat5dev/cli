@@ -119,7 +119,7 @@ func init() {
 	f.StringVar(&initSourcesDir, "sources", "", "Run the modules and first-party templates from their checkouts in this directory (plat5, auth, operator, template-<name>)")
 	f.StringVar(&initProjectID, "project-id", "", "The project id, written to plat5.local.yml (default: the directory's name)")
 	f.StringVar(&initTemplateRef, "template-ref", "", "Git ref of downloaded templates (default master; or PLAT5_TEMPLATE_REF)")
-	f.StringArrayVar(&initVersions, "version", nil, "Pin an image: plat5=v0.15.0 (repeatable; default the latest tag)")
+	f.StringArrayVar(&initVersions, "version", nil, "Pin an image: plat5=v0.19.0 (repeatable; default the latest tag)")
 }
 
 type initChoices struct {

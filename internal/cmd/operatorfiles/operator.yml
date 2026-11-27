@@ -17,7 +17,7 @@ services:
 # mode: authzen and point url at your OpenID AuthZEN 1.0 PDP (e.g. Topaz or Cerbos):
 # authorizer:
 #   mode: authzen
-#   url: http://topaz:8383
+#   url: http://topaz:9393
 #   timeout: 2s
 authorizer:
   mode: disabled

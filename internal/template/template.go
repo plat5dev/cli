@@ -169,8 +169,8 @@ func (t *Template) ReadFile(rel string) ([]byte, error) {
 }
 
 // Copy copies the template into dest, leaving out its project files, its
-// operator routes, its exclude list and noise, and then replaces {{project_id}}
-// in its substitute files. An existing file in dest is an error.
+// exclude list and noise, and then replaces {{project_id}} in its substitute
+// files. An existing file in dest is an error.
 func (t *Template) Copy(dest, projectID string) error {
 	root := append([]string{}, projectFiles...)
 	if t.Manifest.Config != "" {
