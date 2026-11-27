@@ -8,10 +8,13 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/plat5dev/cli/internal/config"
 	"github.com/plat5dev/cli/internal/controlplane"
 	"github.com/plat5dev/cli/internal/routegen"
 	"github.com/spf13/cobra"
 )
+
+var flagPermissionSeparator string
 
 var routesCmd = &cobra.Command{
 	Use:   "routes",
@@ -53,7 +56,34 @@ its services list names them.`,
 func init() {
 	addFileFlag(routesListCmd)
 	addFileFlag(routesGenerateCmd)
+	routesGenerateCmd.Flags().StringVar(&flagPermissionSeparator, "permission-separator", "", "Separator for generated permissions (:, _, ., or -; defaults to plat5.local.yml routes.permission_separator or :)")
 	routesCmd.AddCommand(routesListCmd, routesGenerateCmd)
+}
+
+func resolvePermissionSeparator(configPath string) (string, error) {
+	if s := strings.TrimSpace(flagPermissionSeparator); s != "" {
+		if err := config.ValidatePermissionSeparator(s); err != nil {
+			return "", err
+		}
+		return s, nil
+	}
+	localPath := filepath.Join(filepath.Dir(configPath), config.FileName)
+	data, err := os.ReadFile(localPath)
+	if err == nil {
+		f, err := config.Parse(data)
+		if err != nil {
+			return "", fmt.Errorf("%s: %w", config.FileName, err)
+		}
+		if s := strings.TrimSpace(f.Routes.PermissionSeparator); s != "" {
+			if err := config.ValidatePermissionSeparator(s); err != nil {
+				return "", fmt.Errorf("%s: %w", config.FileName, err)
+			}
+			return s, nil
+		}
+	} else if !os.IsNotExist(err) {
+		return "", err
+	}
+	return config.DefaultPermissionSeparator, nil
 }
 
 func runRoutesGenerate(cmd *cobra.Command, args []string) error {
@@ -61,7 +91,11 @@ func runRoutesGenerate(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	written, err := routegen.WriteFiles(paths...)
+	sep, err := resolvePermissionSeparator(paths[0])
+	if err != nil {
+		return err
+	}
+	written, err := routegen.WriteFiles(routegen.Options{PermissionSeparator: sep}, paths...)
 	if err != nil {
 		return err
 	}

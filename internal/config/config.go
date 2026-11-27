@@ -64,11 +64,23 @@ func DefaultModuleOn(m string) bool {
 	return m != ModuleAuthorizer
 }
 
-// Supported local authorizer providers and default image.
+// Supported local authorizer providers and pinned default image.
 const (
-	AuthorizerProviderTopaz = "topaz"
-	DefaultTopazImage       = "ghcr.io/aserto-dev/topaz:latest"
+	AuthorizerProviderTopaz    = "topaz"
+	DefaultTopazImage          = "ghcr.io/aserto-dev/topaz:0.33.28"
+	DefaultPermissionSeparator = ":"
 )
+
+// ValidatePermissionSeparator reports whether sep is an allowed separator for
+// generated route permissions (":", "_", ".", or "-").
+func ValidatePermissionSeparator(sep string) error {
+	switch sep {
+	case ":", "_", ".", "-":
+		return nil
+	default:
+		return fmt.Errorf("routes.permission_separator: %q (want :, _, ., or -)", sep)
+	}
+}
 
 // Image pins: versions: keys, and the repos plat5 init reads the latest tag from.
 const (
@@ -114,7 +126,15 @@ type File struct {
 	Operator    OperatorBlock     `yaml:"operator"`
 	Authorizer  AuthorizerBlock   `yaml:"authorizer"`
 	Gateway     GatewayBlock      `yaml:"gateway"`
+	Routes      RoutesBlock       `yaml:"routes"`
 	Source      map[string]string `yaml:"source"`
+}
+
+// RoutesBlock configures `plat5 routes generate`.
+type RoutesBlock struct {
+	// PermissionSeparator joins permission segments when scaffolding
+	// services/identity.yml and services/audit.yml (":", "_", ".", or "-").
+	PermissionSeparator string `yaml:"permission_separator"`
 }
 
 // AuthorizerBlock configures the local AuthZEN 1.0 PDP module (Topaz).
@@ -250,6 +270,8 @@ type Resolved struct {
 	Authorizer AuthorizerBlock
 	// Gateway holds optional local gateway overrides.
 	Gateway GatewayBlock
+	// Routes holds options for `plat5 routes generate`.
+	Routes RoutesBlock
 
 	// Source is checkouts to build images from, by version key. Absolute.
 	Source map[string]string
@@ -442,6 +464,11 @@ func Resolve(f *File, path string, o Overrides) (Resolved, error) {
 		RateLimitEnabled: f.Gateway.RateLimitEnabled,
 		UpstreamSigning:  f.Gateway.UpstreamSigning,
 	}
+	permSep := firstNonEmpty(strings.TrimSpace(f.Routes.PermissionSeparator), DefaultPermissionSeparator)
+	if err := ValidatePermissionSeparator(permSep); err != nil {
+		return Resolved{}, err
+	}
+	r.Routes = RoutesBlock{PermissionSeparator: permSep}
 	return r, nil
 }
 

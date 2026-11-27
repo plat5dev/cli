@@ -7,21 +7,24 @@ import (
 )
 
 func TestPrefix(t *testing.T) {
-	for _, tc := range []struct{ name, list, want string }{
-		{"project", "project:read", "project"},
-		{"environment", "project:read", "project"},
-		{"environment", "env:list", "environment"},
-		{"environment", ":read", "environment"},
+	for _, tc := range []struct{ name, list, sep, want string }{
+		{"project", "project:read", ":", "project"},
+		{"environment", "project:read", ":", "project"},
+		{"environment", "env:list", ":", "environment"},
+		{"environment", ":read", ":", "environment"},
+		{"project", "project_read", "_", "project"},
+		{"environment", "project_read", "_", "project"},
+		{"environment", "project.read", ".", "project"},
 	} {
-		if got := (Kind{Name: tc.name, ListPermission: tc.list}).Prefix(); got != tc.want {
-			t.Errorf("%s %s: got %s", tc.name, tc.list, got)
+		if got := (Kind{Name: tc.name, ListPermission: tc.list}).Prefix(tc.sep); got != tc.want {
+			t.Errorf("%s %s (%s): got %s", tc.name, tc.list, tc.sep, got)
 		}
 	}
 }
 
 func TestReadKinds(t *testing.T) {
 	kinds, err := ReadKinds([]byte(`kinds:
-  team: { path: "/teams/{team}" }
+  team: { path: "/teams/{team}", list_permission: team:read }
   board: { parent: team, path: "/boards/{board}", list_permission: team:read }
 `))
 	if err != nil {
@@ -36,8 +39,9 @@ func TestReadKinds(t *testing.T) {
 	}
 	for in, msg := range map[string]string{
 		"roles: {}": "kinds:",
-		`kinds: { team: { path: "/teams/{board}" } }`:             "kinds.team.path",
-		`kinds: { team: { path: "/teams/{team}", parent: org } }`: "kinds.team.parent",
+		`kinds: { team: { path: "/teams/{team}" } }`:                                          "kinds.team.list_permission",
+		`kinds: { team: { path: "/teams/{board}", list_permission: team:read } }`:             "kinds.team.path",
+		`kinds: { team: { path: "/teams/{team}", list_permission: team:read, parent: org } }`: "kinds.team.parent",
 	} {
 		if _, err := ReadKinds([]byte(in)); err == nil || !strings.Contains(err.Error(), msg) {
 			t.Errorf("%s: got %v", in, err)
@@ -46,7 +50,7 @@ func TestReadKinds(t *testing.T) {
 
 	// Overlay merging: add a kind, modify an existing one, delete another with null.
 	merged, err := ReadKindsMany(
-		[]byte("kinds:\n  team: { path: \"/teams/{team}\" }\n  old: { parent: team, path: \"/olds/{old}\" }\n"),
+		[]byte("kinds:\n  team: { path: \"/teams/{team}\", list_permission: team:read }\n  old: { parent: team, path: \"/olds/{old}\", list_permission: old:read }\n"),
 		[]byte("kinds:\n  old: null\n  board: { parent: team, path: \"/boards/{board}\", list_permission: team:read }\n"),
 	)
 	if err != nil {
@@ -77,7 +81,7 @@ func TestGenerate(t *testing.T) {
 	identity, audit := Generate([]Kind{
 		{Name: "team", Path: "/teams/{team}", ListPermission: "team:read"},
 		{Name: "board", Parent: "team", Path: "/boards/{board}", ListPermission: "team:read"},
-	})
+	}, Options{PermissionSeparator: ":"})
 	var scopes []string
 	for _, s := range identity.Scopes {
 		scopes = append(scopes, s.Name)
@@ -163,5 +167,27 @@ func TestGenerate(t *testing.T) {
 	}
 	if r := find(t, audit, "board", "/audit-events"); r.Methods[0].Required[0] != "audit:read" {
 		t.Errorf("audit board: %+v", r)
+	}
+}
+
+func TestGenerateWithUnderscoreSeparator(t *testing.T) {
+	identity, audit := Generate([]Kind{
+		{Name: "organization", Path: "/orgs/{organization}", ListPermission: "organization_read"},
+		{Name: "project", Parent: "organization", Path: "/projects/{project}", ListPermission: "project_read"},
+	}, Options{PermissionSeparator: "_"})
+	if r := find(t, identity, "organization", "/"); r.Methods[0].Required[0] != "organization_read" {
+		t.Errorf("org /: %+v", r)
+	}
+	if r := find(t, identity, "organization", "/bindings"); r.Methods[1].Required[0] != "organization_bindings_write" {
+		t.Errorf("org /bindings: %+v", r)
+	}
+	if r := find(t, identity, "organization", "/projects"); r.Methods[1].Required[0] != "project_create" {
+		t.Errorf("org /projects: %+v", r)
+	}
+	if r := find(t, identity, "project", "/invites"); r.Methods[0].Required[0] != "guests_write" {
+		t.Errorf("project /invites: %+v", r)
+	}
+	if r := find(t, audit, "project", "/audit-events"); r.Methods[0].Required[0] != "audit_read" {
+		t.Errorf("audit project: %+v", r)
 	}
 }

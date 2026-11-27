@@ -61,7 +61,7 @@ func TestResolveDefaults(t *testing.T) {
 }
 
 func TestUnknownKeysAreErrors(t *testing.T) {
-	for _, key := range []string{"routes", "roles", "upstreams", "billing"} {
+	for _, key := range []string{"services", "roles", "upstreams", "billing"} {
 		if _, err := Parse([]byte(key + ": x\n")); err == nil || !strings.Contains(err.Error(), `unknown key "`+key+`"`) {
 			t.Errorf("%s: want unknown key error, got %v", key, err)
 		}
@@ -85,6 +85,7 @@ func TestUnknownKeysAreErrors(t *testing.T) {
 		fullYML + "idp: {subject_claim: sub}\n":                                                   "turn modules.auth off",
 		fullYML + "idp: {name_claims: [name]}\n":                                                  "turn modules.auth off",
 		fullYML + "idp: {name_claims: []}\n":                                                      "turn modules.auth off",
+		fullYML + "routes: {permission_separator: /}\n":                                           "routes.permission_separator",
 	} {
 		f, err := Parse([]byte(yml))
 		if err == nil {

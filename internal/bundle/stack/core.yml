@@ -12,6 +12,7 @@ volumes:
 
 x-otel: &otel
   OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+  OTEL_METRIC_EXPORT_INTERVAL: "10000"
 
 services:
   postgres:
@@ -33,21 +34,6 @@ services:
       timeout: 5s
       retries: 30
     restart: unless-stopped
-
-  # Creates the other planes' databases. Runs to completion on every start.
-  db-init:
-    image: postgres:17
-    entrypoint: ["/bin/sh", "/db-init.sh"]
-    environment:
-      PGPASSWORD: plat5
-    volumes:
-      - ./db-init.sh:/db-init.sh:ro
-    networks:
-      - plat5
-    depends_on:
-      postgres:
-        condition: service_healthy
-    restart: "no"
 
   valkey:
     image: valkey/valkey:8-alpine

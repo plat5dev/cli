@@ -189,7 +189,7 @@ func TestInitServiceFilesAreGenerated(t *testing.T) {
 func TestRoutesGenerate(t *testing.T) {
 	dir := t.TempDir()
 	plat5 := `kinds:
-  team: { path: "/teams/{team}" }
+  team: { path: "/teams/{team}", list_permission: team:read }
   board: { parent: team, path: "/boards/{board}", list_permission: team:read }
 roles: { admin: { permissions: ["*"], bindable_at: [team, board] } }
 creator_role: admin
@@ -243,5 +243,34 @@ services: [services/identity.yml, services/audit.yml]
 	_ = os.WriteFile(filepath.Join(dir, "services", "audit.yml"), []byte("other: {}\n"), 0o644)
 	if err := runRoutesGenerate(routesGenerateCmd, []string{filepath.Join(dir, "plat5.yml")}); err == nil || !strings.Contains(err.Error(), "services/audit.yml") {
 		t.Fatalf("want a refusal naming services/audit.yml, got %v", err)
+	}
+}
+
+func TestRoutesGenerateReadsPermissionSeparatorFromLocalConfig(t *testing.T) {
+	dir := t.TempDir()
+	plat5 := `kinds:
+  organization: { path: "/orgs/{organization}", list_permission: organization_read }
+  project: { parent: organization, path: "/projects/{project}", list_permission: project_read }
+authorizer: { url: "http://topaz:9393" }
+services: [services/identity.yml, services/audit.yml]
+`
+	local := "project_id: demo\nroutes:\n  permission_separator: \"_\"\n"
+	_ = os.WriteFile(filepath.Join(dir, "plat5.yml"), []byte(plat5), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "plat5.local.yml"), []byte(local), 0o644)
+
+	captureStdout(t, func() {
+		if err := runRoutesGenerate(routesGenerateCmd, []string{filepath.Join(dir, "plat5.yml")}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	idBytes, _ := os.ReadFile(filepath.Join(dir, "services", "identity.yml"))
+	auBytes, _ := os.ReadFile(filepath.Join(dir, "services", "audit.yml"))
+	for _, want := range []string{"organization_read", "organization_bindings_write", "project_create", "guests_write"} {
+		if !strings.Contains(string(idBytes), want) {
+			t.Errorf("identity.yml missing %q:\n%s", want, idBytes)
+		}
+	}
+	if !strings.Contains(string(auBytes), "audit_read") {
+		t.Errorf("audit.yml missing audit_read:\n%s", auBytes)
 	}
 }

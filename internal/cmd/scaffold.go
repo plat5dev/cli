@@ -152,6 +152,10 @@ func (l *layout) readConfig() error {
 		if err != nil {
 			return fmt.Errorf("the starter's %s: %w", m.Config, err)
 		}
+		l.config = rewriteListPermissionSeparator(l.config, config.DefaultPermissionSeparator, "_")
+		for i := range l.serviceFiles {
+			l.serviceFiles[i].data = rewriteServicePermissionsSeparator(l.serviceFiles[i].data, config.DefaultPermissionSeparator, "_")
+		}
 	}
 	return nil
 }

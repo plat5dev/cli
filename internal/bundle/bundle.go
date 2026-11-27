@@ -25,6 +25,10 @@ var Files = map[string]string{
 	"authorizer":    "topaz.yml",
 }
 
+// DBInitFile creates the databases and roles for auth and operator on the
+// shared Postgres. Included only when at least one of those modules runs.
+const DBInitFile = "db-init.yml"
+
 // Materialize writes the embedded stack under destDir, replacing what an older
 // CLI wrote there. A file an older CLI embedded and this one doesn't (a renamed
 // dashboard) is removed from the embedded subdirectories. destDir's top level
@@ -82,6 +86,7 @@ func Services() ([]string, error) {
 	for _, f := range Files {
 		files = append(files, f)
 	}
+	files = append(files, DBInitFile)
 	for _, f := range files {
 		data, err := content.ReadFile("stack/" + f)
 		if err != nil {

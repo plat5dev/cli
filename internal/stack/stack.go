@@ -97,6 +97,9 @@ func (s *Stack) Prepare() error {
 // Runner is docker compose for the stack.
 func (s *Stack) Runner() compose.Runner {
 	files := []string{bundle.Files["core"]}
+	if s.Has(config.ModuleAuth) || s.Has(config.ModuleOperator) {
+		files = append(files, bundle.DBInitFile)
+	}
 	for _, m := range s.Modules {
 		files = append(files, bundle.Files[m])
 	}

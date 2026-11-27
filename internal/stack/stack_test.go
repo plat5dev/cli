@@ -57,7 +57,7 @@ func TestModulesAndExclude(t *testing.T) {
 		t.Fatalf("%v", s.Modules)
 	}
 	files := strings.Join(s.Runner().Files, ",")
-	if files != "core.yml,auth.yml,observability.yml,operator.yml,override.yml" {
+	if files != "core.yml,db-init.yml,auth.yml,observability.yml,operator.yml,override.yml" {
 		t.Fatalf("files: %s", files)
 	}
 	s = newStack(t, allOn, "observability")
@@ -65,8 +65,17 @@ func TestModulesAndExclude(t *testing.T) {
 		t.Fatalf("%v", s.Modules)
 	}
 	files = strings.Join(s.Runner().Files, ",")
-	if files != "core.yml,auth.yml,operator.yml,override.yml" {
+	if files != "core.yml,db-init.yml,auth.yml,operator.yml,override.yml" {
 		t.Fatalf("files: %s", files)
+	}
+	// With both auth and operator off, db-init.yml is omitted so compose --wait
+	// has no exited one-shot container without a dependent.
+	coreOnly := newStack(t, `versions: {plat5: v0.18.1}
+modules: {auth: false, observability: false, operator: false}
+idp: {issuer: "https://idp.test", jwks_uri: "https://idp.test/jwks", audiences: [api]}
+`)
+	if got := strings.Join(coreOnly.Runner().Files, ","); got != "core.yml,override.yml" {
+		t.Fatalf("core-only files: %s", got)
 	}
 	if _, err := New(s.Config, []string{"grafana"}); err == nil {
 		t.Fatal("unknown module must be an error")

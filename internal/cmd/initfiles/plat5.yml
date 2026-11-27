@@ -11,6 +11,7 @@ reserved_slugs: [new, settings, api, admin]
 kinds:
   organization:
     path: /orgs/{organization}
+    list_permission: organization:read
 # The roles (https://github.com/plat5dev/plat5/blob/master/docs/reference/config/roles.md). Whoever holds bindings:write
 # can grant any role, so admin, with "*", is the only role that holds it.
 roles:

@@ -1,0 +1,17 @@
+# Embedded by plat5 CLI: creates the non-core planes' databases and roles on the
+# shared local Postgres. Included only when auth or operator is enabled, so a
+# core-only start has no exited one-shot container without a dependent.
+services:
+  db-init:
+    image: postgres:17
+    entrypoint: ["/bin/sh", "/db-init.sh"]
+    environment:
+      PGPASSWORD: plat5
+    volumes:
+      - ./db-init.sh:/db-init.sh:ro
+    networks:
+      - plat5
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"

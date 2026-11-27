@@ -63,8 +63,17 @@ func TestAllPresetsAndTopazValidate(t *testing.T) {
 					if !r.Modules[config.ModuleAuthorizer] {
 						t.Fatalf("authorizer module should be enabled")
 					}
-					if _, ok := cfg.Flat["authorizer"].(map[string]any)["url"]; !ok {
-						t.Fatalf("plat5.yml missing authorizer.url: %v", cfg.Flat["authorizer"])
+					if r.Routes.PermissionSeparator != "_" {
+						t.Fatalf("topaz should set routes.permission_separator to _, got %q", r.Routes.PermissionSeparator)
+					}
+					if u, _ := cfg.Flat["authorizer"].(map[string]any)["url"].(string); u != "http://topaz:9393" {
+						t.Fatalf("plat5.yml authorizer.url = %q, want http://topaz:9393", u)
+					}
+					for kName, raw := range cfg.Flat["kinds"].(map[string]any) {
+						lp, _ := raw.(map[string]any)["list_permission"].(string)
+						if lp == "" || strings.Contains(lp, ":") {
+							t.Fatalf("topaz kind %s list_permission %q must not be empty or contain ':'", kName, lp)
+						}
 					}
 					for _, forbidden := range []string{"roles", "creator_role", "custom_roles", "permissions"} {
 						if _, ok := cfg.Flat[forbidden]; ok {
@@ -81,6 +90,17 @@ func TestAllPresetsAndTopazValidate(t *testing.T) {
 					var doc map[string]any
 					if err := yaml.Unmarshal(manifestBytes, &doc); err != nil {
 						t.Fatalf("invalid topaz manifest YAML: %v", err)
+					}
+					if types, ok := doc["types"].(map[string]any); ok {
+						for tName, raw := range types {
+							tMap, _ := raw.(map[string]any)
+							perms, _ := tMap["permissions"].(map[string]any)
+							for pName := range perms {
+								if strings.Contains(pName, ":") {
+									t.Fatalf("topaz manifest %s permission %q contains forbidden ':'", tName, pName)
+								}
+							}
+						}
 					}
 				} else if r.Modules[config.ModuleAuthorizer] {
 					t.Fatalf("authorizer module should default off")

@@ -23,7 +23,7 @@ func TestMaterialize(t *testing.T) {
 			t.Fatalf("%s has no services", f)
 		}
 	}
-	for _, rel := range []string{"db-init.sh", "observability/config.alloy", "observability/dashboards.yaml", "observability/dashboards/service-health.json"} {
+	for _, rel := range []string{"db-init.yml", "db-init.sh", "observability/config.alloy", "observability/dashboards.yaml", "observability/dashboards/service-health.json"} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
 			t.Fatalf("%s: %v", rel, err)
 		}

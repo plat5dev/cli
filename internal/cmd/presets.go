@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/plat5dev/cli/internal/config"
 	"github.com/plat5dev/cli/internal/routegen"
 	"gopkg.in/yaml.v3"
 )
@@ -90,14 +91,22 @@ func writePresetFiles(dir, preset, authorizer string) error {
 
 	baseYML, extraServices, hasProject := presetConfig(preset)
 	ymlBytes := []byte(baseYML)
+	permSep := config.DefaultPermissionSeparator
 
 	if authorizer == authorizerTopaz {
+		permSep = "_"
 		var err error
 		ymlBytes, err = injectTopazAuthorizer(ymlBytes)
 		if err != nil {
 			return err
 		}
+		ymlBytes = rewriteListPermissionSeparator(ymlBytes, config.DefaultPermissionSeparator, permSep)
 		ymlBytes = appendServiceEntry(ymlBytes, "services/docs.yml")
+		for i := range extraServices {
+			if extraServices[i].rel == "services/portal.yml" {
+				extraServices[i].data = []byte(publicPortalServiceYML(permSep))
+			}
+		}
 		scopeKind := "organization"
 		if hasProject {
 			scopeKind = "project"
@@ -115,7 +124,7 @@ func writePresetFiles(dir, preset, authorizer string) error {
 	files := []projectFile{
 		{rel: "plat5.yml", data: ymlBytes},
 	}
-	identityFile, auditFile := routegen.Generate(kinds)
+	identityFile, auditFile := routegen.Generate(kinds, routegen.Options{PermissionSeparator: permSep})
 	for _, gen := range []routegen.File{identityFile, auditFile} {
 		rel := filepath.ToSlash(filepath.Join("services", gen.Service+".yml"))
 		rendered, err := routegen.Render(gen, nil)
@@ -170,13 +179,73 @@ func injectTopazAuthorizer(base []byte) ([]byte, error) {
 	b.WriteString("\n# External OpenID AuthZEN 1.0 authorizer (https://github.com/plat5dev/plat5/blob/master/docs/reference/config/authorizer.md).\n")
 	b.WriteString("# Replaces built-in RBAC; runs locally via the authorizer module (topaz/manifest.yaml).\n")
 	b.WriteString("authorizer:\n")
-	b.WriteString("  url: http://topaz:8383\n")
+	b.WriteString("  url: http://topaz:9393\n")
 	b.WriteString("  timeout: 2s\n")
 	b.WriteString("  cache_ttl: 5s\n")
 	b.WriteString("  negative_cache_ttl: 2s\n")
 	b.WriteString("services:")
 	b.Write(list)
 	return b.Bytes(), nil
+}
+
+// rewriteListPermissionSeparator replaces oldSep with newSep in list_permission values
+// so Topaz presets emit Topaz-valid permission names without colons.
+func rewriteListPermissionSeparator(yml []byte, oldSep, newSep string) []byte {
+	if oldSep == newSep {
+		return yml
+	}
+	lines := strings.Split(string(yml), "\n")
+	for i, line := range lines {
+		if idx := strings.Index(line, "list_permission:"); idx >= 0 {
+			prefix := line[:idx+len("list_permission:")]
+			rest := line[idx+len("list_permission:"):]
+			lines[i] = prefix + strings.ReplaceAll(rest, oldSep, newSep)
+		}
+	}
+	return []byte(strings.Join(lines, "\n"))
+}
+
+// rewriteServicePermissionsSeparator replaces oldSep with newSep in `permissions:`
+// values inside a service YAML file without touching URLs or comments.
+func rewriteServicePermissionsSeparator(yml []byte, oldSep, newSep string) []byte {
+	if oldSep == newSep {
+		return yml
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(yml, &doc); err != nil {
+		return yml
+	}
+	var walk func(n *yaml.Node, inPerms bool)
+	walk = func(n *yaml.Node, inPerms bool) {
+		switch n.Kind {
+		case yaml.DocumentNode:
+			for _, c := range n.Content {
+				walk(c, false)
+			}
+		case yaml.MappingNode:
+			for i := 0; i+1 < len(n.Content); i += 2 {
+				k, v := n.Content[i], n.Content[i+1]
+				walk(v, k.Value == "permissions")
+			}
+		case yaml.SequenceNode:
+			for _, c := range n.Content {
+				walk(c, inPerms)
+			}
+		case yaml.ScalarNode:
+			if inPerms && n.Value != routegen.AnyMember {
+				n.Value = strings.ReplaceAll(n.Value, oldSep, newSep)
+			}
+		}
+	}
+	walk(&doc, false)
+	var out bytes.Buffer
+	enc := yaml.NewEncoder(&out)
+	enc.SetIndent(2)
+	if err := enc.Encode(&doc); err != nil {
+		return yml
+	}
+	_ = enc.Close()
+	return out.Bytes()
 }
 
 // stripRBACKeys removes top-level roles, creator_role, custom_roles, and
@@ -229,7 +298,7 @@ func presetConfig(preset string) (plat5YML string, extras []projectFile, hasProj
 		return enterprisePresetYML, nil, true
 	case presetPublic:
 		return publicPresetYML, []projectFile{
-			{rel: "services/portal.yml", data: []byte(publicPortalServiceYML)},
+			{rel: "services/portal.yml", data: []byte(publicPortalServiceYML(config.DefaultPermissionSeparator))},
 		}, true
 	default:
 		data, _ := initFiles.ReadFile("initfiles/plat5.yml")
@@ -244,9 +313,11 @@ reserved_slugs: [new, settings, api, admin]
 kinds:
   organization:
     path: /orgs/{organization}
+    list_permission: organization:read
   project:
     parent: organization
     path: /projects/{project}
+    list_permission: project:read
     bind_creator: false     # creators reach projects through roles bound above
 roles:
   admin:
@@ -281,9 +352,11 @@ policy_claims: [amr, idp_connection]
 kinds:
   organization:
     path: /orgs/{organization}
+    list_permission: organization:read
   project:
     parent: organization
     path: /projects/{project}
+    list_permission: project:read
     bind_creator: false
   environment:
     parent: project
@@ -360,10 +433,12 @@ reserved_slugs: [new, settings, api, admin]
 kinds:
   organization:
     path: /orgs/{organization}
+    list_permission: organization:read
     host: "{organization}.localhost"
   project:
     parent: organization
     path: /projects/{project}
+    list_permission: project:read
     bind_creator: false
 roles:
   admin:
@@ -391,7 +466,8 @@ services:
   - services/portal.yml
 `
 
-const publicPortalServiceYML = `# Example portal service for the public preset: unauthenticated routes under
+func publicPortalServiceYML(sep string) string {
+	return fmt.Sprintf(`# Example portal service for the public preset: unauthenticated routes under
 # scopes.public and authenticated tenant routes under scopes.project.
 portal:
   url: http://portal:3000
@@ -405,9 +481,10 @@ portal:
       routes:
         - path: /announcements
           methods:
-            GET:  { permissions: project:read }
-            POST: { permissions: project:write }
-`
+            GET:  { permissions: project%sread }
+            POST: { permissions: project%swrite }
+`, sep, sep)
+}
 
 func topazDocsServiceYML(scopeKind string) string {
 	prefix := "/orgs/{organization.id}"
@@ -428,9 +505,9 @@ docs:
         - path: /docs/{doc_id}
           resource: { type: document, id: %q }
           methods:
-            GET:    { permissions: docs:read }
-            PATCH:  { permissions: docs:write }
-            DELETE: { permissions: docs:delete }
+            GET:    { permissions: docs_read }
+            PATCH:  { permissions: docs_write }
+            DELETE: { permissions: docs_delete }
 `, scopeKind, prefix, resourceID)
 }
 
@@ -438,6 +515,7 @@ func topazDocsManifest(hasProject bool) string {
 	var b strings.Builder
 	b.WriteString("# yaml-language-server: $schema=https://www.topaz.sh/schema/manifest.json\n")
 	b.WriteString("# Starter ReBAC manifest for Plat5 + Topaz (OpenID AuthZEN 1.0).\n")
+	b.WriteString("# Topaz permission identifiers use underscores (colons are forbidden).\n")
 	b.WriteString("# Edit this file and run `plat5 authorizer sync` to update Topaz.\n")
 	b.WriteString(`model:
   version: 3
@@ -450,22 +528,30 @@ types:
       admin: member
       viewer: member
     permissions:
-      organization:read: viewer | admin
-      organization:write: admin
-      organization:delete: admin
-      organization:bindings:read: admin
-      organization:bindings:write: admin
-      project:create: admin
+      organization_read: viewer | admin
+      organization_write: admin
+      organization_delete: admin
+      organization_bindings_read: admin
+      organization_bindings_write: admin
+      project_create: admin
+      audit_read: viewer | admin
 `)
 	if hasProject {
 		b.WriteString(`
   project:
     relations:
-      viewer: member
+      organization: organization
+      admin: member
       editor: member
+      viewer: member
     permissions:
-      project:read: viewer | editor
-      project:write: editor
+      project_read: viewer | editor | admin | organization->admin
+      project_write: editor | admin | organization->admin
+      project_delete: admin | organization->admin
+      project_bindings_read: admin | organization->admin
+      project_bindings_write: admin | organization->admin
+      guests_write: admin | organization->admin
+      audit_read: viewer | editor | admin | organization->admin
 `)
 	}
 	b.WriteString(`
@@ -475,15 +561,16 @@ types:
       editor: member
       viewer: member
     permissions:
-      docs:read: viewer | editor | owner
-      docs:write: editor | owner
-      docs:delete: owner
+      docs_read: viewer | editor | owner
+      docs_write: editor | owner
+      docs_delete: owner
 `)
 	return b.String()
 }
 
 const topazStarterManifest = `# yaml-language-server: $schema=https://www.topaz.sh/schema/manifest.json
 # Starter ReBAC manifest for Plat5 + Topaz (OpenID AuthZEN 1.0).
+# Topaz permission identifiers use underscores (colons are forbidden).
 # Add ` + "`resource: { type: task, id: \"{project.id}:{task_id}\" }`" + ` on routes in
 # services/api.yml, then run ` + "`plat5 authorizer sync`" + ` after editing this file.
 model:
@@ -497,20 +584,28 @@ types:
       admin: member
       viewer: member
     permissions:
-      organization:read: viewer | admin
-      organization:write: admin
-      organization:delete: admin
-      organization:bindings:read: admin
-      organization:bindings:write: admin
-      project:create: admin
+      organization_read: viewer | admin
+      organization_write: admin
+      organization_delete: admin
+      organization_bindings_read: admin
+      organization_bindings_write: admin
+      project_create: admin
+      audit_read: viewer | admin
 
   project:
     relations:
-      viewer: member
+      organization: organization
+      admin: member
       editor: member
+      viewer: member
     permissions:
-      project:read: viewer | editor
-      project:write: editor
+      project_read: viewer | editor | admin | organization->admin
+      project_write: editor | admin | organization->admin
+      project_delete: admin | organization->admin
+      project_bindings_read: admin | organization->admin
+      project_bindings_write: admin | organization->admin
+      guests_write: admin | organization->admin
+      audit_read: viewer | editor | admin | organization->admin
 
   task:
     relations:
@@ -518,7 +613,7 @@ types:
       editor: member
       viewer: member
     permissions:
-      project:read: viewer | editor | owner
-      project:write: editor | owner
-      task:delete: owner
+      project_read: viewer | editor | owner
+      project_write: editor | owner
+      task_delete: owner
 `

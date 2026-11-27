@@ -32,11 +32,19 @@ func (k Kind) Collection() string {
 	return "/" + c
 }
 
-// Prefix is the kind's permission prefix: its list_permission without :read
-// when it ends in :read, else the kind's name.
-func (k Kind) Prefix() string {
-	if p, ok := strings.CutSuffix(k.ListPermission, ":read"); ok && p != "" {
-		return p
+// Options controls how Generate names permissions on scaffolded routes.
+type Options struct {
+	// PermissionSeparator joins permission segments (e.g. ":", "_", ".", "-").
+	PermissionSeparator string
+}
+
+// Prefix is the kind's permission prefix: its list_permission without
+// `<sep>read` when it ends in that suffix, else the kind's name.
+func (k Kind) Prefix(sep string) string {
+	if sep != "" {
+		if p, ok := strings.CutSuffix(k.ListPermission, sep+"read"); ok && p != "" {
+			return p
+		}
 	}
 	return k.Name
 }
@@ -170,7 +178,7 @@ func ReadKindsMany(docs ...[]byte) ([]Kind, error) {
 			return nil, fmt.Errorf("kinds.%s.path: want /<collection>/{%s}, got %q", k.Name, k.Name, k.Path)
 		}
 		if k.ListPermission == "" {
-			k.ListPermission = k.Name + ":read"
+			return nil, fmt.Errorf("kinds.%s.list_permission: is required", k.Name)
 		}
 		names[k.Name] = true
 		out = append(out, k)
@@ -194,29 +202,31 @@ var anyMember = []string{AnyMember}
 // kind's own routes in its scope, its collection's routes in its parent's
 // scope, and on a root, its member routes and its create in the user scope.
 // Then the user scope's own routes. POST on a root's /members isn't generated.
-func Generate(kinds []Kind) (identity, audit File) {
+func Generate(kinds []Kind, opts Options) (identity, audit File) {
+	sep := opts.PermissionSeparator
+	join := func(parts ...string) string { return strings.Join(parts, sep) }
 	identity = File{Service: Identity, URL: defaultURLs[Identity]}
 	audit = File{Service: Audit, URL: defaultURLs[Audit]}
 	var roots []Route
 	for _, k := range kinds {
-		p := k.Prefix()
+		p := k.Prefix(sep)
 		prefix := "/nodes/{" + k.Name + ".id}"
-		read, write := perms(p+":bindings:read"), perms(p+":bindings:write")
+		read, write := perms(join(p, "bindings", "read")), perms(join(p, "bindings", "write"))
 		invite := write
 		if !k.Root() {
-			invite = perms("guests:write")
+			invite = perms(join("guests", "write"))
 		}
 		routes := []Route{
 			{Path: "/", Methods: []Method{
-				{"GET", perms(p + ":read")}, {"PATCH", perms(p + ":write")}, {"DELETE", perms(p + ":delete")},
+				{"GET", perms(join(p, "read"))}, {"PATCH", perms(join(p, "write"))}, {"DELETE", perms(join(p, "delete"))},
 			}},
-			{Path: "/restore", AllowDeleted: true, Methods: []Method{{"POST", perms(p + ":delete")}}},
+			{Path: "/restore", AllowDeleted: true, Methods: []Method{{"POST", perms(join(p, "delete"))}}},
 		}
 		for _, c := range kinds {
 			if c.Parent == k.Name {
 				up := prefix + "/children/" + c.Name
 				routes = append(routes, Route{Path: c.Collection(), Upstream: up, Methods: []Method{
-					{"GET", anyMember}, {"POST", perms(c.Prefix() + ":create")},
+					{"GET", anyMember}, {"POST", perms(join(c.Prefix(sep), "create"))},
 				}})
 			}
 		}
@@ -256,7 +266,7 @@ func Generate(kinds []Kind) (identity, audit File) {
 		}
 		identity.Scopes = append(identity.Scopes, Scope{Name: k.Name, UpstreamPrefix: prefix, Routes: routes})
 		audit.Scopes = append(audit.Scopes, Scope{Name: k.Name, UpstreamPrefix: prefix, Routes: []Route{
-			{Path: "/audit-events", Methods: []Method{{"GET", perms("audit:read")}}},
+			{Path: "/audit-events", Methods: []Method{{"GET", perms(join("audit", "read"))}}},
 		}})
 	}
 	user := "/users/{user.id}"
@@ -377,9 +387,12 @@ func scalar(s string) string {
 // any overlay files) in paths, into services/ beside paths[0], overwriting
 // them; an existing file's url, timeouts and max_body_bytes are kept. It
 // returns the files written, relative to paths[0]'s directory.
-func WriteFiles(paths ...string) ([]string, error) {
+func WriteFiles(opts Options, paths ...string) ([]string, error) {
 	if len(paths) == 0 {
 		return nil, fmt.Errorf("at least one config file is required")
+	}
+	if opts.PermissionSeparator == "" {
+		return nil, fmt.Errorf("permission_separator is required")
 	}
 	docs := make([][]byte, 0, len(paths))
 	for _, p := range paths {
@@ -393,7 +406,7 @@ func WriteFiles(paths ...string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", filepath.Base(paths[0]), err)
 	}
-	identity, audit := Generate(kinds)
+	identity, audit := Generate(kinds, opts)
 	dir := filepath.Dir(paths[0])
 	// Read and render both before writing either, so a refusal writes nothing.
 	files := map[string][]byte{}

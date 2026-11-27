@@ -551,11 +551,14 @@ func renderDevYML(projectID string, ch initChoices, versions map[string]string, 
 	p("\n")
 
 	if ch.modules[config.ModuleAuthorizer] {
-		p("# The authorizer module: Topaz AuthZEN 1.0 PDP on Plat5's network (http://topaz:8383).\n")
+		p("# The authorizer module: Topaz AuthZEN 1.0 PDP on Plat5's network (http://topaz:9393).\n")
 		p("# plat5 start pushes manifest: automatically; run `plat5 authorizer sync` after edits.\n")
 		p("authorizer:\n")
 		p("  provider: %s\n", config.AuthorizerProviderTopaz)
 		p("  manifest: ./%s\n\n", topazManifestFile)
+		p("# Topaz manifest permissions forbid \":\"; use \"_\" when regenerating identity/audit routes.\n")
+		p("routes:\n")
+		p("  permission_separator: \"_\"\n\n")
 	}
 
 	if ch.preset == presetEnterprise {
@@ -612,6 +615,8 @@ func renderDevYML(projectID string, ch initChoices, versions map[string]string, 
 # authorizer:            # with modules.authorizer: true (Topaz AuthZEN 1.0 PDP)
 #   provider: topaz
 #   manifest: ./topaz/manifest.yaml
+# routes:                # plat5 routes generate options
+#   permission_separator: ":"   # ":", "_", ".", or "-"
 # auth:                  # local Auth, beyond app.web
 #   clients: [plat5]
 #   origins: []
