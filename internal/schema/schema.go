@@ -37,10 +37,10 @@ func (e FieldError) Error() string {
 }
 
 var (
-	compileOnce          sync.Once
-	config               *jsonschema.Schema
-	controlPlaneAuthSch  *jsonschema.Schema
-	compileErr           error
+	compileOnce         sync.Once
+	config              *jsonschema.Schema
+	controlPlaneAuthSch *jsonschema.Schema
+	compileErr          error
 )
 
 func compiled() (*jsonschema.Schema, error) {
@@ -177,23 +177,23 @@ func validateAgainst(sch *jsonschema.Schema, instance any) ([]FieldError, error)
 // patternHints maps schema schema-URL fragments to plain-English explanations
 // so schema errors don't dump raw regular expressions at users.
 var patternHints = map[string]string{
-	"services.json#/$defs/service/properties/url":             "must be http://host[:port] or https://host[:port] (no path, query, or credentials; port 1–65535)",
-	"services.json#/$defs/service_name":                       "must be 1–128 characters of [A-Za-z0-9._-]",
-	"services.json#/$defs/scope_name":                         "must start with a lowercase letter and use only lowercase letters, digits, and _ (max 32 chars)",
-	"services.json#/$defs/path":                               "must start with / and contain only visible ASCII characters",
-	"services.json#/$defs/upstream":                           "must be an absolute path starting with / (no ? or #)",
-	"kinds.json#/$defs/kind_name":                             "must start with a lowercase letter and use only lowercase letters, digits, and _ (max 32 chars)",
-	"kinds.json#/$defs/path":                                  "must be a canonical path like /orgs/{organization}",
-	"roles.json#/$defs/role_slug":                             "must start with a lowercase letter and use only lowercase letters, digits, :, ., _, and - (max 64 chars)",
-	"roles.json#/$defs/permission":                            "must be 1–64 characters of [a-z0-9:._-]",
-	"rate_limits.json#/$defs/policy_name":                     "must be 1–64 characters of [a-z0-9:._-]",
-	"authorizer.json#/$defs/authorizer/properties/url":        "must be http://host[:port][/path] or https://host[:port][/path] (no trailing /, query, or credentials)",
-	"authorizer.json#/$defs/authorizer/properties/token_env":  "must be an uppercase environment variable name ([A-Z_][A-Z0-9_]*)",
-	"authorizer.json#/$defs/non_negative_duration":            "must be 0s or a positive duration like 5s, 1m, 24h",
-	"authorizer.json#/$defs/resource/properties/type":         "must be 1–64 characters of [A-Za-z0-9:._-]",
-	"settings.json#/properties/policy_claims/items":           "must be dot-separated claim path segments of [A-Za-z0-9_-] (max 64 chars)",
-	"settings.json#/$defs/duration":                           "must be a positive duration like 10s, 5m, 24h, or 30d",
-	"settings.json#/$defs/slug":                               "must be a lowercase slug (letters, digits, hyphens)",
+	"services.json#/$defs/service/properties/url":            "must be http://host[:port] or https://host[:port] (no path, query, or credentials; port 1–65535)",
+	"services.json#/$defs/service_name":                      "must be 1–128 characters of [A-Za-z0-9._-]",
+	"services.json#/$defs/scope_name":                        "must start with a lowercase letter and use only lowercase letters, digits, and _ (max 32 chars)",
+	"services.json#/$defs/path":                              "must start with / and contain only visible ASCII characters",
+	"services.json#/$defs/upstream":                          "must be an absolute path starting with / (no ? or #)",
+	"kinds.json#/$defs/kind_name":                            "must start with a lowercase letter and use only lowercase letters, digits, and _ (max 32 chars)",
+	"kinds.json#/$defs/path":                                 "must be a canonical path like /orgs/{organization}",
+	"roles.json#/$defs/role_slug":                            "must start with a lowercase letter and use only lowercase letters, digits, :, ., _, and - (max 64 chars)",
+	"roles.json#/$defs/permission":                           "must be 1–64 characters of [a-z0-9:._-]",
+	"rate_limits.json#/$defs/policy_name":                    "must be 1–64 characters of [a-z0-9:._-]",
+	"authorizer.json#/$defs/authorizer/properties/url":       "must be http://host[:port][/path] or https://host[:port][/path] (no trailing /, query, or credentials)",
+	"authorizer.json#/$defs/authorizer/properties/token_env": "must be an uppercase environment variable name ([A-Z_][A-Z0-9_]*)",
+	"authorizer.json#/$defs/non_negative_duration":           "must be 0s or a positive duration like 5s, 1m, 24h",
+	"authorizer.json#/$defs/resource/properties/type":        "must be 1–64 characters of [A-Za-z0-9:._-]",
+	"settings.json#/properties/policy_claims/items":          "must be dot-separated claim path segments of [A-Za-z0-9_-] (max 64 chars)",
+	"settings.json#/$defs/duration":                          "must be a positive duration like 10s, 5m, 24h, or 30d",
+	"settings.json#/$defs/slug":                              "must be a lowercase slug (letters, digits, hyphens)",
 }
 
 func formatError(e *jsonschema.ValidationError, p *message.Printer) string {

@@ -345,11 +345,11 @@ routes:
 	}
 
 	for yml, want := range map[string]string{
-		fullYML + "gateway: {audit_mode: bogus}\n":            "gateway.audit_mode",
-		fullYML + "gateway: {cors_allowed_origins: [bad]}\n":  "gateway.cors_allowed_origins",
+		fullYML + "gateway: {audit_mode: bogus}\n":             "gateway.audit_mode",
+		fullYML + "gateway: {cors_allowed_origins: [bad]}\n":   "gateway.cors_allowed_origins",
 		fullYML + "gateway: {cors_allowed_headers: [\" \"]}\n": "gateway.cors_allowed_headers",
-		fullYML + "routes: {exclude: [\"BAD /orgs\"]}\n":      "routes.exclude",
-		fullYML + "routes: {exclude: [\"GET orgs\"]}\n":       "routes.exclude",
+		fullYML + "routes: {exclude: [\"BAD /orgs\"]}\n":       "routes.exclude",
+		fullYML + "routes: {exclude: [\"GET orgs\"]}\n":        "routes.exclude",
 	} {
 		if _, err := resolve(t, yml); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q: want %q, got %v", yml, want, err)

@@ -131,10 +131,10 @@ type File struct {
 	Auth        AuthBlock         `yaml:"auth"`
 	IdP         IdPBlock          `yaml:"idp"`
 	Otel        OtelBlock         `yaml:"otel"`
-	Operator OperatorBlock `yaml:"operator"`
-	Gateway  GatewayBlock  `yaml:"gateway"`
-	Routes   RoutesBlock   `yaml:"routes"`
-	Source   map[string]string `yaml:"source"`
+	Operator    OperatorBlock     `yaml:"operator"`
+	Gateway     GatewayBlock      `yaml:"gateway"`
+	Routes      RoutesBlock       `yaml:"routes"`
+	Source      map[string]string `yaml:"source"`
 }
 
 // RoutesBlock configures `plat5 routes generate`.
