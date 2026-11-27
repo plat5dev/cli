@@ -135,11 +135,62 @@ type Applied struct {
 	Summary  Summary `json:"summary"`
 }
 
+// RevisionActor is the verified caller identity recorded by the control plane.
+type RevisionActor struct {
+	Type       string `json:"type"`
+	Issuer     string `json:"issuer,omitempty"`
+	IssuerName string `json:"issuer_name,omitempty"`
+	Subject    string `json:"subject,omitempty"`
+}
+
+// ChangeMetadata is optional caller-supplied metadata recorded alongside a revision.
+type ChangeMetadata struct {
+	Reason string `json:"reason,omitempty"`
+	Ref    string `json:"ref,omitempty"`
+}
+
 // Revision is one applied config, as sent.
 type Revision struct {
-	Revision  int64          `json:"revision"`
-	CreatedAt string         `json:"created_at"`
-	Config    map[string]any `json:"config"`
+	Revision  int64           `json:"revision"`
+	CreatedAt string          `json:"created_at"`
+	Actor     *RevisionActor  `json:"actor,omitempty"`
+	Metadata  *ChangeMetadata `json:"metadata,omitempty"`
+	Config    map[string]any  `json:"config"`
+}
+
+// ApplyOptions carries optional change metadata headers for POST /apply.
+type ApplyOptions struct {
+	Reason string
+	Ref    string
+}
+
+// AuthInfo is the public discovery payload returned by GET /auth/info.
+type AuthInfo struct {
+	Methods []string         `json:"methods"`
+	Issuers []AuthInfoIssuer `json:"issuers"`
+}
+
+type AuthInfoIssuer struct {
+	Name      string       `json:"name"`
+	Issuer    string       `json:"issuer"`
+	Audiences []string     `json:"audiences"`
+	CLI       *AuthInfoCLI `json:"cli,omitempty"`
+}
+
+type AuthInfoCLI struct {
+	ClientID                    string   `json:"client_id"`
+	Audience                    string   `json:"audience,omitempty"`
+	Scopes                      []string `json:"scopes,omitempty"`
+	TokenSource                 string   `json:"token_source,omitempty"`
+	AuthorizationEndpoint       string   `json:"authorization_endpoint,omitempty"`
+	TokenEndpoint               string   `json:"token_endpoint,omitempty"`
+	DeviceAuthorizationEndpoint string   `json:"device_authorization_endpoint,omitempty"`
+}
+
+// WhoAmI is the authenticated caller summary returned by GET /auth/whoami.
+type WhoAmI struct {
+	Actor  RevisionActor `json:"actor"`
+	Access string        `json:"access"`
 }
 
 // ConfigError is a refused config or apply, with the envelope's details:
@@ -163,8 +214,38 @@ func (c *Client) DryRun(body any) (*Plan, error) {
 
 // ApplyConfig is POST /apply: the config with expect.
 func (c *Client) ApplyConfig(body any) (*Applied, error) {
+	return c.ApplyConfigWithOptions(body, ApplyOptions{})
+}
+
+// ApplyConfigWithOptions is POST /apply with optional change attribution headers.
+func (c *Client) ApplyConfigWithOptions(body any, opts ApplyOptions) (*Applied, error) {
+	headers := map[string]string{}
+	if opts.Reason != "" {
+		headers["X-Plat5-Change-Reason"] = opts.Reason
+	}
+	if opts.Ref != "" {
+		headers["X-Plat5-Change-Ref"] = opts.Ref
+	}
 	var out Applied
-	if err := c.do(http.MethodPost, "/apply", body, &out); err != nil {
+	if err := c.doWithHeaders(http.MethodPost, "/apply", body, headers, true, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// AuthInfo is GET /auth/info (public, unauthenticated).
+func (c *Client) AuthInfo() (*AuthInfo, error) {
+	var out AuthInfo
+	if err := c.doWithHeaders(http.MethodGet, "/auth/info", nil, nil, false, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// WhoAmI is GET /auth/whoami.
+func (c *Client) WhoAmI() (*WhoAmI, error) {
+	var out WhoAmI
+	if err := c.do(http.MethodGet, "/auth/whoami", nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -213,6 +294,10 @@ func (c *Client) Status() (*Status, error) {
 }
 
 func (c *Client) do(method, path string, body, out any) error {
+	return c.doWithHeaders(method, path, body, nil, true, out)
+}
+
+func (c *Client) doWithHeaders(method, path string, body any, headers map[string]string, sendAuth bool, out any) error {
 	var reader io.Reader
 	if body != nil {
 		data, err := json.Marshal(body)
@@ -225,7 +310,12 @@ func (c *Client) do(method, path string, body, out any) error {
 	if err != nil {
 		return err
 	}
-	c.auth(req)
+	if sendAuth {
+		c.auth(req)
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}

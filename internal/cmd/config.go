@@ -3,6 +3,7 @@ package cmd
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,11 +14,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/plat5dev/cli/internal/auth"
 	"github.com/plat5dev/cli/internal/config"
 	"github.com/plat5dev/cli/internal/controlplane"
 	"github.com/plat5dev/cli/internal/plat5yml"
 	"github.com/plat5dev/cli/internal/prompt"
+	"github.com/plat5dev/cli/internal/schema"
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 )
 
 // The deployment's config: plat5.yml and its service files, planned and applied
@@ -30,9 +34,12 @@ const (
 
 var (
 	flagFiles            []string
+	flagAuthConfig       string
 	flagOut              string
 	flagDetailedExitcode bool
 	flagAutoApprove      bool
+	flagApplyReason      string
+	flagApplyRef         string
 	flagRevision         int64
 )
 
@@ -108,9 +115,12 @@ func init() {
 	addFileFlag(validateCmd)
 	addFileFlag(planCmd)
 	addFileFlag(applyCmd)
+	validateCmd.Flags().StringVar(&flagAuthConfig, "auth-config", "", "Validate a control-plane AUTH_CONFIG_FILE against control_plane_auth.json")
 	planCmd.Flags().StringVar(&flagOut, "out", "", "Save the plan to this file")
 	planCmd.Flags().BoolVar(&flagDetailedExitcode, "detailed-exitcode", false, "Exit 0 with no changes, 2 with changes, 1 on an error")
 	applyCmd.Flags().BoolVar(&flagAutoApprove, "auto-approve", false, "Apply without the prompt")
+	applyCmd.Flags().StringVar(&flagApplyReason, "reason", "", "Optional change reason recorded on the revision (X-Plat5-Change-Reason)")
+	applyCmd.Flags().StringVar(&flagApplyRef, "ref", "", "Optional change reference such as a git SHA or PR URL (X-Plat5-Change-Ref; auto-detected in CI)")
 	configPullCmd.Flags().Int64Var(&flagRevision, "revision", 0, "The revision to pull (default: the current one)")
 	configCmd.AddCommand(configPullCmd)
 }
@@ -131,22 +141,116 @@ func normalizeArgs(args []string) []string {
 	return out
 }
 
-// configClient reaches the control plane for config commands: --control-plane-url
-// or PLAT5_CONTROL_PLANE_URL, --admin-token or PLAT5_ADMIN_TOKEN, else the local
-// project's plat5.local.yml (when present), else the local defaults.
+func loadLocalProjectIfPresent(urlOverride string) (*config.Resolved, error) {
+	cfg, err := config.Load(config.Overrides{ControlPlaneURL: urlOverride})
+	if err == nil {
+		return &cfg, nil
+	}
+	if errors.Is(err, config.ErrNoProject{}) {
+		return nil, nil
+	}
+	return nil, err
+}
+
+// configClient reaches the control plane for config commands.
+// Credential precedence:
+//  1. --token / PLAT5_TOKEN / --admin-token / PLAT5_ADMIN_TOKEN
+//  2. --token-file / PLAT5_TOKEN_FILE
+//  3. --token-cmd / PLAT5_TOKEN_CMD
+//  4. Cached `plat5 login` OIDC credential for the target URL (auto-refreshed)
+//  5. Native CI OIDC (GitHub Actions ACTIONS_ID_TOKEN_REQUEST_URL, GitLab PLAT5_OIDC_TOKEN)
+//  6. Local plat5.local.yml admin_token, else local default dev-admin-token
 func configClient() (*controlplane.Client, error) {
 	url := firstNonEmpty(flagControlPlaneURL, os.Getenv("PLAT5_CONTROL_PLANE_URL"))
-	token := firstNonEmpty(flagAdminToken, os.Getenv("PLAT5_ADMIN_TOKEN"))
-	if url == "" || token == "" {
-		cfg, err := config.Load(config.Overrides{ControlPlaneURL: url, AdminToken: token})
-		if err == nil {
-			url = cfg.ControlPlaneURL
-			token = cfg.AdminToken
-		} else if !errors.Is(err, config.ErrNoProject{}) {
+	token := firstNonEmpty(
+		flagToken,
+		os.Getenv("PLAT5_TOKEN"),
+		flagAdminToken,
+		os.Getenv("PLAT5_ADMIN_TOKEN"),
+	)
+	tokenFile := firstNonEmpty(flagTokenFile, os.Getenv("PLAT5_TOKEN_FILE"))
+	tokenCmd := firstNonEmpty(flagTokenCmd, os.Getenv("PLAT5_TOKEN_CMD"))
+
+	if token == "" && tokenFile != "" {
+		t, err := auth.ReadTokenFile(tokenFile)
+		if err != nil {
 			return nil, err
 		}
+		token = t
 	}
-	url = firstNonEmpty(url, defaultControlPlaneURL)
+	if token == "" && tokenCmd != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		t, err := auth.ExecTokenCmd(ctx, tokenCmd)
+		cancel()
+		if err != nil {
+			return nil, err
+		}
+		token = t
+	}
+
+	var localCfg *config.Resolved
+	if url == "" {
+		cfg, err := loadLocalProjectIfPresent("")
+		if err != nil {
+			return nil, err
+		}
+		localCfg = cfg
+		if localCfg != nil && localCfg.ControlPlaneURL != "" {
+			url = localCfg.ControlPlaneURL
+		}
+	}
+	url = strings.TrimRight(firstNonEmpty(url, defaultControlPlaneURL), "/")
+
+	if token == "" {
+		if store, err := auth.DefaultStore(); err == nil {
+			if cred, err := store.Load(url); err == nil && cred != nil {
+				if cred.Expired(time.Now()) {
+					if cred.RefreshToken != "" {
+						ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+						refreshed, rerr := auth.RefreshToken(ctx, nil, cred)
+						cancel()
+						if rerr != nil {
+							return nil, fmt.Errorf("cached session for %s expired and refresh failed (%w); run \"plat5 login\"", url, rerr)
+						}
+						_ = store.Save(url, refreshed)
+						cred = refreshed
+					} else {
+						return nil, fmt.Errorf("cached session for %s expired; run \"plat5 login\"", url)
+					}
+				}
+				token = cred.ActiveToken()
+			}
+		}
+	}
+
+	if token == "" {
+		aud := firstNonEmpty(flagOIDCAudience, os.Getenv("PLAT5_OIDC_AUDIENCE"), url)
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		ghTok, err := auth.FetchGitHubOIDC(ctx, nil, aud)
+		cancel()
+		if err != nil {
+			return nil, err
+		}
+		if ghTok != "" {
+			token = ghTok
+		} else if glTok := auth.GitLabOIDCToken(); glTok != "" {
+			token = glTok
+		}
+	}
+
+	if token == "" {
+		if localCfg == nil {
+			cfg, err := loadLocalProjectIfPresent(url)
+			if err != nil {
+				return nil, err
+			}
+			localCfg = cfg
+		}
+		if localCfg != nil && localCfg.AdminToken != "" {
+			token = localCfg.AdminToken
+		}
+	}
+
 	token = firstNonEmpty(token, config.DefaultAdminToken)
 	return controlplane.New(url, token), nil
 }
@@ -252,6 +356,12 @@ func orNone(v any) any {
 }
 
 func runValidate(cmd *cobra.Command, args []string) error {
+	if flagAuthConfig != "" {
+		if len(flagFiles) > 0 || len(args) > 0 {
+			return fmt.Errorf("cannot combine --auth-config with -f or a positional plat5.yml path")
+		}
+		return validateAuthConfigFile(flagAuthConfig)
+	}
 	paths, err := configPaths(args)
 	if err != nil {
 		return err
@@ -262,6 +372,48 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Printf("%s is valid: %d services.\n", strings.Join(paths, " + "), len(cfg.Files))
 	printMissingIdentityKindHints(os.Stdout, cfg)
+	return nil
+}
+
+func validateAuthConfigFile(path string) error {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var doc any
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	// Normalize YAML values into JSON-shaped maps/slices for jsonschema validation.
+	jsonBytes, err := json.Marshal(doc)
+	if err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	var normalized any
+	if err := json.Unmarshal(jsonBytes, &normalized); err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	errs, err := schema.ValidateControlPlaneAuth(normalized)
+	if err != nil {
+		return err
+	}
+	if len(errs) > 0 {
+		for _, e := range errs {
+			fmt.Fprintf(os.Stderr, "  %s: %s\n", path, e.Error())
+		}
+		noun := "errors"
+		if len(errs) == 1 {
+			noun = "error"
+		}
+		return fmt.Errorf("%d auth config %s", len(errs), noun)
+	}
+	issuers := 0
+	if m, ok := normalized.(map[string]any); ok {
+		if list, ok := m["issuers"].([]any); ok {
+			issuers = len(list)
+		}
+	}
+	fmt.Printf("%s is valid: %d issuers.\n", path, issuers)
 	return nil
 }
 
@@ -327,6 +479,17 @@ func writeSavedPlan(path string, flat map[string]any, p *controlplane.Plan) erro
 	return os.WriteFile(path, append(data, '\n'), 0o644)
 }
 
+func resolveApplyOptions() controlplane.ApplyOptions {
+	ref := flagApplyRef
+	if ref == "" {
+		ref = firstNonEmpty(os.Getenv("GITHUB_SHA"), os.Getenv("CI_COMMIT_SHA"))
+	}
+	return controlplane.ApplyOptions{
+		Reason: flagApplyReason,
+		Ref:    ref,
+	}
+}
+
 func runApply(cmd *cobra.Command, args []string) error {
 	if len(flagFiles) > 0 && len(args) > 0 {
 		return fmt.Errorf("cannot combine -f with a positional file argument")
@@ -335,6 +498,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	opts := resolveApplyOptions()
 	if len(args) == 1 && strings.EqualFold(filepath.Ext(args[0]), ".json") {
 		// A saved plan: saving it was the review.
 		data, err := os.ReadFile(args[0])
@@ -345,7 +509,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 		if err := json.Unmarshal(data, &body); err != nil {
 			return fmt.Errorf("%s: %w", args[0], err)
 		}
-		applied, err := client.ApplyConfig(body)
+		applied, err := client.ApplyConfigWithOptions(body, opts)
 		if err != nil {
 			return explain(nil, err)
 		}
@@ -381,7 +545,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	applied, err := client.ApplyConfig(applyBody(cfg.Flat, p.Revision))
+	applied, err := client.ApplyConfigWithOptions(applyBody(cfg.Flat, p.Revision), opts)
 	if err != nil {
 		return explain(cfg, err)
 	}

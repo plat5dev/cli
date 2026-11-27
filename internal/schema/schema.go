@@ -37,9 +37,10 @@ func (e FieldError) Error() string {
 }
 
 var (
-	compileOnce sync.Once
-	config      *jsonschema.Schema
-	compileErr  error
+	compileOnce          sync.Once
+	config               *jsonschema.Schema
+	controlPlaneAuthSch  *jsonschema.Schema
+	compileErr           error
 )
 
 func compiled() (*jsonschema.Schema, error) {
@@ -67,6 +68,10 @@ func compiled() (*jsonschema.Schema, error) {
 			}
 		}
 		config, compileErr = c.Compile(base + "config.json")
+		if compileErr != nil {
+			return
+		}
+		controlPlaneAuthSch, compileErr = c.Compile(base + "control_plane_auth.json")
 	})
 	return config, compileErr
 }
@@ -79,9 +84,69 @@ func ValidateConfig(instance any) ([]FieldError, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = sch.Validate(instance)
+	errs, err := validateAgainst(sch, instance)
+	if err != nil || len(errs) > 0 {
+		return errs, err
+	}
+	return checkStaticRules(instance), nil
+}
+
+// ValidateControlPlaneAuth checks a control-plane AUTH_CONFIG_FILE document
+// against control_plane_auth.json plus semantic uniqueness rules.
+func ValidateControlPlaneAuth(instance any) ([]FieldError, error) {
+	if _, err := compiled(); err != nil {
+		return nil, err
+	}
+	errs, err := validateAgainst(controlPlaneAuthSch, instance)
+	if err != nil || len(errs) > 0 {
+		return errs, err
+	}
+	return checkControlPlaneAuthSemantics(instance), nil
+}
+
+func checkControlPlaneAuthSemantics(instance any) []FieldError {
+	m, ok := instance.(map[string]any)
+	if !ok {
+		return nil
+	}
+	issuers, ok := m["issuers"].([]any)
+	if !ok {
+		return nil
+	}
+	seenName := map[string]bool{}
+	seenIssuer := map[string]bool{}
+	var out []FieldError
+	for i, raw := range issuers {
+		iss, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if name, ok := iss["name"].(string); ok {
+			if seenName[name] {
+				out = append(out, FieldError{
+					Path:    fmt.Sprintf("issuers[%d].name", i),
+					Message: fmt.Sprintf("duplicate issuer name %q", name),
+				})
+			}
+			seenName[name] = true
+		}
+		if u, ok := iss["issuer"].(string); ok {
+			if seenIssuer[u] {
+				out = append(out, FieldError{
+					Path:    fmt.Sprintf("issuers[%d].issuer", i),
+					Message: fmt.Sprintf("duplicate issuer URL %q", u),
+				})
+			}
+			seenIssuer[u] = true
+		}
+	}
+	return out
+}
+
+func validateAgainst(sch *jsonschema.Schema, instance any) ([]FieldError, error) {
+	err := sch.Validate(instance)
 	if err == nil {
-		return checkStaticRules(instance), nil
+		return nil, nil
 	}
 	ve, ok := err.(*jsonschema.ValidationError)
 	if !ok {

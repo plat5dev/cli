@@ -302,6 +302,49 @@ func TestStaticRulesOffline(t *testing.T) {
 
 // The copy tracks plat5's schema/. Checked when plat5 is checked out beside
 // the CLI, as in plat5dev.
+func TestValidateControlPlaneAuth(t *testing.T) {
+	valid := map[string]any{
+		"issuers": []any{
+			map[string]any{
+				"name":      "github-actions",
+				"issuer":    "https://token.actions.githubusercontent.com",
+				"audiences": []any{"https://cp.example.com"},
+				"rules": []any{
+					map[string]any{
+						"access": "read",
+						"claims": map[string]any{"repository": []any{"acme/*"}},
+					},
+				},
+			},
+		},
+	}
+	if errs, err := ValidateControlPlaneAuth(valid); err != nil || len(errs) != 0 {
+		t.Fatalf("expected valid control_plane_auth, got %v / %v", errs, err)
+	}
+
+	// Duplicate issuer name fails semantic check.
+	dup := map[string]any{
+		"issuers": []any{
+			map[string]any{
+				"name":      "same",
+				"issuer":    "https://a.example.com",
+				"audiences": []any{"cp"},
+				"rules":     []any{map[string]any{"access": "read", "claims": map[string]any{"sub": []any{"a"}}}},
+			},
+			map[string]any{
+				"name":      "same",
+				"issuer":    "https://b.example.com",
+				"audiences": []any{"cp"},
+				"rules":     []any{map[string]any{"access": "read", "claims": map[string]any{"sub": []any{"b"}}}},
+			},
+		},
+	}
+	errs, err := ValidateControlPlaneAuth(dup)
+	if err != nil || len(errs) == 0 || errs[0].Path != "issuers[1].name" {
+		t.Fatalf("expected duplicate name error, got %v / %v", errs, err)
+	}
+}
+
 func TestMatchesPlat5(t *testing.T) {
 	dir := filepath.Join("..", "..", "..", "plat5", "schema")
 	if _, err := os.Stat(dir); err != nil {

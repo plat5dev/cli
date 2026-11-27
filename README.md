@@ -108,16 +108,27 @@ Local Auth runs in dev mode: `POST /dev/token` mints a token for any email, and 
 | `plat5 reset [-y]` | Stop everything and delete the project's volumes: Plat5's and the operator's databases, your apps' volumes, Grafana's data. The next `start` seeds a fresh dev person. Asks first unless `-y` |
 | `plat5 logs [service…]` | Container logs. Follows on a terminal; piped, prints and exits. `--app` for your app; `-f` / `-f=false` to choose |
 | `plat5 doctor` | Check Docker, `plat5.local.yml`, `plat5.yml`, `operator.yml`, and ports, the operator console's included (naming the Plat5 project that holds a busy one) |
-| `plat5 validate [-f file …] [plat5.yml]` | Check a deployment's config against the schema, offline |
+| `plat5 validate [-f file …] [plat5.yml]` | Check a deployment's config against the schema, offline (`--auth-config <file>` validates a control-plane `AUTH_CONFIG_FILE` against `control_plane_auth.json`) |
 | `plat5 plan [-f file …] [plat5.yml] [-out plan.json] [--detailed-exitcode]` | Dry run: the diff applying it would make |
-| `plat5 apply [-f file …] [plat5.yml \| plan.json] [--auto-approve]` | Plan, confirm, apply, or apply a saved plan; then wait up to 10s for the gateway's replicas to load it, and exit 1 if one refused it |
+| `plat5 apply [-f file …] [plat5.yml \| plan.json] [--auto-approve] [--reason <text>] [--ref <ref>]` | Plan, confirm, apply, or apply a saved plan (attaching optional `X-Plat5-Change-Reason` / `X-Plat5-Change-Ref`, with `--ref` auto-filled from `GITHUB_SHA`/`CI_COMMIT_SHA`); then wait up to 10s for the gateway's replicas to load it, and exit 1 if one refused it |
+| `plat5 login [--issuer <name>] [--device-code] [--no-browser]` | Sign in to an OIDC-enabled control plane (RFC 8252 PKCE or RFC 8628 Device Flow) and cache tokens in `$XDG_STATE_HOME/plat5/credentials.json` (`0600`) |
+| `plat5 logout [--all]` | Remove cached control-plane login credentials |
+| `plat5 whoami` | Show the verified control-plane identity and `read` / `apply` access level (`GET /auth/whoami`) |
 | `plat5 routes list [-f file …] [plat5.yml]` | Every service's expanded routes, identity's and audit's included: method, public path, scope, upstream, permissions. A dry run: the routes the control plane expanded |
 | `plat5 routes generate [-f file …] [plat5.yml]` | Write identity's and audit's routes for every kind into `services/identity.yml` and `services/audit.yml`, overwriting them but keeping their `url`, `timeouts` and `max_body_bytes`. Offline. Run it after adding or removing a kind, or changing a kind's `path` or `list_permission`; review the diff, and delete again any route you had dropped |
 | `plat5 config pull [--revision n] [dir]` | Write an applied revision as `plat5.yml` and `services/<service>.yml` |
 | `plat5 authorizer sync [manifest.yaml]` | Upload `authorizer.manifest` (or a file argument) to Topaz's Directory v3 API without restarting the stack |
 | `plat5 version` / `--version` | The CLI version, and the image versions `plat5.local.yml` pins |
 
-`validate`, `plan`, `apply`, `routes list`, `routes generate` and `config pull` work on a deployment's config: `plat5.yml` and the service files it lists. `validate` and `routes generate` are offline; the others talk to the local control plane (from `plat5.local.yml` when present, else `http://localhost:5402` and `dev-admin-token`) unless `--control-plane-url` / `--admin-token` (or `PLAT5_CONTROL_PLANE_URL` / `PLAT5_ADMIN_TOKEN`) point elsewhere.
+`validate`, `plan`, `apply`, `routes list`, `routes generate`, `config pull`, `login`, `logout`, and `whoami` work against a control plane. `validate` and `routes generate` are offline; the others talk to the local control plane (from `plat5.local.yml` when present, else `http://localhost:5402` and `dev-admin-token`) unless `--control-plane-url` / `PLAT5_CONTROL_PLANE_URL` points elsewhere.
+
+Control-plane credentials resolve in order:
+1. `--token` / `PLAT5_TOKEN` (or `--admin-token` / `PLAT5_ADMIN_TOKEN`)
+2. `--token-file` / `PLAT5_TOKEN_FILE` (e.g., Kubernetes projected ServiceAccount JWT)
+3. `--token-cmd` / `PLAT5_TOKEN_CMD` (external credential helper printing a token to stdout)
+4. Cached `plat5 login` OIDC session for the target URL (auto-refreshed via `refresh_token`)
+5. Native CI OIDC: GitHub Actions (`ACTIONS_ID_TOKEN_REQUEST_URL` + `ACTIONS_ID_TOKEN_REQUEST_TOKEN`, audience from `--oidc-audience` / `PLAT5_OIDC_AUDIENCE` / control-plane URL) or GitLab CI (`PLAT5_OIDC_TOKEN`)
+6. Local `plat5.local.yml` `admin_token` / `dev-admin-token`
 
 Pass `-f` / `--file` multiple times to layer environment overlays over a base `plat5.yml` (cannot be combined with a positional file argument):
 

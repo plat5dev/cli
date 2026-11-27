@@ -12,6 +12,10 @@ import (
 var (
 	flagControlPlaneURL string
 	flagAdminToken      string
+	flagToken           string
+	flagTokenFile       string
+	flagTokenCmd        string
+	flagOIDCAudience    string
 )
 
 var rootCmd = &cobra.Command{
@@ -52,12 +56,16 @@ func Execute() error {
 
 func init() {
 	rootCmd.PersistentFlags().StringVar(&flagControlPlaneURL, "control-plane-url", "", "Control plane admin URL (or PLAT5_CONTROL_PLANE_URL). Default: the local one, "+defaultControlPlaneURL)
-	rootCmd.PersistentFlags().StringVar(&flagAdminToken, "admin-token", "", "Control plane admin token (or PLAT5_ADMIN_TOKEN). Default: the local one")
+	rootCmd.PersistentFlags().StringVar(&flagToken, "token", "", "Control plane bearer token / JWT (or PLAT5_TOKEN)")
+	rootCmd.PersistentFlags().StringVar(&flagAdminToken, "admin-token", "", "Control plane admin token (or PLAT5_ADMIN_TOKEN; alias for --token)")
+	rootCmd.PersistentFlags().StringVar(&flagTokenFile, "token-file", "", "Path to a file containing a bearer token / JWT (or PLAT5_TOKEN_FILE)")
+	rootCmd.PersistentFlags().StringVar(&flagTokenCmd, "token-cmd", "", "External command printing a bearer token / JWT to stdout (or PLAT5_TOKEN_CMD)")
+	rootCmd.PersistentFlags().StringVar(&flagOIDCAudience, "oidc-audience", "", "Audience requested for CI OIDC tokens (or PLAT5_OIDC_AUDIENCE; default: control-plane URL)")
 
 	rootCmd.Version = cliVersion()
 	config.CLIVersion = cliVersion()
 	rootCmd.SetVersionTemplate("plat5 {{.Version}}\n")
-	rootCmd.AddCommand(initCmd, startCmd, stopCmd, resetCmd, statusCmd, logsCmd, doctorCmd, validateCmd, planCmd, applyCmd, routesCmd, configCmd, versionCmd)
+	rootCmd.AddCommand(initCmd, startCmd, stopCmd, resetCmd, statusCmd, logsCmd, doctorCmd, validateCmd, planCmd, applyCmd, routesCmd, configCmd, loginCmd, logoutCmd, whoamiCmd, versionCmd)
 }
 
 func loadConfig() (config.Resolved, error) {
