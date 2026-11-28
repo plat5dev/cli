@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"errors"
+
 	"github.com/plat5dev/cli/internal/compose"
 	"github.com/plat5dev/cli/internal/prompt"
 	"github.com/plat5dev/cli/internal/stack"
@@ -9,22 +11,25 @@ import (
 
 var (
 	logsApp    bool
+	logsInfra  bool
 	logsFollow bool
 )
 
 var logsCmd = &cobra.Command{
 	Use:   "logs [service...]",
-	Short: "Show container logs (gateway, identity, auth, …; --app for your app)",
+	Short: "Show container logs (gateway, identity, auth, …; --app / --infra for project containers)",
 	Long: `Show the local stack's container logs. Name services to narrow it:
 
   plat5 logs gateway identity
   plat5 logs auth | grep code  login codes for new sign-ups
+  plat5 logs --infra
   plat5 logs --app`,
 	RunE: runLogs,
 }
 
 func init() {
 	logsCmd.Flags().BoolVar(&logsApp, "app", false, "Your app's logs")
+	logsCmd.Flags().BoolVar(&logsInfra, "infra", false, "Project infra logs (infra.compose)")
 	logsCmd.Flags().BoolVarP(&logsFollow, "follow", "f", true, "Follow. The default on a terminal; piped, logs print and exit (plat5 logs auth | grep code)")
 }
 
@@ -52,6 +57,13 @@ func runLogs(cmd *cobra.Command, args []string) error {
 	stk, err := stack.New(cfg, exclude)
 	if err != nil {
 		return err
+	}
+	if logsInfra {
+		infra := stk.InfraRunner()
+		if infra == nil {
+			return errors.New("no infra.compose configured in plat5.local.yml")
+		}
+		return infra.Logs(logsFollow, args...)
 	}
 	if logsApp {
 		app := stk.AppRunner()

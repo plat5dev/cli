@@ -68,6 +68,18 @@ func New(cfg config.Resolved, exclude []string) (*Stack, error) {
 // Has reports whether the stack runs a module.
 func (s *Stack) Has(module string) bool { return contains(s.Modules, module) }
 
+// HasLocalOperatorAuth reports whether the stack runs the embedded operator-auth
+// container (false when operator is off or operator.idp configures an external IdP).
+func (s *Stack) HasLocalOperatorAuth() bool {
+	return s.Has(config.ModuleOperator) && !s.Config.OperatorIdP.AnySet()
+}
+
+// HasLocalLGTM reports whether the stack runs the embedded Grafana/LGTM container
+// (false when observability is off or observability.mode is alloy-only).
+func (s *Stack) HasLocalLGTM() bool {
+	return s.Has(config.ModuleObservability) && s.Config.ObservabilityMode != config.ObservabilityAlloyOnly
+}
+
 // Prepare writes the compose files and the override for this run.
 func (s *Stack) Prepare() error {
 	if err := bundle.Materialize(s.Dir); err != nil {
@@ -81,7 +93,7 @@ func (s *Stack) Prepare() error {
 			return err
 		}
 	}
-	if s.Has(config.ModuleOperator) {
+	if s.HasLocalOperatorAuth() {
 		if err := writeTheme(filepath.Join(s.Dir, "operator-auth-theme.json"), s.operatorAuthTitle(), operatorPlane); err != nil {
 			return err
 		}
@@ -98,10 +110,43 @@ func (s *Stack) Prepare() error {
 func (s *Stack) Runner() compose.Runner {
 	files := []string{bundle.Files["core"], bundle.DBInitFile}
 	for _, m := range s.Modules {
-		files = append(files, bundle.Files[m])
+		switch m {
+		case config.ModuleObservability:
+			if s.Config.ObservabilityMode == config.ObservabilityAlloyOnly {
+				files = append(files, bundle.AlloyFile)
+			} else {
+				files = append(files, bundle.Files[m])
+			}
+		case config.ModuleOperator:
+			files = append(files, bundle.Files[m])
+			if s.HasLocalOperatorAuth() {
+				files = append(files, bundle.OperatorAuthFile)
+			}
+		default:
+			files = append(files, bundle.Files[m])
+		}
 	}
 	files = append(files, "override.yml")
 	return compose.Runner{Dir: s.Dir, ProjectName: s.Config.ComposeProject, Files: files, Env: s.Env()}
+}
+
+// InfraRunner is docker compose for the project's infra.compose file, or nil when none.
+func (s *Stack) InfraRunner() *compose.Runner {
+	if s.Config.InfraCompose == "" {
+		return nil
+	}
+	r := s.InfraRunnerFor(s.Config.InfraCompose)
+	return &r
+}
+
+// InfraRunnerFor is docker compose for an infra compose file.
+func (s *Stack) InfraRunnerFor(file string) compose.Runner {
+	return compose.Runner{
+		Dir:         filepath.Dir(file),
+		ProjectName: s.Config.InfraComposeProject,
+		Files:       []string{file},
+		Env:         s.AppEnv(),
+	}
 }
 
 // AppRunner is docker compose for the app's own file, or nil when there is none.
@@ -141,10 +186,16 @@ func (s *Stack) Ports() map[ports.Name]int {
 		add(ports.Auth)
 	}
 	if s.Has(config.ModuleObservability) {
-		add(ports.Grafana, ports.OTLPGRPC, ports.OTLPHTTP)
+		if s.HasLocalLGTM() {
+			add(ports.Grafana)
+		}
+		add(ports.OTLPGRPC, ports.OTLPHTTP)
 	}
 	if s.Has(config.ModuleOperator) {
-		add(ports.Operator, ports.OperatorAuth)
+		add(ports.Operator)
+		if s.HasLocalOperatorAuth() {
+			add(ports.OperatorAuth)
+		}
 	}
 	return want
 }
@@ -256,22 +307,24 @@ func (s *Stack) SkippedAppServices() ([]string, error) {
 	return out, nil
 }
 
-// OtelEndpoint is where Plat5's containers send telemetry: the project's own
-// collector, else the observability module's Alloy, else nowhere.
+// OtelEndpoint is where Plat5's containers send telemetry: local Alloy when the
+// observability module is on (local LGTM or alloy-only), else otel.endpoint, else nowhere.
 func (s *Stack) OtelEndpoint() string {
-	if s.Config.OtelEndpoint != "" {
-		return s.Config.OtelEndpoint
-	}
 	if s.Has(config.ModuleObservability) {
 		return "http://alloy:4318"
 	}
-	return ""
+	return s.Config.OtelEndpoint
 }
 
 // Env is the compose interpolation env for the stack's files.
 func (s *Stack) Env() []string {
 	c := s.Config
-	env := map[string]string{
+	env := map[string]string{}
+	// Seed with .env.local entries first so Plat5-managed keys always win on conflict.
+	for k, v := range c.Env {
+		env[k] = v
+	}
+	for k, v := range map[string]string{
 		"ADMIN_TOKEN":                 c.AdminToken,
 		"SECRET_BRAND":                c.SecretBrand,
 		"OTEL_EXPORTER_OTLP_ENDPOINT": s.OtelEndpoint(),
@@ -288,8 +341,18 @@ func (s *Stack) Env() []string {
 
 		"CORS_ALLOWED_ORIGINS": strings.Join(c.GatewayCORSOrigins(), ","),
 		"CORS_ALLOWED_HEADERS": strings.Join(c.GatewayCORSHeaders(), ","),
+	} {
+		env[k] = v
 	}
 	env["AUTH_REDIRECT_URIS"] = strings.Join(c.AuthRedirectURIs(), ",")
+
+	// Remote OTLP endpoint for alloy-only mode.
+	if s.Has(config.ModuleObservability) && c.ObservabilityMode == config.ObservabilityAlloyOnly {
+		env["REMOTE_OTLP_ENDPOINT"] = c.OtelEndpoint
+		if hdrs := c.OtelHeadersEnv(); hdrs != "" {
+			env["REMOTE_OTLP_AUTH_HEADER"] = hdrs
+		}
+	}
 
 	// The gateway's IdP: local Auth, or the project's own.
 	if s.Has(config.ModuleAuth) {
@@ -304,6 +367,21 @@ func (s *Stack) Env() []string {
 		env["IDP_AUDIENCES"] = strings.Join(c.IdP.Audiences, ",")
 		env["IDP_SUBJECT_CLAIM"] = firstNonEmpty(c.IdP.SubjectClaim, "sub")
 		env["IDP_NAME_CLAIMS"] = c.IdP.NameClaimsEnv()
+	}
+
+	// The operator gateway's IdP: local operator-auth, or operator.idp.
+	if c.OperatorIdP.AnySet() {
+		env["OPERATOR_AUTH_ISSUER"] = c.OperatorIdP.Issuer
+		env["OPERATOR_AUTH_JWKS_URI"] = c.OperatorIdP.JWKSURI
+		env["OPERATOR_AUTH_AUDIENCES"] = strings.Join(c.OperatorIdP.Audiences, ",")
+		env["OPERATOR_AUTH_ID_CLAIM"] = firstNonEmpty(c.OperatorIdP.OperatorIDClaim, config.DefaultOperatorIDClaim)
+		env["OPERATOR_AUTH_EMAIL_CLAIM"] = firstNonEmpty(c.OperatorIdP.OperatorEmailClaim, config.DefaultOperatorEmailClaim)
+	} else {
+		env["OPERATOR_AUTH_ISSUER"] = c.URL(ports.OperatorAuth)
+		env["OPERATOR_AUTH_JWKS_URI"] = "http://operator-auth:5000/.well-known/jwks.json"
+		env["OPERATOR_AUTH_AUDIENCES"] = config.OperatorClient
+		env["OPERATOR_AUTH_ID_CLAIM"] = "properties.user_id"
+		env["OPERATOR_AUTH_EMAIL_CLAIM"] = "properties.email"
 	}
 
 	for key, name := range map[string]string{
@@ -329,24 +407,43 @@ func (s *Stack) Env() []string {
 // and for containers. The template contract (cli README) names these.
 func (s *Stack) AppEnv() []string {
 	c := s.Config
-	otel := c.OtelEndpoint
-	if otel == "" && s.Has(config.ModuleObservability) {
-		otel = fmt.Sprintf("http://host.docker.internal:%d", c.Ports[ports.OTLPHTTP])
+	env := map[string]string{}
+	// Seed with .env.local entries so project slices/infra receive local secrets.
+	for k, v := range c.Env {
+		env[k] = v
 	}
-	env := map[string]string{
+	otel := c.OtelEndpoint
+	otelHeaders := c.OtelHeadersEnv()
+	if s.Has(config.ModuleObservability) {
+		otel = fmt.Sprintf("http://host.docker.internal:%d", c.Ports[ports.OTLPHTTP])
+		otelHeaders = ""
+	}
+	for k, v := range map[string]string{
 		"PLAT5_GATEWAY_URL":           c.GatewayURL(),
 		"PLAT5_AUTH_URL":              "",
 		"PLAT5_AUTH_CLIENT_ID":        config.DefaultAuthClient,
+		"PLAT5_AUTH_AUDIENCE":         "",
+		"PLAT5_AUTH_SUBJECT_CLAIM":    "properties.user_id",
 		"OTEL_EXPORTER_OTLP_ENDPOINT": otel,
+		"OTEL_EXPORTER_OTLP_HEADERS":  otelHeaders,
 		// The operator module, for the operator console.
 		"PLAT5_OPERATOR_URL":       c.URL(ports.Operator),
 		"PLAT5_OPERATOR_AUTH_URL":  c.URL(ports.OperatorAuth),
 		"PLAT5_OPERATOR_CLIENT_ID": config.OperatorClient,
+	} {
+		env[k] = v
 	}
 	if s.Has(config.ModuleAuth) {
 		env["PLAT5_AUTH_URL"] = c.URL(ports.Auth)
 	} else {
 		env["PLAT5_AUTH_URL"] = c.IdP.Issuer
+		env["PLAT5_AUTH_CLIENT_ID"] = c.IdP.ClientID
+		env["PLAT5_AUTH_AUDIENCE"] = firstNonWildcard(c.IdP.Audiences)
+		env["PLAT5_AUTH_SUBJECT_CLAIM"] = firstNonEmpty(c.IdP.SubjectClaim, "sub")
+	}
+	if c.OperatorIdP.AnySet() {
+		env["PLAT5_OPERATOR_AUTH_URL"] = c.OperatorIdP.Issuer
+		env["PLAT5_OPERATOR_CLIENT_ID"] = c.OperatorIdP.ClientID
 	}
 	if c.Gateway.UpstreamSigning {
 		if _, pub, err := s.ensureSigningKey(); err == nil {
@@ -354,6 +451,15 @@ func (s *Stack) AppEnv() []string {
 		}
 	}
 	return sortedEnv(env)
+}
+
+func firstNonWildcard(list []string) string {
+	for _, s := range list {
+		if s != "" && s != "*" {
+			return s
+		}
+	}
+	return ""
 }
 
 // ensureSigningKey returns the project's persistent local Ed25519 upstream
@@ -427,13 +533,23 @@ func (s *Stack) override() string {
 		mount("auth", theme, themeContainerPath)
 	}
 	if s.Has(config.ModuleOperator) {
-		get("operator-auth").env["AUTH_THEME_FILE"] = themeContainerPath
-		mount("operator-auth", filepath.Join(s.Dir, "operator-auth-theme.json"), themeContainerPath)
+		if s.HasLocalOperatorAuth() {
+			get("operator-auth").env["AUTH_THEME_FILE"] = themeContainerPath
+			mount("operator-auth", filepath.Join(s.Dir, "operator-auth-theme.json"), themeContainerPath)
+		}
 		if c.OperatorConfig != "" {
 			mount("operator", c.OperatorConfig, operatorConfigPath)
 			// The gateway reads its config at boot: a changed file recreates it.
 			if data, err := os.ReadFile(c.OperatorConfig); err == nil {
 				get("operator").labels["dev.plat5.operator-config-sha256"] = fmt.Sprintf("%x", sha256.Sum256(data))
+			}
+		}
+	}
+	// Pass OTEL_EXPORTER_OTLP_HEADERS directly when not routing through local Alloy.
+	if !s.Has(config.ModuleObservability) {
+		if hdrs := c.OtelHeadersEnv(); hdrs != "" {
+			for _, name := range s.services() {
+				get(name).env["OTEL_EXPORTER_OTLP_HEADERS"] = hdrs
 			}
 		}
 	}
@@ -539,7 +655,10 @@ func (s *Stack) services() []string {
 		out = append(out, "auth")
 	}
 	if s.Has(config.ModuleOperator) {
-		out = append(out, "operator", "operator-audit", "operator-audit-migrate", "operator-auth")
+		out = append(out, "operator", "operator-audit", "operator-audit-migrate")
+		if s.HasLocalOperatorAuth() {
+			out = append(out, "operator-auth")
+		}
 	}
 	return out
 }
@@ -571,7 +690,7 @@ func (s *Stack) sourceBuilds() []sourceBuild {
 		out = append(out, sourceBuild{service: "auth", context: filepath.Join(dir, "issuer"), target: "prod"})
 	}
 	if s.Has(config.ModuleOperator) {
-		if dir := src[config.VersionAuth]; dir != "" {
+		if dir := src[config.VersionAuth]; dir != "" && s.HasLocalOperatorAuth() {
 			out = append(out, sourceBuild{service: "operator-auth", context: filepath.Join(dir, "issuer"), target: "prod"})
 		}
 		if dir := src[config.VersionOperator]; dir != "" {
@@ -630,22 +749,33 @@ const (
 // 127.0.0.1 only. It writes an override, adds it to app, and returns the
 // services it joined.
 func (s *Stack) JoinApp(app *compose.Runner, hosts []string) ([]string, error) {
-	networks, err := app.ServiceNetworks()
+	return s.joinCompose(app, hosts, "app-override.yml", "your app")
+}
+
+// JoinInfra puts project-owned infra services (AuthZEN PDPs, local IdPs) whose
+// hostnames appear in plat5.yml, operator.yml, or plat5.local.yml on the Plat5
+// network.
+func (s *Stack) JoinInfra(infra *compose.Runner, hosts []string) ([]string, error) {
+	return s.joinCompose(infra, hosts, "infra-override.yml", "your infra")
+}
+
+func (s *Stack) joinCompose(r *compose.Runner, hosts []string, overrideFile, label string) ([]string, error) {
+	networks, err := r.ServiceNetworks()
 	if err != nil {
-		return nil, fmt.Errorf("your app: %w", err)
+		return nil, fmt.Errorf("%s: %w", label, err)
 	}
 	joined, err := s.appServices(networks, hosts)
 	if err != nil || len(joined) == 0 {
 		return nil, err
 	}
-	path := filepath.Join(s.Dir, "app-override.yml")
+	path := filepath.Join(s.Dir, overrideFile)
 	if err := os.MkdirAll(s.Dir, 0o755); err != nil {
 		return nil, err
 	}
 	if err := os.WriteFile(path, []byte(appOverride(s.Config.ComposeProject, joined, networks)), 0o644); err != nil {
 		return nil, err
 	}
-	app.Files = append(app.Files, path)
+	r.Files = append(r.Files, path)
 	return joined, nil
 }
 

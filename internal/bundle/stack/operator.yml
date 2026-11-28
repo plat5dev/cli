@@ -1,10 +1,6 @@
-# Embedded by plat5 CLI: the operator module. Operator's gateway on the project's
-# operator.yml (the override mounts it), operator-audit with the operator audit
-# log in its own database, and the operator IdP: a second Plat5 Auth in dev mode,
-# never the customer IdP, with POST /dev/token and the seeded operator@example.com /
-# password. Env and health checks follow operator's compose/docker-compose.yml.
-# Pulls ghcr.io/plat5dev/operator and operator-audit at ${OPERATOR_VERSION}, and
-# ghcr.io/plat5dev/auth at ${AUTH_VERSION}.
+# Embedded by plat5 CLI: the operator module (operator gateway and operator-audit).
+# Local operator-auth is in operator-auth.yml and included unless operator.idp is set.
+# Pulls ghcr.io/plat5dev/operator and operator-audit at ${OPERATOR_VERSION}.
 services:
   operator:
     image: ghcr.io/plat5dev/operator:${OPERATOR_VERSION:?}
@@ -16,20 +12,17 @@ services:
     environment:
       CONFIG_FILE: /etc/operator/operator.yml
       IDENTITY_URL: http://identity:3000
-      # The operator IdP: the operator id is its user id, and the email is in the
-      # token because operator-auth sets AUTH_TOKEN_EMAIL. Its aud is the client id.
-      AUTH_ISSUER: http://localhost:${OPERATOR_AUTH_PORT:?}
-      AUTH_JWKS_URI: http://operator-auth:5000/.well-known/jwks.json
-      AUTH_ALLOWED_AUDIENCES: operator-console
-      AUTH_OPERATOR_ID_CLAIM: properties.user_id
-      AUTH_OPERATOR_EMAIL_CLAIM: properties.email
+      # The operator IdP: local operator-auth, or operator.idp from plat5.local.yml.
+      AUTH_ISSUER: ${OPERATOR_AUTH_ISSUER:?}
+      AUTH_JWKS_URI: ${OPERATOR_AUTH_JWKS_URI:?}
+      AUTH_ALLOWED_AUDIENCES: ${OPERATOR_AUTH_AUDIENCES:?}
+      AUTH_OPERATOR_ID_CLAIM: ${OPERATOR_AUTH_ID_CLAIM:?}
+      AUTH_OPERATOR_EMAIL_CLAIM: ${OPERATOR_AUTH_EMAIL_CLAIM:?}
       ALLOWED_ORIGINS: ${OPERATOR_ORIGINS:-}
       AUDIT_URL: http://operator-audit:8005
     networks:
       - plat5
     depends_on:
-      operator-auth:
-        condition: service_healthy
       operator-audit:
         condition: service_healthy
       identity:
@@ -78,37 +71,3 @@ services:
       db-init:
         condition: service_completed_successfully
     restart: "no"
-
-  operator-auth:
-    image: ghcr.io/plat5dev/auth:${AUTH_VERSION:?}
-    labels:
-      service.name: operator-auth
-      service.namespace: operator
-    ports:
-      - "${OPERATOR_AUTH_PORT:?}:5000"
-    environment:
-      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
-      DATABASE_URL: postgres://plat5:plat5@postgres:5432/operator_auth?sslmode=disable
-      INTERNAL_PORT: 5001
-      # Token iss: the origin operators sign in at, which the operator gateway checks.
-      PUBLIC_ISSUER_URL: http://localhost:${OPERATOR_AUTH_PORT:?}
-      AUTH_DISPLAY_NAME: ${OPERATOR_AUTH_DISPLAY_NAME:?}
-      AUTH_ALLOWED_CLIENTS: operator-console
-      AUTH_ALLOWED_REDIRECT_URIS: ${OPERATOR_REDIRECT_URIS:-}
-      AUTH_ALLOWED_ORIGINS: ${OPERATOR_ORIGINS:-}
-      AUTH_TOKEN_EMAIL: "true"
-      AUTH_DEV_MODE: "true"
-      AUTH_DEV_USERS: ${OPERATOR_DEV_USERS:?}
-      OTEL_SERVICE_NAME: operator-auth
-      OTEL_RESOURCE_ATTRIBUTES: service.namespace=operator,deployment.environment=local
-    networks:
-      - plat5
-    depends_on:
-      db-init:
-        condition: service_completed_successfully
-    healthcheck:
-      test: ["CMD", "bun", "-e", "fetch('http://localhost:5001/health/ready').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
-      interval: 2s
-      timeout: 5s
-      retries: 60
-    restart: unless-stopped

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/plat5dev/cli/internal/config"
 	"github.com/plat5dev/cli/internal/controlplane"
 	"github.com/plat5dev/cli/internal/devseed"
 )
@@ -142,6 +143,23 @@ func TestURLHosts(t *testing.T) {
 	}
 	if got := strings.Join(urlHosts(flat), ","); got != "api,identity,topaz" {
 		t.Fatalf("%s", got)
+	}
+
+	dir := t.TempDir()
+	opFile := filepath.Join(dir, "operator.yml")
+	if err := os.WriteFile(opFile, []byte("authorizer:\n  mode: authzen\n  url: http://cerbos:3592\nservices:\n  billing:\n    url: http://billing:3000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Resolved{
+		OperatorConfig: opFile,
+		IdP:            config.IdPBlock{JWKSURI: "http://keycloak:8080/realms/main/protocol/openid-connect/certs"},
+		OperatorIdP:    config.OperatorIdPBlock{JWKSURI: "http://dex:5556/keys"},
+		OtelEndpoint:   "http://collector:4318",
+	}
+	got := strings.Join(collectURLHosts(flat, cfg), ",")
+	want := "api,billing,cerbos,collector,dex,identity,keycloak,topaz"
+	if got != want {
+		t.Fatalf("collectURLHosts = %q, want %q", got, want)
 	}
 }
 

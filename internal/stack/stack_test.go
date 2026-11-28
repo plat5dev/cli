@@ -57,7 +57,7 @@ func TestModulesAndExclude(t *testing.T) {
 		t.Fatalf("%v", s.Modules)
 	}
 	files := strings.Join(s.Runner().Files, ",")
-	if files != "core.yml,db-init.yml,auth.yml,observability.yml,operator.yml,override.yml" {
+	if files != "core.yml,db-init.yml,auth.yml,observability.yml,operator.yml,operator-auth.yml,override.yml" {
 		t.Fatalf("files: %s", files)
 	}
 	s = newStack(t, allOn, "observability")
@@ -65,7 +65,7 @@ func TestModulesAndExclude(t *testing.T) {
 		t.Fatalf("%v", s.Modules)
 	}
 	files = strings.Join(s.Runner().Files, ",")
-	if files != "core.yml,db-init.yml,auth.yml,operator.yml,override.yml" {
+	if files != "core.yml,db-init.yml,auth.yml,operator.yml,operator-auth.yml,override.yml" {
 		t.Fatalf("files: %s", files)
 	}
 	// Core still includes db-init.yml because audit-migrate depends on it for audit roles/schema.
@@ -624,5 +624,81 @@ func TestDefaultIDAppProjectUnchanged(t *testing.T) {
 		if before != now || now != s.Config.ProjectID {
 			t.Errorf("%q: compose names it %q, plat5 runs it as %q (id %q)", folder, before, now, s.Config.ProjectID)
 		}
+	}
+}
+
+func TestExternalOperatorIdPAndAlloyOnlyAndAppEnv(t *testing.T) {
+	s := newStack(t, `project_id: ext
+versions: {plat5: v0.18.0, operator: v0.9.0}
+modules: {auth: false}
+infra: {compose: ./docker-compose.infra.yml}
+idp:
+  issuer: https://acme.us.auth0.com/
+  jwks_uri: https://acme.us.auth0.com/.well-known/jwks.json
+  audiences: [https://api.acme.com]
+  client_id: spa-client
+  subject_claim: sub
+operator:
+  config: ./operator.yml
+  idp:
+    issuer: https://acme.okta.com/oauth2/default
+    jwks_uri: https://acme.okta.com/oauth2/default/v1/keys
+    audiences: [plat5-operator]
+    client_id: op-client
+observability:
+  mode: alloy-only
+otel:
+  endpoint: https://otlp.grafana.net/otlp
+  headers:
+    Authorization: "Basic abc"
+`)
+	if s.HasLocalOperatorAuth() {
+		t.Fatal("external operator.idp must disable local operator-auth")
+	}
+	if s.HasLocalLGTM() {
+		t.Fatal("alloy-only mode must disable local lgtm")
+	}
+	if got := strings.Join(s.Runner().Files, ","); got != "core.yml,db-init.yml,alloy.yml,operator.yml,override.yml" {
+		t.Fatalf("files: %s", got)
+	}
+	if _, hasGrafana := s.Ports()["grafana"]; hasGrafana {
+		t.Fatalf("alloy-only should not claim grafana port: %v", s.Ports())
+	}
+	if _, hasOpAuth := s.Ports()["operator_auth"]; hasOpAuth {
+		t.Fatalf("external operator.idp should not claim operator_auth port: %v", s.Ports())
+	}
+	e := env(s)
+	for k, want := range map[string]string{
+		"OPERATOR_AUTH_ISSUER":      "https://acme.okta.com/oauth2/default",
+		"OPERATOR_AUTH_JWKS_URI":    "https://acme.okta.com/oauth2/default/v1/keys",
+		"OPERATOR_AUTH_AUDIENCES":   "plat5-operator",
+		"OPERATOR_AUTH_ID_CLAIM":    "sub",
+		"OPERATOR_AUTH_EMAIL_CLAIM": "email",
+		"REMOTE_OTLP_ENDPOINT":      "https://otlp.grafana.net/otlp",
+		"REMOTE_OTLP_AUTH_HEADER":   "Authorization=Basic abc",
+	} {
+		if e[k] != want {
+			t.Errorf("env %s = %q, want %q", k, e[k], want)
+		}
+	}
+	appEnv := map[string]string{}
+	for _, kv := range s.AppEnv() {
+		k, v, _ := strings.Cut(kv, "=")
+		appEnv[k] = v
+	}
+	for k, want := range map[string]string{
+		"PLAT5_AUTH_URL":           "https://acme.us.auth0.com/",
+		"PLAT5_AUTH_CLIENT_ID":     "spa-client",
+		"PLAT5_AUTH_AUDIENCE":      "https://api.acme.com",
+		"PLAT5_AUTH_SUBJECT_CLAIM": "sub",
+		"PLAT5_OPERATOR_AUTH_URL":  "https://acme.okta.com/oauth2/default",
+		"PLAT5_OPERATOR_CLIENT_ID": "op-client",
+	} {
+		if appEnv[k] != want {
+			t.Errorf("appEnv %s = %q, want %q", k, appEnv[k], want)
+		}
+	}
+	if ir := s.InfraRunner(); ir == nil || ir.ProjectName != "ext-infra" {
+		t.Fatalf("InfraRunner = %+v", ir)
 	}
 }

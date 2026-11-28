@@ -4,12 +4,15 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"os"
 	"sort"
 	"strings"
 
+	"github.com/plat5dev/cli/internal/config"
 	"github.com/plat5dev/cli/internal/controlplane"
 	"github.com/plat5dev/cli/internal/devseed"
 	"github.com/plat5dev/cli/internal/plat5yml"
+	"gopkg.in/yaml.v3"
 )
 
 // applyForStart applies an already-loaded plat5.yml as plat5 apply does,
@@ -62,26 +65,47 @@ func rootKinds(flat map[string]any) []devseed.RootKind {
 
 // urlHosts is the host of every service url and optional authorizer url in the config, sorted.
 func urlHosts(flat map[string]any) []string {
+	return collectURLHosts(flat, config.Resolved{})
+}
+
+// collectURLHosts discovers container hostnames across plat5.yml (services.*.url,
+// authorizer.url), operator.yml (services.*.url, authorizer.url), and plat5.local.yml
+// (idp.jwks_uri, operator.idp.jwks_uri, otel.endpoint), sorted and deduplicated.
+func collectURLHosts(flat map[string]any, cfg config.Resolved) []string {
 	seen := map[string]bool{}
 	var out []string
 	add := func(rawURL string) {
-		u, err := url.Parse(rawURL)
+		u, err := url.Parse(strings.TrimSpace(rawURL))
 		if err != nil || u.Hostname() == "" || seen[u.Hostname()] {
 			return
 		}
 		seen[u.Hostname()] = true
 		out = append(out, u.Hostname())
 	}
-	services, _ := flat["services"].(map[string]any)
-	for _, raw := range services {
-		svc, _ := raw.(map[string]any)
-		s, _ := svc["url"].(string)
-		add(s)
+	addMapURLs := func(doc map[string]any) {
+		services, _ := doc["services"].(map[string]any)
+		for _, raw := range services {
+			svc, _ := raw.(map[string]any)
+			s, _ := svc["url"].(string)
+			add(s)
+		}
+		if authz, ok := doc["authorizer"].(map[string]any); ok {
+			s, _ := authz["url"].(string)
+			add(s)
+		}
 	}
-	if authz, ok := flat["authorizer"].(map[string]any); ok {
-		s, _ := authz["url"].(string)
-		add(s)
+	addMapURLs(flat)
+	if cfg.OperatorConfig != "" {
+		if data, err := os.ReadFile(cfg.OperatorConfig); err == nil {
+			var opDoc map[string]any
+			if yaml.Unmarshal(data, &opDoc) == nil {
+				addMapURLs(opDoc)
+			}
+		}
 	}
+	add(cfg.IdP.JWKSURI)
+	add(cfg.OperatorIdP.JWKSURI)
+	add(cfg.OtelEndpoint)
 	sort.Strings(out)
 	return out
 }

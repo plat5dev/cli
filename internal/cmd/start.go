@@ -17,8 +17,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// appModule is -x app: skip the app's compose file for this run.
-const appModule = "app"
+// appModule and infraModule are -x app and -x infra.
+const (
+	appModule   = "app"
+	infraModule = "infra"
+)
 
 var (
 	startExclude []string
@@ -62,7 +65,7 @@ there on the url's port (beyond loopback on Linux).
 }
 
 func init() {
-	startCmd.Flags().StringSliceVarP(&startExclude, "exclude", "x", nil, "Skip modules for this run: auth, observability, operator, app")
+	startCmd.Flags().StringSliceVarP(&startExclude, "exclude", "x", nil, "Skip modules for this run: auth, observability, operator, infra, app")
 	startCmd.Flags().DurationVar(&startWait, "wait", 10*time.Minute, "How long to wait for the stack to be healthy")
 	startCmd.Flags().BoolVarP(&startVerbose, "verbose", "v", false, "Show docker compose's pull, build, and container output (otherwise it goes to a log file)")
 }
@@ -84,16 +87,20 @@ func runStart(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	hosts := urlHosts(conf.Flat)
+	hosts := collectURLHosts(conf.Flat, cfg)
 
 	skipApp := false
+	skipInfra := false
 	var exclude []string
 	for _, x := range startExclude {
-		if x == appModule {
+		switch x {
+		case appModule:
 			skipApp = true
-			continue
+		case infraModule:
+			skipInfra = true
+		default:
+			exclude = append(exclude, x)
 		}
-		exclude = append(exclude, x)
 	}
 	stk, err := stack.New(cfg, exclude)
 	if err != nil {
@@ -101,6 +108,18 @@ func runStart(cmd *cobra.Command, args []string) error {
 	}
 	if err := stk.CheckOperator(); err != nil {
 		return err
+	}
+	infra := stk.InfraRunner()
+	var infraJoined []string
+	if infra != nil {
+		if err := config.CheckFile("infra.compose", cfg.InfraCompose); err != nil {
+			return err
+		}
+		if skipInfra {
+			infra = nil
+		} else if infraJoined, err = stk.JoinInfra(infra, hosts); err != nil {
+			return err
+		}
 	}
 	app := stk.AppRunner()
 	var joined []string
@@ -121,6 +140,13 @@ func runStart(cmd *cobra.Command, args []string) error {
 	// The first start from a folder owns the project id from here on.
 	if err := claimOwner(&prev, cfg.Dir); err != nil {
 		return err
+	}
+	if infra == nil && prev.InfraCompose != "" {
+		fmt.Println("Stopping your infra containers (-x infra)…")
+		old := stk.InfraRunnerFor(prev.InfraCompose)
+		if err := old.Down(); err != nil {
+			fmt.Println("warning:", err)
+		}
 	}
 	// -x app: you run the app yourself, so the last start's app containers go,
 	// and free its ports.
@@ -164,9 +190,27 @@ func runStart(cmd *cobra.Command, args []string) error {
 		fmt.Println("  Building from source: checkouts (the first build takes a while)…")
 	}
 	// Identity and the gateway are ready only once they have a config, so the
-	// stack starts, the config is applied, and then start waits for health.
+	// stack starts, project-owned infra joins the Plat5 network, the config is
+	// applied, and then start waits for health.
 	if err := runner.Up(compose.UpOptions{Build: stk.Builds(), RemoveOrphans: true}); err != nil {
 		return out.failed(err, "plat5 logs")
+	}
+	st := state.State{ProjectID: cfg.ProjectID, Owner: prev.Owner, Modules: stk.Modules, StartedAt: time.Now().UTC()}
+	if infra != nil {
+		fmt.Printf("Starting project infra (%s)…\n", relPath(cfg.Dir, cfg.InfraCompose))
+		infra.Output = out.w
+		if err := pullMissing(*infra, out); err != nil {
+			return err
+		}
+		if err := infra.Up(compose.UpOptions{Build: true, Wait: startWait}); err != nil {
+			_ = state.Save(st)
+			return out.failed(fmt.Errorf("your infra: %w", err), "plat5 logs --infra")
+		}
+		for _, svc := range infraJoined {
+			fmt.Printf("  %s: project infra, on the Plat5 network\n", svc)
+		}
+		st.InfraCompose = cfg.InfraCompose
+		st.InfraJoined = infraJoined
 	}
 	cp := controlplane.New(cfg.ControlPlaneURL, cfg.AdminToken)
 	if err := cp.WaitReady(time.Minute); err != nil {
@@ -187,8 +231,6 @@ func runStart(cmd *cobra.Command, args []string) error {
 	if err := runner.Up(compose.UpOptions{Wait: startWait}); err != nil {
 		return out.failed(err, "plat5 logs")
 	}
-
-	st := state.State{ProjectID: cfg.ProjectID, Owner: prev.Owner, Modules: stk.Modules, StartedAt: time.Now().UTC()}
 
 	if app != nil {
 		fmt.Printf("Starting your app (%s)…\n", relPath(cfg.Dir, cfg.AppCompose))

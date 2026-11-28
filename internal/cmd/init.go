@@ -120,6 +120,7 @@ func init() {
 	f.StringVar(&initProjectID, "project-id", "", "The project id, written to plat5.local.yml (default: the directory's name)")
 	f.StringVar(&initTemplateRef, "template-ref", "", "Git ref of downloaded templates (default master; or PLAT5_TEMPLATE_REF)")
 	f.StringArrayVar(&initVersions, "version", nil, "Pin an image: plat5=v0.19.0 (repeatable; default the latest tag)")
+	registerComposableInitFlags(initCmd)
 }
 
 type initChoices struct {
@@ -138,6 +139,13 @@ type initChoices struct {
 }
 
 func runInit(cmd *cobra.Command, args []string) error {
+	if usesComposableInit(cmd) {
+		return runComposableInit(cmd, args)
+	}
+	if !initYes && prompt.Interactive() && !cmd.Flags().Changed("template") && !cmd.Flags().Changed("preset") &&
+		!cmd.Flags().Changed("no-auth") && !cmd.Flags().Changed("no-observability") && !cmd.Flags().Changed("no-operator") {
+		return runInteractiveWizardInit(cmd, args)
+	}
 	ch, err := initChoose(cmd, args)
 	if err != nil {
 		return err

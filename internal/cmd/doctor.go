@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os/exec"
 	"strconv"
 	"strings"
 
@@ -61,7 +62,13 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		}
 		fmt.Printf("· %s: %s\n", k, cfg.Versions[k])
 	}
+	if cfg.InfraCompose != "" {
+		check("infra.compose", config.CheckFile("infra.compose", cfg.InfraCompose))
+	}
 	check("app.compose", config.CheckFile("app.compose", cfg.AppCompose))
+	if cfg.EnvFile != "" {
+		checkEnvFileGitIgnored(cfg.Dir, cfg.EnvFile)
+	}
 	if stk.Has(config.ModuleOperator) {
 		check("operator.config", stk.CheckOperator())
 	}
@@ -111,6 +118,23 @@ func doctorExit(failed bool) error {
 		return errors.New("doctor found problems")
 	}
 	return nil
+}
+
+// checkEnvFileGitIgnored warns when a local secrets file exists inside a git
+// repo and is not covered by .gitignore.
+func checkEnvFileGitIgnored(dir, envFile string) {
+	if _, err := exec.LookPath("git"); err != nil {
+		return
+	}
+	inRepo := exec.Command("git", "-C", dir, "rev-parse", "--is-inside-work-tree")
+	if err := inRepo.Run(); err != nil {
+		return
+	}
+	if err := exec.Command("git", "-C", dir, "check-ignore", "-q", envFile).Run(); err != nil {
+		fmt.Printf("! %s is not in .gitignore (local secrets should never be committed)\n", relPath(dir, envFile))
+	} else {
+		fmt.Printf("✓ %s ignored by git\n", relPath(dir, envFile))
+	}
 }
 
 // originPort is an origin's port, or 0.

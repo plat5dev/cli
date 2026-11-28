@@ -117,24 +117,54 @@ const maxSecretBrandLen = 32
 
 var projectIDInvalid = regexp.MustCompile(`[^a-z0-9_-]+`)
 
+// Observability modes for plat5.local.yml's observability.mode.
+const (
+	ObservabilityLocal     = "local"
+	ObservabilityAlloyOnly = "alloy-only"
+	ObservabilityOff       = "off"
+)
+
+// DefaultOperatorIDClaim and DefaultOperatorEmailClaim are the operator gateway's
+// default JWT claim paths for external operator IdPs.
+const (
+	DefaultOperatorIDClaim    = "sub"
+	DefaultOperatorEmailClaim = "email"
+)
+
 // File is plat5.local.yml.
 type File struct {
 	// CLI is the oldest CLI the project works with: ">=X.Y.Z" (plat5 init writes it).
-	CLI         string            `yaml:"cli"`
-	ProjectID   string            `yaml:"project_id"`
-	Versions    map[string]string `yaml:"versions"`
-	Modules     map[string]bool   `yaml:"modules"`
-	App         AppBlock          `yaml:"app"`
-	Ports       map[string]int    `yaml:"ports"`
-	AdminToken  string            `yaml:"admin_token"`
-	SecretBrand string            `yaml:"secret_brand"`
-	Auth        AuthBlock         `yaml:"auth"`
-	IdP         IdPBlock          `yaml:"idp"`
-	Otel        OtelBlock         `yaml:"otel"`
-	Operator    OperatorBlock     `yaml:"operator"`
-	Gateway     GatewayBlock      `yaml:"gateway"`
-	Routes      RoutesBlock       `yaml:"routes"`
-	Source      map[string]string `yaml:"source"`
+	CLI           string             `yaml:"cli"`
+	ProjectID     string             `yaml:"project_id"`
+	EnvFile       string             `yaml:"env_file"`
+	Versions      map[string]string  `yaml:"versions"`
+	Modules       map[string]bool    `yaml:"modules"`
+	Infra         InfraBlock         `yaml:"infra"`
+	App           AppBlock           `yaml:"app"`
+	Ports         map[string]int     `yaml:"ports"`
+	AdminToken    string             `yaml:"admin_token"`
+	SecretBrand   string             `yaml:"secret_brand"`
+	Auth          AuthBlock          `yaml:"auth"`
+	IdP           IdPBlock           `yaml:"idp"`
+	Observability ObservabilityBlock `yaml:"observability"`
+	Otel          OtelBlock          `yaml:"otel"`
+	Operator      OperatorBlock      `yaml:"operator"`
+	Gateway       GatewayBlock       `yaml:"gateway"`
+	Routes        RoutesBlock        `yaml:"routes"`
+	Source        map[string]string  `yaml:"source"`
+}
+
+// InfraBlock is project-owned local infrastructure (AuthZEN PDPs, local IdPs)
+// that stays running even when `plat5 start -x app` skips app.compose.
+type InfraBlock struct {
+	Compose string `yaml:"compose"`
+}
+
+// ObservabilityBlock configures the local observability stack mode.
+type ObservabilityBlock struct {
+	// Mode is "local" (lgtm + alloy, default), "alloy-only" (alloy forwarding to
+	// otel.endpoint / remote exporters), or "off".
+	Mode string `yaml:"mode"`
 }
 
 // RoutesBlock configures `plat5 routes generate`.
@@ -175,6 +205,24 @@ type OperatorBlock struct {
 	Console AppBlock `yaml:"console"`
 	// Origins is more browser origins the operator side allows, beyond the console's.
 	Origins []string `yaml:"origins"`
+	// IdP configures an external operator IdP (Okta, Entra, Auth0, …), turning
+	// off local operator-auth.
+	IdP OperatorIdPBlock `yaml:"idp"`
+}
+
+// OperatorIdPBlock is the external operator IdP when not using local operator-auth.
+type OperatorIdPBlock struct {
+	Issuer             string   `yaml:"issuer"`
+	JWKSURI            string   `yaml:"jwks_uri"`
+	Audiences          []string `yaml:"audiences"`
+	ClientID           string   `yaml:"client_id"`
+	OperatorIDClaim    string   `yaml:"operator_id_claim"`
+	OperatorEmailClaim string   `yaml:"operator_email_claim"`
+}
+
+// AnySet reports whether any operator.idp field is configured.
+func (b OperatorIdPBlock) AnySet() bool {
+	return b.Issuer != "" || b.JWKSURI != "" || len(b.Audiences) > 0 || b.ClientID != "" || b.OperatorIDClaim != "" || b.OperatorEmailClaim != ""
 }
 
 // AppBlock is the project's own app, which plat5 start runs after Plat5.
@@ -199,6 +247,8 @@ type IdPBlock struct {
 	Issuer    string   `yaml:"issuer"`
 	JWKSURI   string   `yaml:"jwks_uri"`
 	Audiences []string `yaml:"audiences"`
+	// ClientID is the OAuth/OIDC client id forwarded to the customer console.
+	ClientID string `yaml:"client_id"`
 	// SubjectClaim is the dotted claim path for the person's IdP subject.
 	SubjectClaim string `yaml:"subject_claim"`
 	// NameClaims is the ordered JWT claim paths used to seed a person's display
@@ -209,7 +259,7 @@ type IdPBlock struct {
 
 // AnySet reports whether any idp: field is configured.
 func (b IdPBlock) AnySet() bool {
-	return b.Issuer != "" || b.JWKSURI != "" || len(b.Audiences) > 0 || b.SubjectClaim != "" || b.NameClaims != nil
+	return b.Issuer != "" || b.JWKSURI != "" || len(b.Audiences) > 0 || b.ClientID != "" || b.SubjectClaim != "" || b.NameClaims != nil
 }
 
 // NameClaimsEnv is the gateway's AUTH_NAME_CLAIMS value: DefaultIdPNameClaims
@@ -221,9 +271,10 @@ func (b IdPBlock) NameClaimsEnv() string {
 	return strings.Join(*b.NameClaims, ",")
 }
 
-// OtelBlock sends telemetry to your own collector instead of the observability module.
+// OtelBlock sends telemetry to your own collector or remote OTLP gateway.
 type OtelBlock struct {
-	Endpoint string `yaml:"endpoint"`
+	Endpoint string            `yaml:"endpoint"`
+	Headers  map[string]string `yaml:"headers"`
 }
 
 // Overrides are CLI flags for commands that may talk to a control plane that is
@@ -243,12 +294,20 @@ type Resolved struct {
 	// ConfigPath is the deployment's config, plat5.yml beside it.
 	ConfigPath string
 
+	// EnvFile is the resolved .env.local path when present on disk. Empty: none.
+	EnvFile string
+	// Env holds key/value pairs loaded from EnvFile.
+	Env map[string]string
+
 	Versions map[string]string
 	// Modules is each module's on/off from plat5.local.yml (before start -x).
 	Modules map[string]bool
+	// ObservabilityMode is "local", "alloy-only", or "off".
+	ObservabilityMode string
 
-	AppCompose string // absolute; empty = no app
-	AppWeb     string // origin, no trailing slash
+	InfraCompose string // absolute; empty = no infra compose
+	AppCompose   string // absolute; empty = no app
+	AppWeb       string // origin, no trailing slash
 
 	Ports    ports.Set
 	PortPins ports.Set
@@ -260,6 +319,7 @@ type Resolved struct {
 	Auth         AuthBlock
 	IdP          IdPBlock
 	OtelEndpoint string
+	OtelHeaders  map[string]string
 
 	// OperatorConfig is the operator gateway's config file. Absolute; empty = unset.
 	OperatorConfig string
@@ -269,6 +329,8 @@ type Resolved struct {
 	OperatorWeb     string
 	// OperatorExtraOrigins is operator.origins: more origins the operator side allows.
 	OperatorExtraOrigins []string
+	// OperatorIdP is the external operator IdP when configured (disables operator-auth).
+	OperatorIdP OperatorIdPBlock
 
 	// Gateway holds optional local gateway overrides.
 	Gateway GatewayBlock
@@ -280,6 +342,8 @@ type Resolved struct {
 
 	// ComposeProject is the local stack's compose project, plat5-<project_id>.
 	ComposeProject string
+	// InfraComposeProject is the project's infra compose project, <project_id>-infra.
+	InfraComposeProject string
 	// AppComposeProject is the app's compose project: the project id. A default
 	// id is the folder's name as compose normalises it, so a project in its own
 	// folder keeps the name compose gives it there.
@@ -311,13 +375,34 @@ func Load(o Overrides) (Resolved, error) {
 func Resolve(f *File, path string, o Overrides) (Resolved, error) {
 	dir := filepath.Dir(path)
 	r := Resolved{
-		Path:       path,
-		Dir:        dir,
-		ConfigPath: filepath.Join(dir, ConfigFileName),
-		Versions:   map[string]string{},
-		Modules:    map[string]bool{},
-		Source:     map[string]string{},
-		AdminToken: DefaultAdminToken,
+		Path:        path,
+		Dir:         dir,
+		ConfigPath:  filepath.Join(dir, ConfigFileName),
+		Env:         map[string]string{},
+		Versions:    map[string]string{},
+		Modules:     map[string]bool{},
+		Source:      map[string]string{},
+		OtelHeaders: map[string]string{},
+		AdminToken:  DefaultAdminToken,
+	}
+
+	// Load .env.local (or explicit env_file:) before expanding ${VAR} values.
+	if envPath := strings.TrimSpace(f.EnvFile); envPath != "" {
+		abs := resolveAgainst(dir, envPath)
+		loaded, err := LoadEnvFile(abs)
+		if err != nil {
+			return Resolved{}, fmt.Errorf("env_file: %w", err)
+		}
+		r.EnvFile = abs
+		r.Env = loaded
+	} else {
+		defPath := filepath.Join(dir, DefaultEnvFile)
+		if loaded, err := LoadEnvFile(defPath); err == nil {
+			r.EnvFile = defPath
+			r.Env = loaded
+		} else if !os.IsNotExist(err) {
+			return Resolved{}, fmt.Errorf("%s: %w", DefaultEnvFile, err)
+		}
 	}
 
 	r.ProjectID = sanitizeProjectID(firstNonEmpty(f.ProjectID, filepath.Base(dir)))
@@ -325,6 +410,7 @@ func Resolve(f *File, path string, o Overrides) (Resolved, error) {
 		return Resolved{}, fmt.Errorf("project_id: invalid")
 	}
 	r.ComposeProject = "plat5-" + r.ProjectID
+	r.InfraComposeProject = r.ProjectID + "-infra"
 	r.AppComposeProject = r.ProjectID
 
 	for k, v := range f.Modules {
@@ -337,6 +423,22 @@ func Resolve(f *File, path string, o Overrides) (Resolved, error) {
 		if _, set := r.Modules[m]; !set {
 			r.Modules[m] = true
 		}
+	}
+	obsMode := strings.TrimSpace(f.Observability.Mode)
+	switch obsMode {
+	case "", ObservabilityLocal, ObservabilityAlloyOnly, ObservabilityOff:
+	default:
+		return Resolved{}, fmt.Errorf("observability.mode: %q (want local, alloy-only, or off)", obsMode)
+	}
+	if obsMode == ObservabilityOff {
+		r.Modules[ModuleObservability] = false
+	}
+	if !r.Modules[ModuleObservability] {
+		r.ObservabilityMode = ObservabilityOff
+	} else if obsMode == "" {
+		r.ObservabilityMode = ObservabilityLocal
+	} else {
+		r.ObservabilityMode = obsMode
 	}
 
 	for k, v := range f.Source {
@@ -357,16 +459,65 @@ func Resolve(f *File, path string, o Overrides) (Resolved, error) {
 	r.OperatorConfig = resolveAgainst(dir, strings.TrimSpace(f.Operator.Config))
 	r.OperatorConsole = resolveAgainst(dir, strings.TrimSpace(f.Operator.Console.Compose))
 	if web := strings.TrimSpace(f.Operator.Console.Web); web != "" {
+		web, err := expandValue("operator.console.web", web, r.Env)
+		if err != nil {
+			return Resolved{}, err
+		}
 		origin, err := parseOrigin(web)
 		if err != nil {
 			return Resolved{}, fmt.Errorf("operator.console.web: %w", err)
 		}
 		r.OperatorWeb = origin
 	}
-	r.OperatorExtraOrigins = trimOrigins(f.Operator.Origins)
+	opOrigins, err := expandSlice("operator.origins", f.Operator.Origins, r.Env)
+	if err != nil {
+		return Resolved{}, err
+	}
+	r.OperatorExtraOrigins = trimOrigins(opOrigins)
 
+	if f.Operator.IdP.AnySet() {
+		iss, err := expandValue("operator.idp.issuer", strings.TrimSpace(f.Operator.IdP.Issuer), r.Env)
+		if err != nil {
+			return Resolved{}, err
+		}
+		jwks, err := expandValue("operator.idp.jwks_uri", strings.TrimSpace(f.Operator.IdP.JWKSURI), r.Env)
+		if err != nil {
+			return Resolved{}, err
+		}
+		auds, err := expandSlice("operator.idp.audiences", f.Operator.IdP.Audiences, r.Env)
+		if err != nil {
+			return Resolved{}, err
+		}
+		auds = trimNonEmpty(auds)
+		cid, err := expandValue("operator.idp.client_id", strings.TrimSpace(f.Operator.IdP.ClientID), r.Env)
+		if err != nil {
+			return Resolved{}, err
+		}
+		if iss == "" || jwks == "" || len(auds) == 0 {
+			return Resolved{}, fmt.Errorf("operator.idp: issuer, jwks_uri, and audiences are required")
+		}
+		for _, a := range auds {
+			if a == "*" {
+				return Resolved{}, fmt.Errorf("operator.idp.audiences: wildcard \"*\" is not allowed for the operator gateway")
+			}
+		}
+		r.OperatorIdP = OperatorIdPBlock{
+			Issuer:             iss,
+			JWKSURI:            jwks,
+			Audiences:          auds,
+			ClientID:           cid,
+			OperatorIDClaim:    firstNonEmpty(strings.TrimSpace(f.Operator.IdP.OperatorIDClaim), DefaultOperatorIDClaim),
+			OperatorEmailClaim: firstNonEmpty(strings.TrimSpace(f.Operator.IdP.OperatorEmailClaim), DefaultOperatorEmailClaim),
+		}
+	}
+
+	r.InfraCompose = resolveAgainst(dir, strings.TrimSpace(f.Infra.Compose))
 	r.AppCompose = resolveAgainst(dir, strings.TrimSpace(f.App.Compose))
 	if web := strings.TrimSpace(f.App.Web); web != "" {
+		web, err := expandValue("app.web", web, r.Env)
+		if err != nil {
+			return Resolved{}, err
+		}
 		origin, err := parseOrigin(web)
 		if err != nil {
 			return Resolved{}, fmt.Errorf("app.web: %w", err)
@@ -397,7 +548,11 @@ func Resolve(f *File, path string, o Overrides) (Resolved, error) {
 	}
 
 	if f.AdminToken != "" {
-		r.AdminToken = f.AdminToken
+		tok, err := expandValue("admin_token", f.AdminToken, r.Env)
+		if err != nil {
+			return Resolved{}, err
+		}
+		r.AdminToken = tok
 	}
 	r.ControlPlaneURL = r.URL(ports.ControlPlane)
 	if v := firstNonEmpty(o.ControlPlaneURL, os.Getenv("PLAT5_CONTROL_PLANE_URL")); v != "" {
@@ -407,21 +562,50 @@ func Resolve(f *File, path string, o Overrides) (Resolved, error) {
 		r.AdminToken = v
 	}
 
-	var err error
 	if r.SecretBrand, err = parseSecretBrand(firstNonEmpty(f.SecretBrand, DefaultSecretBrand)); err != nil {
 		return Resolved{}, err
 	}
 
+	authClients, err := expandSlice("auth.clients", f.Auth.Clients, r.Env)
+	if err != nil {
+		return Resolved{}, err
+	}
+	authRedirects, err := expandSlice("auth.redirect_uris", f.Auth.RedirectURIs, r.Env)
+	if err != nil {
+		return Resolved{}, err
+	}
+	authOrigins, err := expandSlice("auth.origins", f.Auth.Origins, r.Env)
+	if err != nil {
+		return Resolved{}, err
+	}
 	r.Auth = AuthBlock{
-		Clients:      trimNonEmpty(f.Auth.Clients),
-		RedirectURIs: trimNonEmpty(f.Auth.RedirectURIs),
-		Origins:      trimOrigins(f.Auth.Origins),
+		Clients:      trimNonEmpty(authClients),
+		RedirectURIs: trimNonEmpty(authRedirects),
+		Origins:      trimOrigins(authOrigins),
 		ThemeFile:    resolveAgainst(dir, strings.TrimSpace(f.Auth.ThemeFile)),
 	}
+
+	idpIssuer, err := expandValue("idp.issuer", strings.TrimSpace(f.IdP.Issuer), r.Env)
+	if err != nil {
+		return Resolved{}, err
+	}
+	idpJWKS, err := expandValue("idp.jwks_uri", strings.TrimSpace(f.IdP.JWKSURI), r.Env)
+	if err != nil {
+		return Resolved{}, err
+	}
+	idpAudiences, err := expandSlice("idp.audiences", f.IdP.Audiences, r.Env)
+	if err != nil {
+		return Resolved{}, err
+	}
+	idpClientID, err := expandValue("idp.client_id", strings.TrimSpace(f.IdP.ClientID), r.Env)
+	if err != nil {
+		return Resolved{}, err
+	}
 	r.IdP = IdPBlock{
-		Issuer:       strings.TrimSpace(f.IdP.Issuer),
-		JWKSURI:      strings.TrimSpace(f.IdP.JWKSURI),
-		Audiences:    trimNonEmpty(f.IdP.Audiences),
+		Issuer:       idpIssuer,
+		JWKSURI:      idpJWKS,
+		Audiences:    trimNonEmpty(idpAudiences),
+		ClientID:     idpClientID,
 		SubjectClaim: strings.TrimSpace(f.IdP.SubjectClaim),
 	}
 	if r.Modules[ModuleAuth] && (r.IdP.AnySet() || len(f.IdP.Audiences) > 0 || f.IdP.NameClaims != nil) {
@@ -441,7 +625,22 @@ func Resolve(f *File, path string, o Overrides) (Resolved, error) {
 	if !r.Modules[ModuleAuth] && (r.IdP.Issuer == "" || r.IdP.JWKSURI == "" || len(r.IdP.Audiences) == 0) {
 		return Resolved{}, fmt.Errorf("modules.auth is off: set idp.issuer, idp.jwks_uri, and idp.audiences to your IdP")
 	}
-	r.OtelEndpoint = strings.TrimSpace(f.Otel.Endpoint)
+	otelEndpoint, err := expandValue("otel.endpoint", strings.TrimSpace(f.Otel.Endpoint), r.Env)
+	if err != nil {
+		return Resolved{}, err
+	}
+	r.OtelEndpoint = otelEndpoint
+	for k, v := range f.Otel.Headers {
+		k = strings.TrimSpace(k)
+		if k == "" {
+			return Resolved{}, fmt.Errorf("otel.headers: empty header name")
+		}
+		ev, err := expandValue("otel.headers."+k, strings.TrimSpace(v), r.Env)
+		if err != nil {
+			return Resolved{}, err
+		}
+		r.OtelHeaders[k] = ev
+	}
 
 	auditMode := strings.TrimSpace(f.Gateway.AuditMode)
 	if auditMode != "" && auditMode != "sync" && auditMode != "async" && auditMode != "off" {
@@ -490,17 +689,31 @@ func Resolve(f *File, path string, o Overrides) (Resolved, error) {
 	return r, nil
 }
 
-// NeededVersions is the image pins the enabled modules need. The operator IdP
-// is Plat5 Auth at the auth pin.
+// NeededVersions is the image pins the enabled modules need. The local operator
+// IdP is Plat5 Auth at the auth pin, unless operator.idp points at an external IdP.
 func (r Resolved) NeededVersions() []string {
 	need := []string{VersionPlat5}
-	if r.Modules[ModuleAuth] || r.Modules[ModuleOperator] {
+	if r.Modules[ModuleAuth] || (r.Modules[ModuleOperator] && !r.OperatorIdP.AnySet()) {
 		need = append(need, VersionAuth)
 	}
 	if r.Modules[ModuleOperator] {
 		need = append(need, VersionOperator)
 	}
 	return need
+}
+
+// OtelHeadersEnv serializes otel.headers to RFC 4317 OTEL_EXPORTER_OTLP_HEADERS
+// format (sorted "k=v,k2=v2"). Empty when no headers are set.
+func (r Resolved) OtelHeadersEnv() string {
+	if len(r.OtelHeaders) == 0 {
+		return ""
+	}
+	keys := sortedKeys(r.OtelHeaders)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, k+"="+r.OtelHeaders[k])
+	}
+	return strings.Join(parts, ",")
 }
 
 // URL is the local URL of a published port.

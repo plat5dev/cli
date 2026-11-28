@@ -22,6 +22,10 @@ type State struct {
 	Owner string `json:"owner,omitempty"`
 	// Modules is the modules the last start ran (core is implied).
 	Modules []string `json:"modules,omitempty"`
+	// InfraCompose is the infra compose file the last start ran. Empty: none.
+	InfraCompose string `json:"infra_compose,omitempty"`
+	// InfraJoined is the infra services the last start put on the Plat5 network.
+	InfraJoined []string `json:"infra_joined,omitempty"`
 	// AppCompose is the app compose file the last start ran. Empty: none.
 	AppCompose string `json:"app_compose,omitempty"`
 	// AppJoined is the app's services the last start put on the Plat5 network.

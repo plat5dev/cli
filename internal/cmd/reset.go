@@ -77,6 +77,16 @@ func runReset(cmd *cobra.Command, args []string) error {
 			}
 		}
 	}
+	infraFile := firstNonEmpty(st.InfraCompose, cfg.InfraCompose)
+	if infraFile != "" {
+		if _, err := os.Stat(infraFile); err == nil {
+			infra := stk.InfraRunnerFor(infraFile)
+			fmt.Println("Deleting project infra containers and volumes…")
+			if err := infra.DownVolumes(); err != nil {
+				return err
+			}
+		}
+	}
 	// Plat5's volumes go whether or not it's running.
 	if err := stk.Prepare(); err != nil {
 		return err
@@ -87,6 +97,7 @@ func runReset(cmd *cobra.Command, args []string) error {
 	}
 	// The dev person's key and nodes were in the deleted databases.
 	st.AppCompose = ""
+	st.InfraCompose = ""
 	st.Dev = nil
 	if err := state.Save(st); err != nil {
 		return err

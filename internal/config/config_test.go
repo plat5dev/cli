@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -354,5 +355,117 @@ routes:
 		if _, err := resolve(t, yml); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q: want %q, got %v", yml, want, err)
 		}
+	}
+}
+
+func TestEnvFileAndExpansion(t *testing.T) {
+	dir := t.TempDir()
+	envContent := "# local secrets\nexport GRAFANA_TOKEN=\"tok_123\"\nAUTH0_DOMAIN='acme.us.auth0.com'\nINLINE=val # comment\n"
+	if err := os.WriteFile(filepath.Join(dir, DefaultEnvFile), []byte(envContent), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	yml := `project_id: envdemo
+versions: {plat5: v0.18.0}
+modules: {auth: false, operator: false}
+observability: {mode: alloy-only}
+idp:
+  issuer: "https://${AUTH0_DOMAIN}/"
+  jwks_uri: "https://${AUTH0_DOMAIN}/.well-known/jwks.json"
+  audiences: ["https://api.acme.com"]
+  client_id: "${AUTH0_CLIENT_ID:-spa-default}"
+otel:
+  endpoint: "https://otlp.grafana.net/otlp"
+  headers:
+    Authorization: "Bearer ${GRAFANA_TOKEN}"
+`
+	f, err := Parse([]byte(yml))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := Resolve(f, filepath.Join(dir, FileName), Overrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.EnvFile != filepath.Join(dir, DefaultEnvFile) {
+		t.Fatalf("EnvFile = %q", r.EnvFile)
+	}
+	if r.Env["INLINE"] != "val" || r.IdP.Issuer != "https://acme.us.auth0.com/" || r.IdP.ClientID != "spa-default" {
+		t.Fatalf("expanded: env=%v idp=%+v", r.Env, r.IdP)
+	}
+	if r.ObservabilityMode != ObservabilityAlloyOnly || r.OtelHeadersEnv() != "Authorization=Bearer tok_123" {
+		t.Fatalf("obs=%q headers=%q", r.ObservabilityMode, r.OtelHeadersEnv())
+	}
+
+	// Process env wins over .env.local.
+	t.Setenv("GRAFANA_TOKEN", "from-process")
+	r, err = Resolve(f, filepath.Join(dir, FileName), Overrides{})
+	if err != nil || r.OtelHeaders["Authorization"] != "Bearer from-process" {
+		t.Fatalf("process env override: %v %v", r.OtelHeaders, err)
+	}
+
+	// Unresolved ${VAR} without default is an error.
+	fBad, _ := Parse([]byte("versions: {plat5: v0.18.0}\nmodules: {auth: false, operator: false}\nidp: {issuer: \"https://${MISSING_VAR}\", jwks_uri: \"https://x/jwks\", audiences: [a]}\n"))
+	if _, err := Resolve(fBad, filepath.Join(dir, FileName), Overrides{}); err == nil || !strings.Contains(err.Error(), "MISSING_VAR") {
+		t.Fatalf("want missing var error, got %v", err)
+	}
+
+	// Explicit missing env_file is an error.
+	fMissing, _ := Parse([]byte("env_file: ./nope.env\n" + fullYML))
+	if _, err := Resolve(fMissing, filepath.Join(dir, FileName), Overrides{}); err == nil || !strings.Contains(err.Error(), "env_file") {
+		t.Fatalf("want env_file error, got %v", err)
+	}
+}
+
+func TestOperatorIdPAndInfraAndObservability(t *testing.T) {
+	r, err := resolve(t, `project_id: ent
+versions: {plat5: v0.18.0, operator: v0.9.0}
+modules: {auth: false}
+infra:
+  compose: ./docker-compose.infra.yml
+idp:
+  issuer: https://acme.us.auth0.com/
+  jwks_uri: https://acme.us.auth0.com/.well-known/jwks.json
+  audiences: [https://api.acme.com]
+  client_id: spa-123
+operator:
+  config: ./operator.yml
+  idp:
+    issuer: https://acme.okta.com/oauth2/default
+    jwks_uri: https://acme.okta.com/oauth2/default/v1/keys
+    audiences: [plat5-operator]
+    client_id: op-spa
+observability:
+  mode: off
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Neither customer nor operator needs the auth pin when both use external IdPs.
+	if got := strings.Join(r.NeededVersions(), ","); got != "plat5,operator" {
+		t.Fatalf("NeededVersions = %q, want plat5,operator", got)
+	}
+	if r.InfraCompose != filepath.Clean("/proj/docker-compose.infra.yml") || r.InfraComposeProject != "ent-infra" {
+		t.Fatalf("infra: %q %q", r.InfraCompose, r.InfraComposeProject)
+	}
+	if r.OperatorIdP.OperatorIDClaim != "sub" || r.OperatorIdP.OperatorEmailClaim != "email" || r.OperatorIdP.ClientID != "op-spa" {
+		t.Fatalf("operator.idp: %+v", r.OperatorIdP)
+	}
+	if r.Modules[ModuleObservability] || r.ObservabilityMode != ObservabilityOff {
+		t.Fatalf("observability off: mod=%v mode=%q", r.Modules[ModuleObservability], r.ObservabilityMode)
+	}
+
+	// Wildcard audience is forbidden on operator.idp.
+	if _, err := resolve(t, fullYML+`operator:
+  idp:
+    issuer: https://acme.okta.com
+    jwks_uri: https://acme.okta.com/keys
+    audiences: ["*"]
+`); err == nil || !strings.Contains(err.Error(), `wildcard "*"`) {
+		t.Fatalf("want wildcard rejection, got %v", err)
+	}
+
+	// Invalid observability.mode is rejected.
+	if _, err := resolve(t, fullYML+"observability: {mode: bogus}\n"); err == nil || !strings.Contains(err.Error(), "observability.mode") {
+		t.Fatalf("want observability.mode error, got %v", err)
 	}
 }

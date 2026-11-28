@@ -46,6 +46,16 @@ func runStop(cmd *cobra.Command, args []string) error {
 			}
 		}
 	}
+	infraFile := firstNonEmpty(st.InfraCompose, cfg.InfraCompose)
+	if infraFile != "" {
+		if _, err := os.Stat(infraFile); err == nil {
+			infra := stk.InfraRunnerFor(infraFile)
+			fmt.Println("Stopping project infra…")
+			if err := infra.Down(); err != nil {
+				fmt.Println("warning:", err)
+			}
+		}
+	}
 	if !compose.Running(cfg.ComposeProject) {
 		fmt.Printf("%s is not running.\n", cfg.ProjectID)
 		return nil
@@ -58,6 +68,7 @@ func runStop(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	st.AppCompose = ""
+	st.InfraCompose = ""
 	if err := state.Save(st); err != nil {
 		return err
 	}

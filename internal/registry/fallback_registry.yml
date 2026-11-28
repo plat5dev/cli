@@ -1,0 +1,255 @@
+schema: 1
+name: plat5
+description: Official Plat5 plugin registry
+
+entries:
+  # --- Presets ---
+  - id: minimal
+    type: preset
+    description: One kind (organization), admin and member roles
+    tags: [starter, rbac]
+    versions:
+      - version: 1.0.0
+        cli: ">=0.18.0"
+        path: preset/minimal
+
+  - id: saas
+    type: preset
+    description: organization -> project, default-deny projects, guest invites
+    tags: [saas, rbac]
+    versions:
+      - version: 1.0.0
+        cli: ">=0.18.0"
+        path: preset/saas
+
+  - id: enterprise
+    type: preset
+    description: organization -> project -> environment, custom roles, tiered rate limits, SSO policy claims
+    tags: [enterprise, sso, rbac]
+    versions:
+      - version: 1.0.0
+        cli: ">=0.18.0"
+        path: preset/enterprise
+
+  - id: public
+    type: preset
+    description: organization (subdomain host) -> project
+    tags: [subdomain, public]
+    versions:
+      - version: 1.0.0
+        cli: ">=0.18.0"
+        path: preset/public
+
+  # --- IdPs (customer & operator planes) ---
+  - id: plat5-auth
+    type: idp
+    description: Plat5 Auth (local dev IdP with seeded dev users)
+    tags: [local, dev, oidc]
+    versions:
+      - version: 1.0.0
+        cli: ">=0.18.0"
+        path: idp/plat5-auth
+
+  - id: auth0
+    type: idp
+    description: Auth0 OIDC / OAuth 2.0
+    tags: [oidc, saas]
+    versions:
+      - version: 1.0.0
+        cli: ">=0.18.0"
+        path: idp/auth0
+
+  - id: okta
+    type: idp
+    description: Okta Workforce / Customer OIDC
+    tags: [oidc, enterprise, sso]
+    versions:
+      - version: 1.0.0
+        cli: ">=0.18.0"
+        path: idp/okta
+
+  - id: keycloak
+    type: idp
+    description: Local Keycloak Docker container (enterprise OIDC/SAML testing)
+    tags: [oidc, local, enterprise]
+    versions:
+      - version: 1.0.0
+        cli: ">=0.18.0"
+        path: idp/keycloak
+
+  - id: custom-oidc
+    type: idp
+    description: Any RFC 9068 JWT / OIDC provider (issuer, JWKS URI, audiences)
+    tags: [oidc, jwt]
+    versions:
+      - version: 1.0.0
+        cli: ">=0.18.0"
+        path: idp/custom-oidc
+
+  # --- Authorizers (customer & operator planes) ---
+  - id: plat5-rbac
+    type: authorizer
+    description: Plat5 built-in hierarchical RBAC
+    tags: [rbac, builtin]
+    versions:
+      - version: 1.0.0
+        cli: ">=0.18.0"
+        path: authorizer/plat5-rbac
+
+  - id: cerbos
+    type: authorizer
+    description: Cerbos ABAC/RBAC policy engine (OpenID AuthZEN 1.0)
+    tags: [authzen, abac, rbac]
+    versions:
+      - version: 1.0.0
+        cli: ">=0.18.0"
+        path: authorizer/cerbos
+
+  - id: topaz
+    type: authorizer
+    description: Topaz ReBAC directory & authorizer (OpenID AuthZEN 1.0)
+    tags: [authzen, rebac]
+    versions:
+      - version: 1.0.0
+        cli: ">=0.18.0"
+        path: authorizer/topaz
+
+  - id: custom-authzen
+    type: authorizer
+    description: Bring your own OpenID AuthZEN 1.0 PDP endpoint
+    tags: [authzen, pdp]
+    versions:
+      - version: 1.0.0
+        cli: ">=0.18.0"
+        path: authorizer/custom-authzen
+
+  # --- Application Services (indexed from plat5dev/templates) ---
+  - id: go-fiber-api
+    type: service
+    description: Go + Fiber reference API (project tasks and user profile)
+    tags: [go, fiber, starter]
+    versions:
+      - version: 1.0.0
+        cli: ">=0.18.0"
+        source: plat5dev/templates//services/go-fiber-api@master
+
+  - id: bun-effect-api
+    type: service
+    description: Bun + Effect reference API (project tasks and user profile)
+    tags: [bun, effect, typescript, starter]
+    versions:
+      - version: 1.0.0
+        cli: ">=0.18.0"
+        source: plat5dev/templates//services/bun-effect-api@master
+
+  - id: node-fastify-api
+    type: service
+    description: Node + Fastify + TypeBox reference API (project tasks and user profile)
+    tags: [node, fastify, typescript, starter]
+    versions:
+      - version: 1.0.0
+        cli: ">=0.18.0"
+        source: plat5dev/templates//services/node-fastify-api@master
+
+  - id: go-topaz-api
+    type: service
+    description: Go + Fiber API with Topaz AuthZEN 1.0 ReBAC documents
+    tags: [go, fiber, topaz, rebac]
+    versions:
+      - version: 1.0.0
+        cli: ">=0.18.0"
+        source: plat5dev/templates//services/go-topaz-api@master
+
+  # --- Consoles (indexed from plat5dev/templates) ---
+  - id: solid-customer-console
+    type: customer-console
+    description: Vite + Solid 2 console for your customers
+    tags: [solid, vite, frontend]
+    versions:
+      - version: 1.0.0
+        cli: ">=0.18.0"
+        source: plat5dev/templates//consoles/solid-customer-console@master
+
+  - id: solid-operator-console
+    type: operator-console
+    description: Vite + Solid 2 console for your operators
+    tags: [solid, vite, operator]
+    versions:
+      - version: 1.0.0
+        cli: ">=0.18.0"
+        source: plat5dev/templates//consoles/solid-operator-console@master
+
+  # --- Observability ---
+  - id: local-lgtm
+    type: observability
+    description: Local Grafana LGTM stack (Loki, Tempo, Prometheus) + Alloy
+    tags: [grafana, otel, local]
+    versions:
+      - version: 1.0.0
+        cli: ">=0.18.0"
+        path: observability/local-lgtm
+
+  - id: grafana-cloud
+    type: observability
+    description: Grafana Cloud via local Alloy OTLP collector
+    tags: [grafana, otel, cloud]
+    versions:
+      - version: 1.0.0
+        cli: ">=0.18.0"
+        path: observability/grafana-cloud
+
+  - id: custom-otlp
+    type: observability
+    description: Send OTLP directly to any collector (Honeycomb, Axiom, Datadog, …)
+    tags: [otel, otlp]
+    versions:
+      - version: 1.0.0
+        cli: ">=0.18.0"
+        path: observability/custom-otlp
+
+  # --- CI & Deploy ---
+  - id: github-actions
+    type: ci
+    description: GitHub Actions (validate/plan on PR, OIDC apply on merge, Docker build)
+    tags: [github, ci, oidc]
+    versions:
+      - version: 1.0.0
+        cli: ">=0.18.0"
+        path: ci/github-actions
+
+  - id: env-overlays
+    type: deploy
+    description: Environment overlays (plat5.staging.yml and plat5.prod.yml)
+    tags: [overlays, deploy]
+    versions:
+      - version: 1.0.0
+        cli: ">=0.18.0"
+        path: deploy/env-overlays
+
+  # --- Recipes ---
+  - id: quickstart
+    type: recipe
+    description: SaaS hierarchy + Bun/Effect API + Solid consoles + local Auth & LGTM
+    tags: [starter, saas]
+    versions:
+      - version: 1.0.0
+        cli: ">=0.18.0"
+        path: recipe/quickstart
+
+  - id: b2b-saas
+    type: recipe
+    description: SaaS hierarchy + Go Fiber API + Solid consoles + GitHub Actions + env overlays
+    tags: [saas, go]
+    versions:
+      - version: 1.0.0
+        cli: ">=0.18.0"
+        path: recipe/b2b-saas
+
+  - id: enterprise-sso
+    type: recipe
+    description: Enterprise 3-level hierarchy + Cerbos AuthZEN + Go Fiber API + GitHub Actions + overlays
+    tags: [enterprise, authzen]
+    versions:
+      - version: 1.0.0
+        cli: ">=0.18.0"
+        path: recipe/enterprise-sso

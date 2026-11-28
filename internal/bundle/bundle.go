@@ -28,6 +28,13 @@ var Files = map[string]string{
 // shared Postgres. Included only when at least one of those modules runs.
 const DBInitFile = "db-init.yml"
 
+// OperatorAuthFile runs the local Plat5 Auth operator IdP alongside operator.yml
+// when operator.idp is not configured.
+const OperatorAuthFile = "operator-auth.yml"
+
+// AlloyFile runs Alloy alone (without local lgtm) for observability.mode: alloy-only.
+const AlloyFile = "alloy.yml"
+
 // Materialize writes the embedded stack under destDir, replacing what an older
 // CLI wrote there. A file an older CLI embedded and this one doesn't (a renamed
 // dashboard) is removed from the embedded subdirectories. destDir's top level
@@ -85,7 +92,8 @@ func Services() ([]string, error) {
 	for _, f := range Files {
 		files = append(files, f)
 	}
-	files = append(files, DBInitFile)
+	files = append(files, DBInitFile, OperatorAuthFile, AlloyFile)
+	seen := map[string]bool{}
 	for _, f := range files {
 		data, err := content.ReadFile("stack/" + f)
 		if err != nil {
@@ -98,7 +106,10 @@ func Services() ([]string, error) {
 			return nil, fmt.Errorf("%s: %w", f, err)
 		}
 		for name := range doc.Services {
-			names = append(names, name)
+			if !seen[name] {
+				seen[name] = true
+				names = append(names, name)
+			}
 		}
 	}
 	return names, nil

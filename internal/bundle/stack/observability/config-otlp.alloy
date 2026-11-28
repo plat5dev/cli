@@ -1,0 +1,88 @@
+// Embedded by plat5 CLI: Alloy-only mode forwarding traces, metrics, and Docker
+// logs to a single remote OTLP HTTP endpoint (e.g. Grafana Cloud OTLP Gateway).
+
+logging {
+  level = "info"
+}
+
+otelcol.receiver.otlp "default" {
+  grpc {
+    endpoint = "0.0.0.0:4317"
+  }
+
+  http {
+    endpoint = "0.0.0.0:4318"
+  }
+
+  output {
+    metrics = [otelcol.processor.batch.default.input]
+    traces  = [otelcol.processor.batch.default.input]
+    logs    = [otelcol.processor.batch.default.input]
+  }
+}
+
+otelcol.processor.batch "default" {
+  timeout = "5s"
+
+  output {
+    metrics = [otelcol.exporter.otlphttp.remote.input]
+    traces  = [otelcol.exporter.otlphttp.remote.input]
+    logs    = [otelcol.exporter.otlphttp.remote.input]
+  }
+}
+
+otelcol.auth.basic "remote" {
+  username = sys.env("GRAFANA_CLOUD_INSTANCE_ID")
+  password = sys.env("GRAFANA_CLOUD_TOKEN")
+}
+
+otelcol.exporter.otlphttp "remote" {
+  client {
+    endpoint = sys.env("REMOTE_OTLP_ENDPOINT")
+    auth     = otelcol.auth.basic.remote.handler
+  }
+}
+
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "docker_logs" {
+  targets = discovery.docker.containers.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container_name"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_service_name"]
+    regex         = "(.+)"
+    target_label  = "service_name"
+  }
+
+  rule {
+    source_labels = ["service_name", "__meta_docker_container_label_com_docker_compose_service"]
+    regex         = ";(.+)"
+    target_label  = "service_name"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_service_namespace"]
+    regex         = "(.+)"
+    target_label  = "service_namespace"
+  }
+}
+
+loki.source.docker "docker" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.docker_logs.output
+  forward_to = [otelcol.receiver.loki.default.receiver]
+}
+
+otelcol.receiver.loki "default" {
+  output {
+    logs = [otelcol.processor.batch.default.input]
+  }
+}

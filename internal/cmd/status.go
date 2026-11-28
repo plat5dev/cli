@@ -54,6 +54,16 @@ func runStatus(cmd *cobra.Command, args []string) error {
 			fmt.Println("  " + line)
 		}
 	}
+	if st.InfraCompose != "" {
+		ir := stk.InfraRunnerFor(st.InfraCompose)
+		ir.Quiet = true
+		if out, err := ir.Ps(); err == nil && strings.TrimSpace(out) != "" {
+			fmt.Println("\nInfra containers")
+			for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+				fmt.Println("  " + line)
+			}
+		}
+	}
 	if st.AppCompose != "" {
 		ar := stk.AppRunnerFor(st.AppCompose)
 		ar.Quiet = true
@@ -78,7 +88,11 @@ func printSummary(stk *stack.Stack, st state.State) {
 		w.row("Customer console", web, loginHint(stk, config.DevEmail))
 	}
 	if web := operatorConsole(stk, st); web != "" {
-		w.row("Operator console", web, config.OperatorEmail+" / "+config.DevPassword)
+		note := ""
+		if stk.HasLocalOperatorAuth() {
+			note = config.OperatorEmail + " / " + config.DevPassword
+		}
+		w.row("Operator console", web, note)
 	}
 
 	w.section("Plat5")
@@ -91,10 +105,18 @@ func printSummary(stk *stack.Stack, st state.State) {
 	w.row("Control plane", c.ControlPlaneURL, "admin token "+c.AdminToken)
 	if stk.Has(config.ModuleOperator) {
 		w.row("Operator gateway", c.URL(ports.Operator), "config: "+relPath(c.Dir, c.OperatorConfig))
-		w.row("Operator IdP", c.URL(ports.OperatorAuth), "")
+		if stk.HasLocalOperatorAuth() {
+			w.row("Operator IdP", c.URL(ports.OperatorAuth), "")
+		} else {
+			w.row("Operator IdP", c.OperatorIdP.Issuer, "")
+		}
 	}
 	if stk.Has(config.ModuleObservability) {
-		w.row("Grafana", c.URL(ports.Grafana), "Plat5 folder: Service Health, Auth, Debug")
+		if stk.HasLocalLGTM() {
+			w.row("Grafana", c.URL(ports.Grafana), "Plat5 folder: Service Health, Auth, Debug")
+		} else {
+			w.row("Observability", c.OtelEndpoint, "via local Alloy")
+		}
 	}
 
 	if d := st.Dev; d != nil {

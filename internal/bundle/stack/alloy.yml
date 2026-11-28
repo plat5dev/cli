@@ -1,0 +1,33 @@
+# Embedded by plat5 CLI: Alloy-only observability mode (no local lgtm container).
+# Receives OTLP from Plat5 and your apps and forwards traces, metrics, and Docker
+# logs to a remote OTLP gateway (e.g. Grafana Cloud, Honeycomb, Axiom, Datadog).
+services:
+  alloy:
+    image: grafana/alloy:v1.10.0
+    labels:
+      service.name: alloy
+      service.namespace: observability
+    ports:
+      - "127.0.0.1:${OTLP_GRPC_PORT:?}:4317"
+      - "127.0.0.1:${OTLP_HTTP_PORT:?}:4318"
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy
+      - /etc/alloy/config.alloy
+    environment:
+      ALLOY_DEPLOY_MODE: docker
+      REMOTE_OTLP_ENDPOINT: ${REMOTE_OTLP_ENDPOINT:?}
+      REMOTE_OTLP_AUTH_HEADER: ${REMOTE_OTLP_AUTH_HEADER:-}
+      GRAFANA_CLOUD_INSTANCE_ID: ${GRAFANA_CLOUD_INSTANCE_ID:-}
+      GRAFANA_CLOUD_TOKEN: ${GRAFANA_CLOUD_TOKEN:-}
+    volumes:
+      - ./observability/config-otlp.alloy:/etc/alloy/config.alloy:ro
+      - alloy_data:/var/lib/alloy
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - plat5
+    restart: unless-stopped
+
+volumes:
+  alloy_data:

@@ -1,0 +1,41 @@
+# Embedded by plat5 CLI: local operator IdP (Plat5 Auth in dev mode), included with
+# operator.yml unless operator.idp configures an external operator IdP.
+services:
+  operator:
+    depends_on:
+      operator-auth:
+        condition: service_healthy
+
+  operator-auth:
+    image: ghcr.io/plat5dev/auth:${AUTH_VERSION:?}
+    labels:
+      service.name: operator-auth
+      service.namespace: operator
+    ports:
+      - "${OPERATOR_AUTH_PORT:?}:5000"
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      DATABASE_URL: postgres://plat5:plat5@postgres:5432/operator_auth?sslmode=disable
+      INTERNAL_PORT: 5001
+      # Token iss: the origin operators sign in at, which the operator gateway checks.
+      PUBLIC_ISSUER_URL: http://localhost:${OPERATOR_AUTH_PORT:?}
+      AUTH_DISPLAY_NAME: ${OPERATOR_AUTH_DISPLAY_NAME:?}
+      AUTH_ALLOWED_CLIENTS: operator-console
+      AUTH_ALLOWED_REDIRECT_URIS: ${OPERATOR_REDIRECT_URIS:-}
+      AUTH_ALLOWED_ORIGINS: ${OPERATOR_ORIGINS:-}
+      AUTH_TOKEN_EMAIL: "true"
+      AUTH_DEV_MODE: "true"
+      AUTH_DEV_USERS: ${OPERATOR_DEV_USERS:?}
+      OTEL_SERVICE_NAME: operator-auth
+      OTEL_RESOURCE_ATTRIBUTES: service.namespace=operator,deployment.environment=local
+    networks:
+      - plat5
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://localhost:5001/health/ready').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+    restart: unless-stopped

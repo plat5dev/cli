@@ -114,7 +114,16 @@ func TestOperatorEnvMatchesOperator(t *testing.T) {
 		t.Skipf("no operator compose beside the CLI: %v", err)
 	}
 	ours, _ := content.ReadFile("stack/operator.yml")
+	oursAuth, _ := content.ReadFile("stack/operator-auth.yml")
 	op, cli := composeEnv(t, theirs), composeEnv(t, ours)
+	for svc, env := range composeEnv(t, oursAuth) {
+		if cli[svc] == nil {
+			cli[svc] = map[string]bool{}
+		}
+		for k, v := range env {
+			cli[svc][k] = v
+		}
+	}
 	telemetry := map[string]bool{"OTEL_EXPORTER_OTLP_ENDPOINT": true, "OTEL_SERVICE_NAME": true, "OTEL_RESOURCE_ATTRIBUTES": true}
 	for svc, env := range cli {
 		known, ok := op[svc]

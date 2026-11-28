@@ -481,6 +481,63 @@ func claimedRoutes(kinds []Kind, docs [][]byte, paths []string) []string {
 	return claimed
 }
 
+// ClaimedRoutesFromServices inspects an in-memory map of service name -> service
+// body (excluding identity and audit) and returns "<METHOD> /public/path" entries
+// claimed by user services so Generate skips them automatically.
+func ClaimedRoutesFromServices(kinds []Kind, services map[string]any) []string {
+	chainPaths := kindChainPath(kinds)
+	var claimed []string
+	for svcName, rawSvc := range services {
+		if svcName == Identity || svcName == Audit {
+			continue
+		}
+		svcMap, ok := rawSvc.(map[string]any)
+		if !ok {
+			continue
+		}
+		scopes, ok := svcMap["scopes"].(map[string]any)
+		if !ok {
+			continue
+		}
+		for scopeName, rawScope := range scopes {
+			scopeMap, ok := rawScope.(map[string]any)
+			if !ok {
+				continue
+			}
+			routesList, ok := scopeMap["routes"].([]any)
+			if !ok {
+				continue
+			}
+			for _, rawRoute := range routesList {
+				rm, ok := rawRoute.(map[string]any)
+				if !ok {
+					continue
+				}
+				rpath, _ := rm["path"].(string)
+				if rpath == "" {
+					continue
+				}
+				pub := expandPublicPath(chainPaths, scopeName, rpath)
+				switch mv := rm["methods"].(type) {
+				case []any:
+					for _, v := range mv {
+						if verb, ok := v.(string); ok && verb != "" {
+							claimed = append(claimed, verb+" "+pub)
+						}
+					}
+				case map[string]any:
+					for verb := range mv {
+						if verb != "" {
+							claimed = append(claimed, verb+" "+pub)
+						}
+					}
+				}
+			}
+		}
+	}
+	return claimed
+}
+
 // Header is the comment at the top of each generated file.
 func Header(service string) string {
 	return fmt.Sprintf(`# %s's routes at the gateway, for every kind in plat5.yml. plat5 routes
